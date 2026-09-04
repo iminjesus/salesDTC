@@ -41,6 +41,7 @@
 | `sql/postgres/04_load_from_staging.sql` | staging → 팩트 변환 INSERT |
 | `sql/postgres/05_checks.sql` | 적재 검산 (0행이면 정상) |
 | `sql/mysql/01_pnl_fact.sql` ~ `05_checks.sql` | MySQL 판 한 벌 (Workbench 용) |
+| `sql/mysql/06_load_infile.sql` | `LOAD DATA` 컬럼 목록 명시판 — 파일 앞쪽 컬럼 무시·순서 불일치용 |
 | `sql/sqlserver/01_pnl_fact.sql` | SQL Server 판 팩트 테이블 |
 | `docs/column_map.csv` | 엑셀 헤더 ↔ 컬럼명 ↔ 타입 매핑표 258행 |
 | `docs/excel_header.txt` | 원본 헤더 한 줄 (생성 입력) |
@@ -64,6 +65,10 @@ LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/pnl.tsv' INTO TABLE pnl_stg
     FIELDS TERMINATED BY '\t' ESCAPED BY ''
     LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
 ```
+
+TSV 앞쪽에 테이블에 없는 컬럼(엑셀 인덱스 열 등)이 붙어 있거나 컬럼 순서가 다르면
+`sql/mysql/06_load_infile.sql` 을 쓴다. 컬럼 목록이 다 적혀 있어서, 버릴 컬럼만
+`@skip1, @skip2 ...` 로 바꾸면 그 값은 테이블에 들어가지 않는다.
 
 `LOAD DATA LOCAL INFILE` 가 막히면(`local_infile` 비활성) Workbench 좌측 스키마 트리에서
 `pnl_stg` 우클릭 → **Table Data Import Wizard** 로 넣어도 된다. 그 다음:

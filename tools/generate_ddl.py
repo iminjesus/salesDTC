@@ -13,6 +13,7 @@
     sql/mysql/02_v_pnl_excel.sql
     sql/mysql/03_staging.sql
     sql/mysql/04_load_from_staging.sql
+    sql/mysql/06_load_infile.sql          LOAD DATA 컬럼 목록 명시판 (앞 컬럼 무시용)
     docs/column_map.csv                   엑셀 헤더 ↔ 컬럼명 ↔ 타입 매핑표
 
 설정은 전부 '엑셀 헤더 문자열' 을 키로 쓴다. 시트에서 컬럼이 빠지거나 순서가 바뀌어도
@@ -449,6 +450,46 @@ def gen_mysql_load(cols):
 
 
 
+def gen_mysql_infile(cols):
+    """LOAD DATA LOCAL INFILE 용 명시적 컬럼 목록.
+
+    파일 앞쪽에 테이블에 없는 컬럼이 몇 개 붙어 있으면, 그 개수만큼 목록 맨 앞을
+    @skip1, @skip2 ... 로 바꾸면 된다. @변수로 받은 값은 그냥 버려진다.
+    """
+    L = ['-- 엑셀 TSV → pnl_stg 적재 (컬럼 목록 명시판).',
+         '--',
+         '-- 파일 맨 앞에 테이블에 없는 컬럼이 붙어 있으면(엑셀 인덱스 열, 예전 시트에만',
+         '-- 있던 Account/Site/Ver/Flag/Month/PP1 등) 아래 목록 맨 앞의 컬럼명을 그 수만큼',
+         '-- @skip1, @skip2 ... 로 바꾸면 된다. @변수로 받은 값은 테이블에 들어가지 않는다.',
+         '--   예) 앞 3개 무시:   (@skip1, @skip2, @skip3, cus_group, record_type, ...)',
+         '--',
+         '-- 파일의 컬럼 순서가 테이블과 다를 때도 이 목록의 순서만 파일에 맞추면 된다.',
+         '-- 헤더 줄은 IGNORE 1 LINES 로 건너뛴다. 엑셀에서 저장한 파일이면 보통',
+         "-- LINES TERMINATED BY '\\r\\n' 이고, 리눅스/맥에서 만든 파일이면 '\\n' 이다.",
+         '',
+         f'USE {MYSQL_DB};',
+         '',
+         'TRUNCATE TABLE pnl_stg;',
+         '',
+         "LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/pnl.tsv'",
+         '    INTO TABLE pnl_stg',
+         "    FIELDS TERMINATED BY '\\t' ESCAPED BY ''",
+         "    LINES TERMINATED BY '\\r\\n'",
+         '    IGNORE 1 LINES',
+         '(']
+    for i, c in enumerate(cols):
+        L.append(f"    {c['name']}{',' if i < len(cols) - 1 else ''}"
+                 f"{'' if i else '                     -- ← 앞부터 버리려면 이 줄들을 @skip1, @skip2 ... 로'}")
+    L += [');',
+          '',
+          'SELECT count(*) AS staged FROM pnl_stg;',
+          '',
+          '-- 이어서 04_load_from_staging.sql 실행 → 05_checks.sql 로 검산.',
+          '']
+    return '\n'.join(L)
+
+
+
 def main():
     cols = load_columns()
     write('sql/postgres/01_pnl_fact.sql', gen_postgres(cols))
@@ -460,6 +501,7 @@ def main():
     write('sql/mysql/02_v_pnl_excel.sql', gen_mysql_view(cols))
     write('sql/mysql/03_staging.sql', gen_mysql_staging(cols))
     write('sql/mysql/04_load_from_staging.sql', gen_mysql_load(cols))
+    write('sql/mysql/06_load_infile.sql', gen_mysql_infile(cols))
     with open(os.path.join(ROOT, 'docs', 'column_map.csv'), 'w', newline='',
               encoding='utf-8') as f:
         w = csv.writer(f)
