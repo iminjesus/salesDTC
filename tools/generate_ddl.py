@@ -13,7 +13,8 @@
     sql/mysql/02_v_pnl_excel.sql
     sql/mysql/03_staging.sql
     sql/mysql/04_load_from_staging.sql
-    sql/mysql/06_load_infile.sql          LOAD DATA 컬럼 목록 명시판 (앞 컬럼 무시용)
+    sql/mysql/06_load_direct.sql          staging 없이 파일 → pnl_fact 직접 적재
+    sql/mysql/07_load_infile_columns.sql  staging 적재용 컬럼 목록 명시판
     docs/column_map.csv                   엑셀 헤더 ↔ 컬럼명 ↔ 타입 매핑표
 
 설정은 전부 '엑셀 헤더 문자열' 을 키로 쓴다. 시트에서 컬럼이 빠지거나 순서가 바뀌어도
@@ -377,15 +378,29 @@ def gen_mysql_view(cols):
 
 def gen_mysql_staging(cols):
     w = max(len(c['name']) for c in cols) + 2
-    L = ['-- 엑셀에서 뽑은 TSV 를 있는 그대로 받는 임시 테이블: 전 컬럼 text.',
-         '-- "1,268.93" 같은 천단위 콤마, 빈칸, #N/A 를 일단 통과시킨 뒤 04 스크립트에서 변환한다.',
+    L = ['-- 변환 함수 + 원본 TSV/CSV 를 그대로 받는 임시 테이블(전 컬럼 text).',
+         '-- "1,268.93" 같은 천단위 콤마, 빈칸, #N/A 를 일단 통과시킨 뒤 04 에서 변환한다.',
+         '--',
+         '-- staging 없이 바로 넣고 싶으면 이 파일의 함수 부분만 실행하고',
+         '-- 06_load_direct.sql 을 쓰면 된다. 그 편이 단계가 하나 적다.',
          f'USE {MYSQL_DB};',
+         '',
+         FUNCS,
+         '',
+         '-- 아래 text 251개 테이블은 MySQL 8 의 InnoDB 행 크기 제한(8126 byte)에 걸려',
+         '-- 그냥 만들면 Error 1118 이 난다. 값이 실제로는 짧아서 DYNAMIC 행 포맷이',
+         '-- 알아서 밖으로 빼주므로, 생성할 때만 strict 검사를 끄면 된다.',
+         'SET SESSION innodb_strict_mode = OFF;',
          '',
          'DROP TABLE IF EXISTS pnl_stg;',
          'CREATE TABLE pnl_stg (']
     L += [f"    {c['name']:<{w}}text{',' if i < len(cols) - 1 else ''}"
           for i, c in enumerate(cols)]
-    L += [') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;', '', r"""
+    L += [') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;', '']
+    return '\n'.join(L)
+
+
+FUNCS = r"""
 -- 엑셀식 숫자 문자열 → decimal   ("1,268.93", "(1,234)", "", "-", "#N/A")
 DROP FUNCTION IF EXISTS to_num;
 DROP FUNCTION IF EXISTS to_txt;
@@ -421,8 +436,7 @@ BEGIN
 END$$
 
 DELIMITER ;
-""".strip(), '']
-    return '\n'.join(L)
+""".strip()
 
 
 def gen_mysql_load(cols):
@@ -490,6 +504,53 @@ def gen_mysql_infile(cols):
 
 
 
+def gen_mysql_direct(cols):
+    """staging 없이 CSV/TSV → pnl_fact 직접 적재.
+
+    각 필드를 @변수로 받아 SET 절에서 to_num()/to_txt() 로 변환해 넣는다.
+    staging 테이블(text 251개)이 MySQL 8 의 행 크기 제한에 걸리는 걸 피할 수 있고
+    단계도 하나 줄어든다. 03_staging.sql 의 함수 부분은 미리 실행돼 있어야 한다.
+    """
+    L = ['-- staging 없이 파일 → pnl_fact 직접 적재.',
+         '-- 03_staging.sql 의 to_num()/to_txt() 함수가 먼저 만들어져 있어야 한다',
+         '-- (그 파일에서 CREATE FUNCTION 두 개만 실행해도 된다).',
+         '--',
+         '-- 파일 형식에 맞춰 FIELDS/LINES 두 줄만 고치면 된다.',
+         "--   콤마 CSV  : FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '\"' ESCAPED BY ''",
+         "--   탭 TSV    : FIELDS TERMINATED BY '\\t' ESCAPED BY ''",
+         "--   윈도우 파일: LINES TERMINATED BY '\\r\\n'   / 그 외: '\\n'",
+         '--',
+         '-- 파일에 테이블로 안 옮길 컬럼이 섞여 있으면, 그 자리 @변수를 SET 절에서 빼기만',
+         '-- 하면 된다. @변수는 SET 에서 안 쓰면 그냥 버려진다.',
+         '--',
+         '-- LOCAL 을 쓰면 자연키 중복이 에러가 아니라 경고(1062)로 처리되고 그 행은',
+         '-- 조용히 건너뛴다. 두 번 돌려도 중복이 쌓이진 않지만, 몇 행이 들어갔는지는',
+         '-- 아래 SHOW WARNINGS 와 행 수로 직접 확인할 것.',
+         '',
+         f'USE {MYSQL_DB};',
+         '',
+         "LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/sales_2526.csv'",
+         '    INTO TABLE pnl_fact',
+         "    FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '\"' ESCAPED BY ''",
+         "    LINES TERMINATED BY '\\r\\n'",
+         '    IGNORE 1 LINES',
+         '(']
+    L += [f"    @{c['name']}{',' if i < len(cols) - 1 else ''}"
+          for i, c in enumerate(cols)]
+    L += [')', 'SET']
+    for i, c in enumerate(cols):
+        fn = 'to_num' if c['numeric'] else 'to_txt'
+        L.append(f"    {c['name']} = {fn}(@{c['name']}){',' if i < len(cols) - 1 else ';'}")
+    L += ['',
+          'SELECT count(*) AS loaded FROM pnl_fact;',
+          'SHOW WARNINGS;',
+          '',
+          '-- 이어서 05_checks.sql 로 검산 (아무 행도 안 나오면 정상).',
+          '']
+    return '\n'.join(L)
+
+
+
 def main():
     cols = load_columns()
     write('sql/postgres/01_pnl_fact.sql', gen_postgres(cols))
@@ -501,7 +562,8 @@ def main():
     write('sql/mysql/02_v_pnl_excel.sql', gen_mysql_view(cols))
     write('sql/mysql/03_staging.sql', gen_mysql_staging(cols))
     write('sql/mysql/04_load_from_staging.sql', gen_mysql_load(cols))
-    write('sql/mysql/06_load_infile.sql', gen_mysql_infile(cols))
+    write('sql/mysql/06_load_direct.sql', gen_mysql_direct(cols))
+    write('sql/mysql/07_load_infile_columns.sql', gen_mysql_infile(cols))
     with open(os.path.join(ROOT, 'docs', 'column_map.csv'), 'w', newline='',
               encoding='utf-8') as f:
         w = csv.writer(f)

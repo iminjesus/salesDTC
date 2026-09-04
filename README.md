@@ -41,7 +41,8 @@
 | `sql/postgres/04_load_from_staging.sql` | staging → 팩트 변환 INSERT |
 | `sql/postgres/05_checks.sql` | 적재 검산 (0행이면 정상) |
 | `sql/mysql/01_pnl_fact.sql` ~ `05_checks.sql` | MySQL 판 한 벌 (Workbench 용) |
-| `sql/mysql/06_load_infile.sql` | `LOAD DATA` 컬럼 목록 명시판 — 파일 앞쪽 컬럼 무시·순서 불일치용 |
+| `sql/mysql/06_load_direct.sql` | staging 없이 파일 → `pnl_fact` 직접 적재 (MySQL 권장 경로) |
+| `sql/mysql/07_load_infile_columns.sql` | staging 적재용 컬럼 목록 명시판 — 버릴 컬럼·순서 불일치용 |
 | `sql/sqlserver/01_pnl_fact.sql` | SQL Server 판 팩트 테이블 |
 | `docs/column_map.csv` | 엑셀 헤더 ↔ 컬럼명 ↔ 타입 매핑표 258행 |
 | `docs/excel_header.txt` | 원본 헤더 한 줄 (생성 입력) |
@@ -66,9 +67,21 @@ LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/pnl.tsv' INTO TABLE pnl_stg
     LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
 ```
 
-TSV 앞쪽에 테이블에 없는 컬럼(엑셀 인덱스 열 등)이 붙어 있거나 컬럼 순서가 다르면
-`sql/mysql/06_load_infile.sql` 을 쓴다. 컬럼 목록이 다 적혀 있어서, 버릴 컬럼만
-`@skip1, @skip2 ...` 로 바꾸면 그 값은 테이블에 들어가지 않는다.
+**staging 을 건너뛰는 쪽이 더 간단하다.** `03_staging.sql` 의 함수 두 개만 만들어 두고
+`sql/mysql/06_load_direct.sql` 을 쓰면 파일에서 `pnl_fact` 로 바로 들어간다.
+각 필드를 `@변수`로 받아 `SET` 절에서 `to_num()`/`to_txt()` 로 변환하는 방식이라,
+천단위 콤마와 `#N/A` 를 그대로 처리하면서 단계가 하나 줄어든다.
+
+파일에 컬럼이 더 있거나 순서가 다르면 그 자리 `@변수`를 `SET` 절에서 빼기만 하면 된다
+(staging 경로라면 `07_load_infile_columns.sql` 에서 컬럼명을 `@skip1, @skip2 ...` 로 바꾼다).
+
+`LOCAL` 을 쓰면 자연키 중복이 에러가 아니라 **경고 1062** 로 처리되고 그 행은 조용히
+건너뛴다. 두 번 돌려도 중복이 쌓이진 않지만, 적재 후 `SHOW WARNINGS` 와 행 수는 꼭 확인할 것.
+
+staging 테이블(text 251개)은 MySQL 8 의 InnoDB 행 크기 제한(8126 byte) 때문에 그냥
+만들면 `Error 1118` 이 난다. `03_staging.sql` 은 생성 직전에 `innodb_strict_mode` 를
+꺼서 이를 피한다 (값이 짧아 DYNAMIC 행 포맷이 알아서 밖으로 뺀다). MariaDB 는 이 제한에
+걸리지 않는다.
 
 `LOAD DATA LOCAL INFILE` 가 막히면(`local_infile` 비활성) Workbench 좌측 스키마 트리에서
 `pnl_stg` 우클릭 → **Table Data Import Wizard** 로 넣어도 된다. 그 다음:
@@ -116,10 +129,11 @@ python3 tools/generate_ddl.py
 
 ## 검증 상태
 
-PostgreSQL 16과 MySQL(MariaDB 10.11) 양쪽에서 01–05를 실행해 254컬럼
+PostgreSQL 16, MySQL 8.0.46, MariaDB 10.11 에서 각각 실행해 254컬럼
 (251 + `pnl_id` + `source_file` + `loaded_at`) 생성, 샘플 2행(REF/MWO)을 TSV로
 staging 적재·변환, 자연키 중복 적재 차단, `v_pnl_excel`로 원본 헤더 복원,
-`05_checks.sql`의 5개 검산식 통과까지 확인했다.
+`05_checks.sql`의 5개 검산식 통과까지 확인했다. MySQL 8 에서는 엑셀이 저장한
+콤마 CSV(따옴표로 감싼 `"1,268.93"` 포함)로 staging 경로와 직접 적재 경로를 모두 확인했다.
 SQL Server 판은 문법만 맞춰 생성했고 실행 검증은 하지 않았다.
 
 ## 남은 판단거리
