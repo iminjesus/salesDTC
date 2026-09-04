@@ -11,35 +11,38 @@
     sql/sqlserver/01_pnl_fact.sql         SQL Server 판 팩트 테이블
     docs/column_map.csv                   엑셀 헤더 ↔ 컬럼명 ↔ 타입 매핑표
 
-헤더가 바뀌면 excel_header.txt 만 갈아끼우고 다시 돌리면 된다.
+설정은 전부 '엑셀 헤더 문자열' 을 키로 쓴다. 시트에서 컬럼이 빠지거나 순서가 바뀌어도
+excel_header.txt 만 갈아끼우고 다시 돌리면 된다. 헤더에 없는 설정 항목은 그냥 무시된다.
 """
 import csv
-import json
 import os
 import re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HEADER = os.path.join(ROOT, 'docs', 'excel_header.txt')
 
-# ── 컬럼명 규칙 ────────────────────────────────────────────────────
-# 위치(1-based)로 직접 지정하는 이름. 엑셀 헤더가 중복(Currency/Division)이거나
-# 약어라서 자동 변환만으로는 구분이 안 되는 앞쪽 27개 컬럼에 쓴다.
-POS = {
-    1:  'cus_group',      2:  'account',        3:  'site',
-    4:  'record_type',    5:  'report_currency',6:  'division2',
-    7:  'division',       8:  'fiscal_year',    9:  'version',
-    10: 'sold_to',        11: 'forex_rate',     12: 'sales_usd',
-    13: 'op_profit_usd',  14: 'flag',           15: 'month_nm',
-    16: 'pp1',            17: 'customer',       18: 'material_group',
-    19: 'nielsen_id',     20: 'profit_center',  21: 'sap_division',
-    22: 'distribution_channel',                 23: 'period',
-    24: 'doc_currency',   25: 'qty_gross',      26: 'qty_return',
-    27: 'qty_net',
-}
-
-# 원본 표기가 오타이거나 자동 변환 결과가 헷갈리는 항목만 손으로 지정.
-# 원본 문자열은 COMMENT / 매핑표에 그대로 남는다.
+# ── 컬럼명: 자동 변환만으로 뜻이 안 사는 헤더만 손으로 지정 ──────────
+# (원본 문자열은 COMMENT 와 docs/column_map.csv 에 그대로 남는다)
 NAME = {
+    # 헤더/차원 블록
+    'Cus_group':            'cus_group',
+    'Type':                 'record_type',
+    'Division 2':           'division2',            # 사업본부 (DA/AV/MX)
+    'Prod_group':           'prod_group',           # 제품군 (REF/MWO/CTV)
+    'Year':                 'fiscal_year',
+    'Ver':                  'version',
+    'sold To':              'sold_to',
+    'Forex':                'forex_rate',
+    'Sales U$':             'sales_usd',
+    'Op Profit U$':         'op_profit_usd',
+    'Month':                'month_nm',
+    'Division':             'sap_division',         # SAP 사업부 (E2/E5) — division2 와 다름
+    'Distribution Channel': 'distribution_channel',
+    'Currency':             'doc_currency',         # 전표 통화 (AUD)
+    'Quantity(Gross)':      'qty_gross',
+    'Quantity(Return)':     'qty_return',
+    'Quantity(Net)':        'qty_net',
+    # 손익 계정 중 원본 오타이거나 자동 변환이 헷갈리는 것
     '*Delear Discount':          'tot_dealer_discount',      # 원본 오타(Dealer)
     'SC.Othres(RD)':             'sc_others_rd',             # 원본 오타(Others)
     'RD Labor':                  'rd_labor',
@@ -51,39 +54,39 @@ NAME = {
     '*Logistic Cost(C Type)':    'tot_logistic_cost_c_type',
 }
 
-# 엑셀 원본의 블록 경계 — DDL 에 섹션 주석으로 들어간다.
-SECTIONS = {
-    1:   '헤더/집계 키 (엑셀 좌측 블록)',
-    17:  'SAP 원장 차원 (Dimension)',
-    25:  '수량 (Quantity)',
-    28:  '매출 (Sales)',
-    53:  '매출원가 (Cost of Goods Sold)',
-    136: '매출총이익 / 판관비 (Gross Margin & Operating Expense)',
-    196: '연구개발비 (R&D Expense)',
-    208: '일반관리비 (G&A Expense)',
-    228: '영업이익 이하 (Operating Profit & below)',
-}
-
-# 엑셀 헤더가 중복이라 뷰에서 그대로 못 쓰는 것들 (SQL 은 동일 별칭 2개를 허용 안 함)
-VIEW_ALIAS = {5: 'Currency (Report)', 7: 'Division (P&L)'}
-
-# 앞쪽 27개 중 숫자형 컬럼
-NUMERIC_HEAD = {8, 11, 12, 13, 25, 26, 27}
-
+# ── 타입: 여기 없는 컬럼은 전부 손익 금액(MEASURE) ────────────────
 TYPES = {
-    1: 'varchar(20)',  2: 'varchar(20)',  3: 'varchar(20)',  4: 'varchar(10)',
-    5: 'varchar(10)',  6: 'varchar(20)',  7: 'varchar(20)',  8: 'smallint',
-    9: 'varchar(20)',  10: 'varchar(20)', 11: 'numeric(18,9)', 12: 'numeric(18,2)',
-    13: 'numeric(18,2)', 14: 'varchar(10)', 15: 'varchar(10)', 16: 'varchar(20)',
-    17: 'varchar(20)', 18: 'varchar(20)', 19: 'varchar(20)', 20: 'varchar(20)',
-    21: 'varchar(10)', 22: 'varchar(10)', 23: 'varchar(10)', 24: 'varchar(10)',
-    25: 'numeric(18,3)', 26: 'numeric(18,3)', 27: 'numeric(18,3)',
+    'Cus_group': 'varchar(20)',  'Account': 'varchar(20)',   'Site': 'varchar(20)',
+    'Type': 'varchar(10)',       'Division 2': 'varchar(20)','Prod_group': 'varchar(20)',
+    'Division': 'varchar(10)',   'Year': 'smallint',         'Ver': 'varchar(20)',
+    'sold To': 'varchar(20)',    'Forex': 'numeric(18,9)',   'Sales U$': 'numeric(18,2)',
+    'Op Profit U$': 'numeric(18,2)', 'Flag': 'varchar(10)',  'Month': 'varchar(10)',
+    'PP1': 'varchar(20)',        'Customer': 'varchar(20)',  'Material Group': 'varchar(20)',
+    'Nielsen ID': 'varchar(20)', 'Profit Center': 'varchar(20)',
+    'Distribution Channel': 'varchar(10)', 'Period': 'varchar(10)',
+    'Currency': 'varchar(10)',
+    'Quantity(Gross)': 'numeric(18,3)', 'Quantity(Return)': 'numeric(18,3)',
+    'Quantity(Net)': 'numeric(18,3)',
 }
-MEASURE = 'numeric(18,2)'          # 28번 이후 손익 계정 전부
-NOT_NULL = {8, 9, 23}              # Year / Ver / Period
+MEASURE = 'numeric(18,2)'
+NOT_NULL = ('Year', 'Ver', 'Period')
 
-NATURAL_KEY = ('fiscal_year, version, period, sold_to, material_group,\n'
-               '    profit_center, sap_division, distribution_channel, doc_currency')
+# ── DDL 안에 넣을 섹션 주석 (해당 헤더가 없으면 그 섹션은 생략된다) ──
+SECTIONS = {
+    'Cus_group':           '헤더/집계 키 (엑셀 좌측 블록)',
+    'Customer':            'SAP 원장 차원 (Dimension)',
+    'Quantity(Gross)':     '수량 (Quantity)',
+    '*S.RRP':              '매출 (Sales)',
+    '*Cost of Goods Sold': '매출원가 (Cost of Goods Sold)',
+    '*Gross Margin':       '매출총이익 / 판관비 (Gross Margin & Operating Expense)',
+    '*R&D Expense':        '연구개발비 (R&D Expense)',
+    '*G&A Expense':        '일반관리비 (G&A Expense)',
+    '*Operating Profit':   '영업이익 이하 (Operating Profit & below)',
+}
+
+# ── 자연키 후보. 헤더에 실제로 있는 것만 인덱스에 들어간다 ──────────
+NATURAL_KEY = ['Year', 'Ver', 'Period', 'sold To', 'Material Group',
+               'Profit Center', 'Division', 'Distribution Channel', 'Currency']
 
 
 def normalize(src):
@@ -102,21 +105,46 @@ def normalize(src):
 def load_columns():
     with open(HEADER, encoding='utf-8') as f:
         headers = [h.strip() for h in f.read().rstrip('\n').split('\t')]
-    cols, used = [], set()
+    cols, used, seen_src = [], set(), {}
     for pos, src in enumerate(headers, 1):
-        name = POS.get(pos) or NAME.get(src) or normalize(src)
+        name = NAME.get(src) or normalize(src)
         if name in used:
-            raise SystemExit(f'컬럼명 충돌: {name} (pos {pos}, {src!r}) — POS/NAME 에 지정할 것')
+            raise SystemExit(
+                f'컬럼명 충돌: {name!r} (pos {pos}, 헤더 {src!r}). NAME 에 구분해서 지정할 것.')
         used.add(name)
+        typ = TYPES.get(src, MEASURE)
+        # 같은 헤더가 두 번 나오면 뷰에서 별칭이 겹치므로 뒤엣것에 번호를 붙인다
+        seen_src[src] = seen_src.get(src, 0) + 1
+        alias = src if seen_src[src] == 1 else f'{src} ({seen_src[src]})'
         cols.append({
             'pos': pos,
             'src': src,
             'name': name,
+            'alias': alias,
             'total': src.startswith('*'),
-            'type': TYPES.get(pos, MEASURE),
-            'numeric': pos > 27 or pos in NUMERIC_HEAD,
+            'type': typ,
+            'numeric': typ.startswith(('numeric', 'smallint')),
+            'not_null': src in NOT_NULL,
         })
     return cols
+
+
+def natural_key(cols):
+    by_src = {c['src']: c['name'] for c in cols}
+    return [by_src[h] for h in NATURAL_KEY if h in by_src]
+
+
+def key_block(cols, indent='    '):
+    keys = natural_key(cols)
+    lines, cur = [], indent
+    for i, k in enumerate(keys):
+        piece = k + (',' if i < len(keys) - 1 else '')
+        if len(cur) + len(piece) > 76:
+            lines.append(cur.rstrip())
+            cur = indent
+        cur += piece + ' '
+    lines.append(cur.rstrip())
+    return '\n'.join(lines)
 
 
 def write(rel, text):
@@ -130,17 +158,17 @@ def write(rel, text):
 def column_lines(cols, width, sqlserver=False):
     out = []
     for c in cols:
-        if c['pos'] in SECTIONS:
-            out += ['', f"    -- ══ {SECTIONS[c['pos']]} " + '═' * 8]
+        if c['src'] in SECTIONS:
+            out += ['', f"    -- ══ {SECTIONS[c['src']]} " + '═' * 8]
         typ = c['type'].replace('numeric', 'decimal') if sqlserver else c['type']
-        typ += ' NOT NULL' if c['pos'] in NOT_NULL else ''
+        typ += ' NOT NULL' if c['not_null'] else ''
         out.append(f"    {c['name']:<{width}}{(typ + ','):<24}-- {c['src']}")
     return out
 
 
 def gen_postgres(cols):
     w = max(len(c['name']) for c in cols) + 2
-    L = ['-- 고객 x 제품군 단위 손익(P&L) 플랫 테이블 — 엑셀 원본 258 컬럼 그대로.',
+    L = [f'-- 고객 x 제품군 단위 손익(P&L) 플랫 테이블 — 엑셀 원본 {len(cols)} 컬럼 그대로.',
          '-- tot_* 는 원본에서 * 가 붙은 소계 라인이다 (하위 계정의 합계이므로 중복 집계 주의).',
          '',
          'CREATE SCHEMA IF NOT EXISTS sales;',
@@ -156,11 +184,11 @@ def gen_postgres(cols):
           f"    {'loaded_at':<{w}}timestamptz NOT NULL DEFAULT now()",
           ');',
           '',
-          '-- 자연키: 같은 연도/버전/기간의 같은 고객 x 제품군 x 손익센터 조합은 1행.',
+          '-- 자연키: 같은 기간의 같은 고객 x 제품군 x 손익센터 조합은 1행.',
           '-- 재적재 시 중복을 막아준다. 키 컬럼에 NULL 이 섞이는 소스라면 이 인덱스는 빼고',
           '-- 적재 전 DELETE 로 해당 기간을 지우는 방식을 쓸 것.',
           'CREATE UNIQUE INDEX ux_pnl_fact_natural ON sales.pnl_fact (',
-          f'    {NATURAL_KEY}',
+          key_block(cols),
           ');',
           '',
           'CREATE INDEX ix_pnl_fact_period   ON sales.pnl_fact (fiscal_year, period);',
@@ -200,7 +228,7 @@ def gen_sqlserver(cols):
           'GO',
           '',
           'CREATE UNIQUE INDEX ux_pnl_fact_natural ON sales.pnl_fact (',
-          f'    {NATURAL_KEY}',
+          key_block(cols),
           ');',
           'CREATE INDEX ix_pnl_fact_period   ON sales.pnl_fact (fiscal_year, period);',
           'CREATE INDEX ix_pnl_fact_customer ON sales.pnl_fact (sold_to, fiscal_year, period);',
@@ -212,14 +240,11 @@ def gen_sqlserver(cols):
 
 def gen_view(cols):
     L = ['-- 엑셀 원본 헤더 그대로 내보내기용 뷰.',
-         '--   \\copy (SELECT * FROM sales.v_pnl_excel) TO \'pnl.csv\' WITH (FORMAT csv, HEADER true)',
-         '-- 원본은 Currency / Division 헤더가 두 번씩 나오는데 SQL 은 같은 별칭을 두 번 못 쓰므로',
-         '-- 앞쪽(집계 헤더) 것에만 구분자를 붙였다.',
+         "--   \\copy (SELECT * FROM sales.v_pnl_excel) TO 'pnl.csv' WITH (FORMAT csv, HEADER true)",
          'CREATE OR REPLACE VIEW sales.v_pnl_excel AS',
          'SELECT']
     for i, c in enumerate(cols):
-        alias = VIEW_ALIAS.get(c['pos'], c['src'])
-        L.append(f"    {c['name']:<30} AS \"{alias}\"{',' if i < len(cols) - 1 else ''}")
+        L.append(f"    {c['name']:<30} AS \"{c['alias']}\"{',' if i < len(cols) - 1 else ''}")
     L += ['FROM sales.pnl_fact;', '']
     return '\n'.join(L)
 
@@ -275,17 +300,10 @@ def gen_load(cols):
     L += [') SELECT']
     for i, c in enumerate(cols):
         fn = 'sales.to_num' if c['numeric'] else 'sales.to_txt'
-        cast = '::smallint' if c['pos'] == 8 else ''
+        cast = '::smallint' if c['type'] == 'smallint' else ''
         L.append(f"    {fn}({c['name']}){cast}{',' if i < len(cols) - 1 else ''}")
     L += ['FROM sales.pnl_stg;', '']
     return '\n'.join(L)
-
-
-def gen_map(cols):
-    rows = [['pos', 'excel_header', 'column_name', 'postgres_type', 'is_subtotal']]
-    rows += [[c['pos'], c['src'], c['name'], c['type'], 'Y' if c['total'] else '']
-             for c in cols]
-    return rows
 
 
 def main():
@@ -297,9 +315,13 @@ def main():
     write('sql/sqlserver/01_pnl_fact.sql', gen_sqlserver(cols))
     with open(os.path.join(ROOT, 'docs', 'column_map.csv'), 'w', newline='',
               encoding='utf-8') as f:
-        csv.writer(f).writerows(gen_map(cols))
+        w = csv.writer(f)
+        w.writerow(['pos', 'excel_header', 'column_name', 'postgres_type', 'is_subtotal'])
+        w.writerows([[c['pos'], c['src'], c['name'], c['type'], 'Y' if c['total'] else '']
+                     for c in cols])
     print('wrote docs/column_map.csv')
     print(f'{len(cols)} columns, {sum(c["total"] for c in cols)} subtotal(*) lines')
+    print('natural key:', ', '.join(natural_key(cols)))
 
 
 if __name__ == '__main__':

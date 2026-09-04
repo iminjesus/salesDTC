@@ -1,25 +1,16 @@
 -- 엑셀 원본 헤더 그대로 내보내기용 뷰.
 --   \copy (SELECT * FROM sales.v_pnl_excel) TO 'pnl.csv' WITH (FORMAT csv, HEADER true)
--- 원본은 Currency / Division 헤더가 두 번씩 나오는데 SQL 은 같은 별칭을 두 번 못 쓰므로
--- 앞쪽(집계 헤더) 것에만 구분자를 붙였다.
 CREATE OR REPLACE VIEW sales.v_pnl_excel AS
 SELECT
     cus_group                      AS "Cus_group",
-    account                        AS "Account",
-    site                           AS "Site",
     record_type                    AS "Type",
-    report_currency                AS "Currency (Report)",
     division2                      AS "Division 2",
-    division                       AS "Division (P&L)",
+    prod_group                     AS "Prod_group",
     fiscal_year                    AS "Year",
-    version                        AS "Ver",
     sold_to                        AS "sold To",
     forex_rate                     AS "Forex",
     sales_usd                      AS "Sales U$",
     op_profit_usd                  AS "Op Profit U$",
-    flag                           AS "Flag",
-    month_nm                       AS "Month",
-    pp1                            AS "PP1",
     customer                       AS "Customer",
     material_group                 AS "Material Group",
     nielsen_id                     AS "Nielsen ID",

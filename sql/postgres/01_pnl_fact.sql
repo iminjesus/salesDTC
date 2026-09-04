@@ -1,4 +1,4 @@
--- 고객 x 제품군 단위 손익(P&L) 플랫 테이블 — 엑셀 원본 258 컬럼 그대로.
+-- 고객 x 제품군 단위 손익(P&L) 플랫 테이블 — 엑셀 원본 251 컬럼 그대로.
 -- tot_* 는 원본에서 * 가 붙은 소계 라인이다 (하위 계정의 합계이므로 중복 집계 주의).
 
 CREATE SCHEMA IF NOT EXISTS sales;
@@ -10,21 +10,14 @@ CREATE TABLE sales.pnl_fact (
 
     -- ══ 헤더/집계 키 (엑셀 좌측 블록) ════════
     cus_group                         varchar(20),            -- Cus_group
-    account                           varchar(20),            -- Account
-    site                              varchar(20),            -- Site
     record_type                       varchar(10),            -- Type
-    report_currency                   varchar(10),            -- Currency
     division2                         varchar(20),            -- Division 2
-    division                          varchar(20),            -- Division
+    prod_group                        varchar(20),            -- Prod_group
     fiscal_year                       smallint NOT NULL,      -- Year
-    version                           varchar(20) NOT NULL,   -- Ver
     sold_to                           varchar(20),            -- sold To
     forex_rate                        numeric(18,9),          -- Forex
     sales_usd                         numeric(18,2),          -- Sales U$
     op_profit_usd                     numeric(18,2),          -- Op Profit U$
-    flag                              varchar(10),            -- Flag
-    month_nm                          varchar(10),            -- Month
-    pp1                               varchar(20),            -- PP1
 
     -- ══ SAP 원장 차원 (Dimension) ════════
     customer                          varchar(20),            -- Customer
@@ -289,12 +282,12 @@ CREATE TABLE sales.pnl_fact (
     loaded_at                         timestamptz NOT NULL DEFAULT now()
 );
 
--- 자연키: 같은 연도/버전/기간의 같은 고객 x 제품군 x 손익센터 조합은 1행.
+-- 자연키: 같은 기간의 같은 고객 x 제품군 x 손익센터 조합은 1행.
 -- 재적재 시 중복을 막아준다. 키 컬럼에 NULL 이 섞이는 소스라면 이 인덱스는 빼고
 -- 적재 전 DELETE 로 해당 기간을 지우는 방식을 쓸 것.
 CREATE UNIQUE INDEX ux_pnl_fact_natural ON sales.pnl_fact (
-    fiscal_year, version, period, sold_to, material_group,
-    profit_center, sap_division, distribution_channel, doc_currency
+    fiscal_year, period, sold_to, material_group, profit_center,
+    sap_division, distribution_channel, doc_currency
 );
 
 CREATE INDEX ix_pnl_fact_period   ON sales.pnl_fact (fiscal_year, period);
@@ -304,21 +297,14 @@ CREATE INDEX ix_pnl_fact_matgrp   ON sales.pnl_fact (material_group, fiscal_year
 COMMENT ON TABLE sales.pnl_fact IS '고객/제품군 단위 손익(P&L) 플랫 테이블. tot_* 컬럼은 엑셀 원본의 * 소계 라인.';
 
 COMMENT ON COLUMN sales.pnl_fact.cus_group IS 'Cus_group';
-COMMENT ON COLUMN sales.pnl_fact.account IS 'Account';
-COMMENT ON COLUMN sales.pnl_fact.site IS 'Site';
 COMMENT ON COLUMN sales.pnl_fact.record_type IS 'Type';
-COMMENT ON COLUMN sales.pnl_fact.report_currency IS 'Currency';
 COMMENT ON COLUMN sales.pnl_fact.division2 IS 'Division 2';
-COMMENT ON COLUMN sales.pnl_fact.division IS 'Division';
+COMMENT ON COLUMN sales.pnl_fact.prod_group IS 'Prod_group';
 COMMENT ON COLUMN sales.pnl_fact.fiscal_year IS 'Year';
-COMMENT ON COLUMN sales.pnl_fact.version IS 'Ver';
 COMMENT ON COLUMN sales.pnl_fact.sold_to IS 'sold To';
 COMMENT ON COLUMN sales.pnl_fact.forex_rate IS 'Forex';
 COMMENT ON COLUMN sales.pnl_fact.sales_usd IS 'Sales U$';
 COMMENT ON COLUMN sales.pnl_fact.op_profit_usd IS 'Op Profit U$';
-COMMENT ON COLUMN sales.pnl_fact.flag IS 'Flag';
-COMMENT ON COLUMN sales.pnl_fact.month_nm IS 'Month';
-COMMENT ON COLUMN sales.pnl_fact.pp1 IS 'PP1';
 COMMENT ON COLUMN sales.pnl_fact.customer IS 'Customer';
 COMMENT ON COLUMN sales.pnl_fact.material_group IS 'Material Group';
 COMMENT ON COLUMN sales.pnl_fact.nielsen_id IS 'Nielsen ID';

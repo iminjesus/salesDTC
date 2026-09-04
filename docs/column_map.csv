@@ -1,259 +1,252 @@
 pos,excel_header,column_name,postgres_type,is_subtotal
 1,Cus_group,cus_group,varchar(20),
-2,Account,account,varchar(20),
-3,Site,site,varchar(20),
-4,Type,record_type,varchar(10),
-5,Currency,report_currency,varchar(10),
-6,Division 2,division2,varchar(20),
-7,Division,division,varchar(20),
-8,Year,fiscal_year,smallint,
-9,Ver,version,varchar(20),
-10,sold To,sold_to,varchar(20),
-11,Forex,forex_rate,"numeric(18,9)",
-12,Sales U$,sales_usd,"numeric(18,2)",
-13,Op Profit U$,op_profit_usd,"numeric(18,2)",
-14,Flag,flag,varchar(10),
-15,Month,month_nm,varchar(10),
-16,PP1,pp1,varchar(20),
-17,Customer,customer,varchar(20),
-18,Material Group,material_group,varchar(20),
-19,Nielsen ID,nielsen_id,varchar(20),
-20,Profit Center,profit_center,varchar(20),
-21,Division,sap_division,varchar(10),
-22,Distribution Channel,distribution_channel,varchar(10),
-23,Period,period,varchar(10),
-24,Currency,doc_currency,varchar(10),
-25,Quantity(Gross),qty_gross,"numeric(18,3)",
-26,Quantity(Return),qty_return,"numeric(18,3)",
-27,Quantity(Net),qty_net,"numeric(18,3)",
-28,*S.RRP,tot_s_rrp,"numeric(18,2)",Y
-29,Reference Price,reference_price,"numeric(18,2)",
-30,*Delear Discount,tot_dealer_discount,"numeric(18,2)",Y
-31,S.Base Margin,s_base_margin,"numeric(18,2)",
-32,S.Contract Margin,s_contract_margin,"numeric(18,2)",
-33,S.Additional Margin,s_additional_margin,"numeric(18,2)",
-34,S.Special Margin,s_special_margin,"numeric(18,2)",
-35,*S.Gross Sales,tot_s_gross_sales,"numeric(18,2)",Y
-36,S.Gross Sales AMT,s_gross_sales_amt,"numeric(18,2)",
-37,S.Other Sales,s_other_sales,"numeric(18,2)",
-38,S.Oth Sales Tax Inc,s_oth_sales_tax_inc,"numeric(18,2)",
-39,S.Internal Sales Amt,s_internal_sales_amt,"numeric(18,2)",
-40,*S.Return Amt,tot_s_return_amt,"numeric(18,2)",Y
-41,S.Return Amt,s_return_amt,"numeric(18,2)",
-42,*Ref. Sales,tot_ref_sales,"numeric(18,2)",Y
-43,S.IFC,s_ifc,"numeric(18,2)",
-44,S.FOB Sales Amt,s_fob_sales_amt,"numeric(18,2)",
-45,*Sales Deduction,tot_sales_deduction,"numeric(18,2)",Y
-46,S.Sales Allowance,s_sales_allowance,"numeric(18,2)",
-47,S.Rebate,s_rebate,"numeric(18,2)",
-48,S.Cash Discount,s_cash_discount,"numeric(18,2)",
-49,S.Price Protection,s_price_protection,"numeric(18,2)",
-50,S.CO-OP,s_co_op,"numeric(18,2)",
-51,S.Sale Deduction TAX,s_sale_deduction_tax,"numeric(18,2)",
-52,*Net Sales,tot_net_sales,"numeric(18,2)",Y
-53,*Cost of Goods Sold,tot_cogs,"numeric(18,2)",Y
-54,*Material Cost,tot_material_cost,"numeric(18,2)",Y
-55,SC.Material Cost,sc_material_cost,"numeric(18,2)",
-56,SC.Matl Cost-Loss,sc_matl_cost_loss,"numeric(18,2)",
-57,SC.Cctr Matl Cost,sc_cctr_matl_cost,"numeric(18,2)",
-58,SC.Cctr Matl-Loss,sc_cctr_matl_loss,"numeric(18,2)",
-59,SC.OS Material Cost,sc_os_material_cost,"numeric(18,2)",
-60,SC.Other Matl Cost,sc_other_matl_cost,"numeric(18,2)",
-61,*Labor Cost,tot_labor_cost,"numeric(18,2)",Y
-62,SC.Labor Cost,sc_labor_cost,"numeric(18,2)",
-63,SC.Labor-Salaries,sc_labor_salaries,"numeric(18,2)",
-64,SC.Labor-Overtime,sc_labor_overtime,"numeric(18,2)",
-65,SC.Labor Cost(PS),sc_labor_cost_ps,"numeric(18,2)",
-66,SC.Labor Cost(RD),sc_labor_cost_rd,"numeric(18,2)",
-67,*Depreciation Exp,tot_depreciation_exp,"numeric(18,2)",Y
-68,SC.Depre Exp,sc_depre_exp,"numeric(18,2)",
-69,SC.Depre Exp on Bldg,sc_depre_exp_on_bldg,"numeric(18,2)",
-70,SC.Depre Exp on M&E,sc_depre_exp_on_m_and_e,"numeric(18,2)",
-71,*Mold Exp,tot_mold_exp,"numeric(18,2)",Y
-72,SC.Depre Exp on Mold,sc_depre_exp_on_mold,"numeric(18,2)",
-73,SC.Molds Cost,sc_molds_cost,"numeric(18,2)",
-74,SC.CNC Molds Cost,sc_cnc_molds_cost,"numeric(18,2)",
-75,*Manufac.supp.Cost,tot_manufac_supp_cost,"numeric(18,2)",Y
-76,SC.Mfg Supply Cost,sc_mfg_supply_cost,"numeric(18,2)",
-77,SC.Mfg Repair&Maint,sc_mfg_repair_and_maint,"numeric(18,2)",
-78,SC.Manufac.JIG.Cost,sc_manufac_jig_cost,"numeric(18,2)",
-79,SC.Equip Repair Cost,sc_equip_repair_cost,"numeric(18,2)",
-80,SC.Supplies Exp,sc_supplies_exp,"numeric(18,2)",
-81,*Expense,tot_expense,"numeric(18,2)",Y
-82,SC.Amort on Dev Cost,sc_amort_on_dev_cost,"numeric(18,2)",
-83,SC.Subcont. Cost,sc_subcont_cost,"numeric(18,2)",
-84,SC.Part Time SVC Exp,sc_part_time_svc_exp,"numeric(18,2)",
-85,SC.Royalty-3rd Party,sc_royalty_3rd_party,"numeric(18,2)",
-86,SC.Royalty-HQ,sc_royalty_hq,"numeric(18,2)",
-87,SC.Utility,sc_utility,"numeric(18,2)",
-88,SC.Logistic Cost,sc_logistic_cost,"numeric(18,2)",
-89,SC.Commission,sc_commission,"numeric(18,2)",
-90,SC.IT Cost,sc_it_cost,"numeric(18,2)",
-91,SC.Installation,sc_installation,"numeric(18,2)",
-92,SC.Tax&Dues,sc_tax_and_dues,"numeric(18,2)",
-93,SC.Telecom Exp,sc_telecom_exp,"numeric(18,2)",
-94,SC.Travel Exp,sc_travel_exp,"numeric(18,2)",
-95,SC.Rent&Lease Exp,sc_rent_and_lease_exp,"numeric(18,2)",
-96,SC.Sample Exp,sc_sample_exp,"numeric(18,2)",
-97,SC.Packing Exp,sc_packing_exp,"numeric(18,2)",
-98,SC.Insurance Premium,sc_insurance_premium,"numeric(18,2)",
-99,SC.Convention Exp,sc_convention_exp,"numeric(18,2)",
-100,SC.SVC Exp,sc_svc_exp,"numeric(18,2)",
-101,SC.Other Exps,sc_other_exps,"numeric(18,2)",
-102,SC.Consumable(RD),sc_consumable_rd,"numeric(18,2)",
-103,SC.Ordinary Exp-Matl,sc_ordinary_exp_matl,"numeric(18,2)",
-104,SC.Outsourcing SVC,sc_outsourcing_svc,"numeric(18,2)",
-105,SC.Othres(RD),sc_others_rd,"numeric(18,2)",
-106,*Other CGS,tot_other_cgs,"numeric(18,2)",Y
-107,SC.Other,sc_other,"numeric(18,2)",
-108,SC.SVC Warranty,sc_svc_warranty,"numeric(18,2)",
-109,SC.SVC Agent Fee,sc_svc_agent_fee,"numeric(18,2)",
-110,*Return CGS,tot_return_cgs,"numeric(18,2)",Y
-111,SC.Return CGS,sc_return_cgs,"numeric(18,2)",
-112,*Other Expense,tot_other_expense,"numeric(18,2)",Y
-113,*Other Exp.,tot_other_exp_detail,"numeric(18,2)",Y
-114,SC.LCM,sc_lcm,"numeric(18,2)",
-115,SC.E&O,sc_e_and_o,"numeric(18,2)",
-116,SC.Ramp-up Cost,sc_ramp_up_cost,"numeric(18,2)",
-117,SC.INV Loss(Q),sc_inv_loss_q,"numeric(18,2)",
-118,SC.INV Loss(P),sc_inv_loss_p,"numeric(18,2)",
-119,SC.Subcontractor-Adj,sc_subcontractor_adj,"numeric(18,2)",
-120,SC.Customs Refund,sc_customs_refund,"numeric(18,2)",
-121,SC.Matl Price Settle,sc_matl_price_settle,"numeric(18,2)",
-122,SC.VAT (China),sc_vat_china,"numeric(18,2)",
-123,SC.CGS Others,sc_cgs_others,"numeric(18,2)",
-124,*Logistic Cost(C Type),tot_logistic_cost_c_type,"numeric(18,2)",Y
-125,SC.Transport-Inland,sc_transport_inland,"numeric(18,2)",
-126,SC.Transport-Marine,sc_transport_marine,"numeric(18,2)",
-127,SC.Transport-Air,sc_transport_air,"numeric(18,2)",
-128,SC.Transport-Other,sc_transport_other,"numeric(18,2)",
-129,SC.Insurance (Logis),sc_insurance_logis,"numeric(18,2)",
-130,*Internal CGS,tot_internal_cgs,"numeric(18,2)",Y
-131,SC.Internal CGS,sc_internal_cgs,"numeric(18,2)",
-132,*Ref. CoGS,tot_ref_cogs,"numeric(18,2)",Y
-133,SC.Stat.Customs Fee,sc_stat_customs_fee,"numeric(18,2)",
-134,SC.Stat Incidental,sc_stat_incidental,"numeric(18,2)",
-135,SC.Stat.Sub-Line Exp,sc_stat_sub_line_exp,"numeric(18,2)",
-136,*Gross Margin,tot_gross_margin,"numeric(18,2)",Y
-137,*Operating Expense,tot_operating_expense,"numeric(18,2)",Y
-138,*Sales Expense,tot_sales_expense,"numeric(18,2)",Y
-139,*Labor Cost(S),tot_labor_cost_s,"numeric(18,2)",Y
-140,SA.Labor Cost,sa_labor_cost,"numeric(18,2)",
-141,SA.Labor-Salaries,sa_labor_salaries,"numeric(18,2)",
-142,*SVC Expense,tot_svc_expense,"numeric(18,2)",Y
-143,SA.SVC Warranty,sa_svc_warranty,"numeric(18,2)",
-144,SA.SVC Qual Support,sa_svc_qual_support,"numeric(18,2)",
-145,SA.SVC Agency Fee,sa_svc_agency_fee,"numeric(18,2)",
-146,SA.SVC Call Center,sa_svc_call_center,"numeric(18,2)",
-147,SA.SVC Claim,sa_svc_claim,"numeric(18,2)",
-148,SA.SVC Freight,sa_svc_freight,"numeric(18,2)",
-149,SA.SVC Circulation,sa_svc_circulation,"numeric(18,2)",
-150,SA.SVC Op Support,sa_svc_op_support,"numeric(18,2)",
-151,SA.SVC Other Exp,sa_svc_other_exp,"numeric(18,2)",
-152,*Logistics Cost,tot_logistics_cost,"numeric(18,2)",Y
-153,SA.Transport-Inland,sa_transport_inland,"numeric(18,2)",
-154,SA.Transport-Marine,sa_transport_marine,"numeric(18,2)",
-155,SA.Transport-Air,sa_transport_air,"numeric(18,2)",
-156,SA.Transport-Other,sa_transport_other,"numeric(18,2)",
-157,SA.Warehouse Fee,sa_warehouse_fee,"numeric(18,2)",
-158,SA.Insurance (Logis),sa_insurance_logis,"numeric(18,2)",
-159,SA.Comm,sa_comm,"numeric(18,2)",
-160,*Marketing Expense,tot_marketing_expense,"numeric(18,2)",Y
-161,SA.Advertising,sa_advertising,"numeric(18,2)",
-162,SA.CO-OP,sa_co_op,"numeric(18,2)",
-163,SA.Promotion,sa_promotion,"numeric(18,2)",
-164,SA.Market Research,sa_market_research,"numeric(18,2)",
-165,SA.Sales Commission,sa_sales_commission,"numeric(18,2)",
-166,SA.Comm&SvcChgC.Card,sa_comm_and_svcchgc_card,"numeric(18,2)",
-167,SA.HQ Sales Comm,sa_hq_sales_comm,"numeric(18,2)",
-168,SA.Corp. Promotion,sa_corp_promotion,"numeric(18,2)",
-169,*Royalty,tot_royalty,"numeric(18,2)",Y
-170,SA.Royalty-3rd Party,sa_royalty_3rd_party,"numeric(18,2)",
-171,SA.Royalty-HQ,sa_royalty_hq,"numeric(18,2)",
-172,SA.Royalty-Lump Sum,sa_royalty_lump_sum,"numeric(18,2)",
-173,*Paid Commission,tot_paid_commission,"numeric(18,2)",Y
-174,SA.Comm-Consult,sa_comm_consult,"numeric(18,2)",
-175,SA.Comm-Litigation,sa_comm_litigation,"numeric(18,2)",
-176,SA.Comm-Audit,sa_comm_audit,"numeric(18,2)",
-177,SA.Comm-D/O,sa_comm_d_o,"numeric(18,2)",
-178,SA.Paid Comm,sa_paid_comm,"numeric(18,2)",
-179,*Other Expense(S),tot_other_expense_s,"numeric(18,2)",Y
-180,SA.Depreciation,sa_depreciation,"numeric(18,2)",
-181,SA.Insurance Premium,sa_insurance_premium,"numeric(18,2)",
-182,SA.Sample,sa_sample,"numeric(18,2)",
-183,SA.IT Exp,sa_it_exp,"numeric(18,2)",
-184,SA.Lease&Rent,sa_lease_and_rent,"numeric(18,2)",
-185,SA.Bad Debt Exp,sa_bad_debt_exp,"numeric(18,2)",
-186,SA.Travel Exp,sa_travel_exp,"numeric(18,2)",
-187,SA.Telecom Exp,sa_telecom_exp,"numeric(18,2)",
-188,SA.Event Exp,sa_event_exp,"numeric(18,2)",
-189,SA.Survey Exp,sa_survey_exp,"numeric(18,2)",
-190,SA.Social Exp,sa_social_exp,"numeric(18,2)",
-191,SA.Convention Exp,sa_convention_exp,"numeric(18,2)",
-192,SA.Copyright,sa_copyright,"numeric(18,2)",
-193,SA.WEEE,sa_weee,"numeric(18,2)",
-194,SA.Familynet,sa_familynet,"numeric(18,2)",
-195,SA.Other Exp,sa_other_exp,"numeric(18,2)",
-196,*R&D Expense,tot_r_and_d_expense,"numeric(18,2)",Y
-197,*Internal Expense,tot_internal_expense,"numeric(18,2)",Y
-198,RD.Ordinary Exp-Matl,rd_ordinary_exp_matl,"numeric(18,2)",
-199,RD Labor,rd_labor,"numeric(18,2)",
-200,RD.Depreciation,rd_depreciation,"numeric(18,2)",
-201,RD.Consumable,rd_consumable,"numeric(18,2)",
-202,RD.Others,rd_others,"numeric(18,2)",
-203,RD.ER,rd_er,"numeric(18,2)",
-204,RD.Mask,rd_mask,"numeric(18,2)",
-205,*External Expense,tot_external_expense,"numeric(18,2)",Y
-206,RD.Royalty,rd_royalty,"numeric(18,2)",
-207,RD.Outsourcing SVC,rd_outsourcing_svc,"numeric(18,2)",
-208,*G&A Expense,tot_g_and_a_expense,"numeric(18,2)",Y
-209,*Labor Cost(SA),tot_labor_cost_sa,"numeric(18,2)",Y
-210,GA.Labor Cost,ga_labor_cost,"numeric(18,2)",
-211,GA.Labor-Salaries,ga_labor_salaries,"numeric(18,2)",
-212,*Paid Commission(SA),tot_paid_commission_sa,"numeric(18,2)",Y
-213,GA.Comm-Consult,ga_comm_consult,"numeric(18,2)",
-214,GA.Comm-Litigation,ga_comm_litigation,"numeric(18,2)",
-215,GA.Comm-Audit,ga_comm_audit,"numeric(18,2)",
-216,GA.Comm-D/O,ga_comm_d_o,"numeric(18,2)",
-217,GA.Comm,ga_comm,"numeric(18,2)",
-218,*Expense(S),tot_expense_s,"numeric(18,2)",Y
-219,GA.Depreciation,ga_depreciation,"numeric(18,2)",
-220,GA.IT Exp,ga_it_exp,"numeric(18,2)",
-221,GA.Rent Exp,ga_rent_exp,"numeric(18,2)",
-222,GA.Telecom Exp,ga_telecom_exp,"numeric(18,2)",
-223,GA.Repairs&Maint Exp,ga_repairs_and_maint_exp,"numeric(18,2)",
-224,GA.Travel Exp,ga_travel_exp,"numeric(18,2)",
-225,GA.Insurance Premium,ga_insurance_premium,"numeric(18,2)",
-226,GA.Convention Exp,ga_convention_exp,"numeric(18,2)",
-227,GA.Other,ga_other,"numeric(18,2)",
-228,*Operating Profit,tot_operating_profit,"numeric(18,2)",Y
-229,*Non-Op. Incom. & Ex,tot_non_op_income_and_expense,"numeric(18,2)",Y
-230,*Non-Op. Income,tot_non_op_income,"numeric(18,2)",Y
-231,OP.Commission 3rd,op_commission_3rd,"numeric(18,2)",
-232,OP.Service Claim,op_service_claim,"numeric(18,2)",
-233,OP.Rental Income,op_rental_income,"numeric(18,2)",
-234,OP.Extra Gain,op_extra_gain,"numeric(18,2)",
-235,OP.Others,op_others,"numeric(18,2)",
-236,*Non-Op. Expense,tot_non_op_expense,"numeric(18,2)",Y
-237,OE.Loss on A/R Sale,oe_loss_on_a_r_sale,"numeric(18,2)",
-238,OE.Extra Loss,oe_extra_loss,"numeric(18,2)",
-239,OE.Others,oe_others,"numeric(18,2)",
-240,*Gain/Loss on Equity,tot_gain_loss_on_equity,"numeric(18,2)",Y
-241,*Gain on Equity,tot_gain_on_equity,"numeric(18,2)",Y
-242,EG.Gain on Equity,eg_gain_on_equity,"numeric(18,2)",
-243,*Loss on Equity,tot_loss_on_equity,"numeric(18,2)",Y
-244,EL.Loss on Equity,el_loss_on_equity,"numeric(18,2)",
-245,*Financial  Incom. & Exp.,tot_financial_income_and_expense,"numeric(18,2)",Y
-246,*Finance Profit,tot_finance_profit,"numeric(18,2)",Y
-247,FP.Gain on FX,fp_gain_on_fx,"numeric(18,2)",
-248,FP.Interest Income,fp_interest_income,"numeric(18,2)",
-249,FP.Fin Profit-Oths,fp_fin_profit_oths,"numeric(18,2)",
-250,*Finance Loss,tot_finance_loss,"numeric(18,2)",Y
-251,FE.Fo.Ex.Loss,fe_fo_ex_loss,"numeric(18,2)",
-252,FE.Interest Exp-Ext,fe_interest_exp_ext,"numeric(18,2)",
-253,FE.Interest Exp-Int,fe_interest_exp_int,"numeric(18,2)",
-254,FE.Financial Exp-Oth,fe_financial_exp_oth,"numeric(18,2)",
-255,*Profit Before Tax,tot_profit_before_tax,"numeric(18,2)",Y
-256,*Corporate Tax,tot_corporate_tax,"numeric(18,2)",Y
-257,Corp. Tax,corp_tax,"numeric(18,2)",
-258,*Net Income,tot_net_income,"numeric(18,2)",Y
+2,Type,record_type,varchar(10),
+3,Division 2,division2,varchar(20),
+4,Prod_group,prod_group,varchar(20),
+5,Year,fiscal_year,smallint,
+6,sold To,sold_to,varchar(20),
+7,Forex,forex_rate,"numeric(18,9)",
+8,Sales U$,sales_usd,"numeric(18,2)",
+9,Op Profit U$,op_profit_usd,"numeric(18,2)",
+10,Customer,customer,varchar(20),
+11,Material Group,material_group,varchar(20),
+12,Nielsen ID,nielsen_id,varchar(20),
+13,Profit Center,profit_center,varchar(20),
+14,Division,sap_division,varchar(10),
+15,Distribution Channel,distribution_channel,varchar(10),
+16,Period,period,varchar(10),
+17,Currency,doc_currency,varchar(10),
+18,Quantity(Gross),qty_gross,"numeric(18,3)",
+19,Quantity(Return),qty_return,"numeric(18,3)",
+20,Quantity(Net),qty_net,"numeric(18,3)",
+21,*S.RRP,tot_s_rrp,"numeric(18,2)",Y
+22,Reference Price,reference_price,"numeric(18,2)",
+23,*Delear Discount,tot_dealer_discount,"numeric(18,2)",Y
+24,S.Base Margin,s_base_margin,"numeric(18,2)",
+25,S.Contract Margin,s_contract_margin,"numeric(18,2)",
+26,S.Additional Margin,s_additional_margin,"numeric(18,2)",
+27,S.Special Margin,s_special_margin,"numeric(18,2)",
+28,*S.Gross Sales,tot_s_gross_sales,"numeric(18,2)",Y
+29,S.Gross Sales AMT,s_gross_sales_amt,"numeric(18,2)",
+30,S.Other Sales,s_other_sales,"numeric(18,2)",
+31,S.Oth Sales Tax Inc,s_oth_sales_tax_inc,"numeric(18,2)",
+32,S.Internal Sales Amt,s_internal_sales_amt,"numeric(18,2)",
+33,*S.Return Amt,tot_s_return_amt,"numeric(18,2)",Y
+34,S.Return Amt,s_return_amt,"numeric(18,2)",
+35,*Ref. Sales,tot_ref_sales,"numeric(18,2)",Y
+36,S.IFC,s_ifc,"numeric(18,2)",
+37,S.FOB Sales Amt,s_fob_sales_amt,"numeric(18,2)",
+38,*Sales Deduction,tot_sales_deduction,"numeric(18,2)",Y
+39,S.Sales Allowance,s_sales_allowance,"numeric(18,2)",
+40,S.Rebate,s_rebate,"numeric(18,2)",
+41,S.Cash Discount,s_cash_discount,"numeric(18,2)",
+42,S.Price Protection,s_price_protection,"numeric(18,2)",
+43,S.CO-OP,s_co_op,"numeric(18,2)",
+44,S.Sale Deduction TAX,s_sale_deduction_tax,"numeric(18,2)",
+45,*Net Sales,tot_net_sales,"numeric(18,2)",Y
+46,*Cost of Goods Sold,tot_cogs,"numeric(18,2)",Y
+47,*Material Cost,tot_material_cost,"numeric(18,2)",Y
+48,SC.Material Cost,sc_material_cost,"numeric(18,2)",
+49,SC.Matl Cost-Loss,sc_matl_cost_loss,"numeric(18,2)",
+50,SC.Cctr Matl Cost,sc_cctr_matl_cost,"numeric(18,2)",
+51,SC.Cctr Matl-Loss,sc_cctr_matl_loss,"numeric(18,2)",
+52,SC.OS Material Cost,sc_os_material_cost,"numeric(18,2)",
+53,SC.Other Matl Cost,sc_other_matl_cost,"numeric(18,2)",
+54,*Labor Cost,tot_labor_cost,"numeric(18,2)",Y
+55,SC.Labor Cost,sc_labor_cost,"numeric(18,2)",
+56,SC.Labor-Salaries,sc_labor_salaries,"numeric(18,2)",
+57,SC.Labor-Overtime,sc_labor_overtime,"numeric(18,2)",
+58,SC.Labor Cost(PS),sc_labor_cost_ps,"numeric(18,2)",
+59,SC.Labor Cost(RD),sc_labor_cost_rd,"numeric(18,2)",
+60,*Depreciation Exp,tot_depreciation_exp,"numeric(18,2)",Y
+61,SC.Depre Exp,sc_depre_exp,"numeric(18,2)",
+62,SC.Depre Exp on Bldg,sc_depre_exp_on_bldg,"numeric(18,2)",
+63,SC.Depre Exp on M&E,sc_depre_exp_on_m_and_e,"numeric(18,2)",
+64,*Mold Exp,tot_mold_exp,"numeric(18,2)",Y
+65,SC.Depre Exp on Mold,sc_depre_exp_on_mold,"numeric(18,2)",
+66,SC.Molds Cost,sc_molds_cost,"numeric(18,2)",
+67,SC.CNC Molds Cost,sc_cnc_molds_cost,"numeric(18,2)",
+68,*Manufac.supp.Cost,tot_manufac_supp_cost,"numeric(18,2)",Y
+69,SC.Mfg Supply Cost,sc_mfg_supply_cost,"numeric(18,2)",
+70,SC.Mfg Repair&Maint,sc_mfg_repair_and_maint,"numeric(18,2)",
+71,SC.Manufac.JIG.Cost,sc_manufac_jig_cost,"numeric(18,2)",
+72,SC.Equip Repair Cost,sc_equip_repair_cost,"numeric(18,2)",
+73,SC.Supplies Exp,sc_supplies_exp,"numeric(18,2)",
+74,*Expense,tot_expense,"numeric(18,2)",Y
+75,SC.Amort on Dev Cost,sc_amort_on_dev_cost,"numeric(18,2)",
+76,SC.Subcont. Cost,sc_subcont_cost,"numeric(18,2)",
+77,SC.Part Time SVC Exp,sc_part_time_svc_exp,"numeric(18,2)",
+78,SC.Royalty-3rd Party,sc_royalty_3rd_party,"numeric(18,2)",
+79,SC.Royalty-HQ,sc_royalty_hq,"numeric(18,2)",
+80,SC.Utility,sc_utility,"numeric(18,2)",
+81,SC.Logistic Cost,sc_logistic_cost,"numeric(18,2)",
+82,SC.Commission,sc_commission,"numeric(18,2)",
+83,SC.IT Cost,sc_it_cost,"numeric(18,2)",
+84,SC.Installation,sc_installation,"numeric(18,2)",
+85,SC.Tax&Dues,sc_tax_and_dues,"numeric(18,2)",
+86,SC.Telecom Exp,sc_telecom_exp,"numeric(18,2)",
+87,SC.Travel Exp,sc_travel_exp,"numeric(18,2)",
+88,SC.Rent&Lease Exp,sc_rent_and_lease_exp,"numeric(18,2)",
+89,SC.Sample Exp,sc_sample_exp,"numeric(18,2)",
+90,SC.Packing Exp,sc_packing_exp,"numeric(18,2)",
+91,SC.Insurance Premium,sc_insurance_premium,"numeric(18,2)",
+92,SC.Convention Exp,sc_convention_exp,"numeric(18,2)",
+93,SC.SVC Exp,sc_svc_exp,"numeric(18,2)",
+94,SC.Other Exps,sc_other_exps,"numeric(18,2)",
+95,SC.Consumable(RD),sc_consumable_rd,"numeric(18,2)",
+96,SC.Ordinary Exp-Matl,sc_ordinary_exp_matl,"numeric(18,2)",
+97,SC.Outsourcing SVC,sc_outsourcing_svc,"numeric(18,2)",
+98,SC.Othres(RD),sc_others_rd,"numeric(18,2)",
+99,*Other CGS,tot_other_cgs,"numeric(18,2)",Y
+100,SC.Other,sc_other,"numeric(18,2)",
+101,SC.SVC Warranty,sc_svc_warranty,"numeric(18,2)",
+102,SC.SVC Agent Fee,sc_svc_agent_fee,"numeric(18,2)",
+103,*Return CGS,tot_return_cgs,"numeric(18,2)",Y
+104,SC.Return CGS,sc_return_cgs,"numeric(18,2)",
+105,*Other Expense,tot_other_expense,"numeric(18,2)",Y
+106,*Other Exp.,tot_other_exp_detail,"numeric(18,2)",Y
+107,SC.LCM,sc_lcm,"numeric(18,2)",
+108,SC.E&O,sc_e_and_o,"numeric(18,2)",
+109,SC.Ramp-up Cost,sc_ramp_up_cost,"numeric(18,2)",
+110,SC.INV Loss(Q),sc_inv_loss_q,"numeric(18,2)",
+111,SC.INV Loss(P),sc_inv_loss_p,"numeric(18,2)",
+112,SC.Subcontractor-Adj,sc_subcontractor_adj,"numeric(18,2)",
+113,SC.Customs Refund,sc_customs_refund,"numeric(18,2)",
+114,SC.Matl Price Settle,sc_matl_price_settle,"numeric(18,2)",
+115,SC.VAT (China),sc_vat_china,"numeric(18,2)",
+116,SC.CGS Others,sc_cgs_others,"numeric(18,2)",
+117,*Logistic Cost(C Type),tot_logistic_cost_c_type,"numeric(18,2)",Y
+118,SC.Transport-Inland,sc_transport_inland,"numeric(18,2)",
+119,SC.Transport-Marine,sc_transport_marine,"numeric(18,2)",
+120,SC.Transport-Air,sc_transport_air,"numeric(18,2)",
+121,SC.Transport-Other,sc_transport_other,"numeric(18,2)",
+122,SC.Insurance (Logis),sc_insurance_logis,"numeric(18,2)",
+123,*Internal CGS,tot_internal_cgs,"numeric(18,2)",Y
+124,SC.Internal CGS,sc_internal_cgs,"numeric(18,2)",
+125,*Ref. CoGS,tot_ref_cogs,"numeric(18,2)",Y
+126,SC.Stat.Customs Fee,sc_stat_customs_fee,"numeric(18,2)",
+127,SC.Stat Incidental,sc_stat_incidental,"numeric(18,2)",
+128,SC.Stat.Sub-Line Exp,sc_stat_sub_line_exp,"numeric(18,2)",
+129,*Gross Margin,tot_gross_margin,"numeric(18,2)",Y
+130,*Operating Expense,tot_operating_expense,"numeric(18,2)",Y
+131,*Sales Expense,tot_sales_expense,"numeric(18,2)",Y
+132,*Labor Cost(S),tot_labor_cost_s,"numeric(18,2)",Y
+133,SA.Labor Cost,sa_labor_cost,"numeric(18,2)",
+134,SA.Labor-Salaries,sa_labor_salaries,"numeric(18,2)",
+135,*SVC Expense,tot_svc_expense,"numeric(18,2)",Y
+136,SA.SVC Warranty,sa_svc_warranty,"numeric(18,2)",
+137,SA.SVC Qual Support,sa_svc_qual_support,"numeric(18,2)",
+138,SA.SVC Agency Fee,sa_svc_agency_fee,"numeric(18,2)",
+139,SA.SVC Call Center,sa_svc_call_center,"numeric(18,2)",
+140,SA.SVC Claim,sa_svc_claim,"numeric(18,2)",
+141,SA.SVC Freight,sa_svc_freight,"numeric(18,2)",
+142,SA.SVC Circulation,sa_svc_circulation,"numeric(18,2)",
+143,SA.SVC Op Support,sa_svc_op_support,"numeric(18,2)",
+144,SA.SVC Other Exp,sa_svc_other_exp,"numeric(18,2)",
+145,*Logistics Cost,tot_logistics_cost,"numeric(18,2)",Y
+146,SA.Transport-Inland,sa_transport_inland,"numeric(18,2)",
+147,SA.Transport-Marine,sa_transport_marine,"numeric(18,2)",
+148,SA.Transport-Air,sa_transport_air,"numeric(18,2)",
+149,SA.Transport-Other,sa_transport_other,"numeric(18,2)",
+150,SA.Warehouse Fee,sa_warehouse_fee,"numeric(18,2)",
+151,SA.Insurance (Logis),sa_insurance_logis,"numeric(18,2)",
+152,SA.Comm,sa_comm,"numeric(18,2)",
+153,*Marketing Expense,tot_marketing_expense,"numeric(18,2)",Y
+154,SA.Advertising,sa_advertising,"numeric(18,2)",
+155,SA.CO-OP,sa_co_op,"numeric(18,2)",
+156,SA.Promotion,sa_promotion,"numeric(18,2)",
+157,SA.Market Research,sa_market_research,"numeric(18,2)",
+158,SA.Sales Commission,sa_sales_commission,"numeric(18,2)",
+159,SA.Comm&SvcChgC.Card,sa_comm_and_svcchgc_card,"numeric(18,2)",
+160,SA.HQ Sales Comm,sa_hq_sales_comm,"numeric(18,2)",
+161,SA.Corp. Promotion,sa_corp_promotion,"numeric(18,2)",
+162,*Royalty,tot_royalty,"numeric(18,2)",Y
+163,SA.Royalty-3rd Party,sa_royalty_3rd_party,"numeric(18,2)",
+164,SA.Royalty-HQ,sa_royalty_hq,"numeric(18,2)",
+165,SA.Royalty-Lump Sum,sa_royalty_lump_sum,"numeric(18,2)",
+166,*Paid Commission,tot_paid_commission,"numeric(18,2)",Y
+167,SA.Comm-Consult,sa_comm_consult,"numeric(18,2)",
+168,SA.Comm-Litigation,sa_comm_litigation,"numeric(18,2)",
+169,SA.Comm-Audit,sa_comm_audit,"numeric(18,2)",
+170,SA.Comm-D/O,sa_comm_d_o,"numeric(18,2)",
+171,SA.Paid Comm,sa_paid_comm,"numeric(18,2)",
+172,*Other Expense(S),tot_other_expense_s,"numeric(18,2)",Y
+173,SA.Depreciation,sa_depreciation,"numeric(18,2)",
+174,SA.Insurance Premium,sa_insurance_premium,"numeric(18,2)",
+175,SA.Sample,sa_sample,"numeric(18,2)",
+176,SA.IT Exp,sa_it_exp,"numeric(18,2)",
+177,SA.Lease&Rent,sa_lease_and_rent,"numeric(18,2)",
+178,SA.Bad Debt Exp,sa_bad_debt_exp,"numeric(18,2)",
+179,SA.Travel Exp,sa_travel_exp,"numeric(18,2)",
+180,SA.Telecom Exp,sa_telecom_exp,"numeric(18,2)",
+181,SA.Event Exp,sa_event_exp,"numeric(18,2)",
+182,SA.Survey Exp,sa_survey_exp,"numeric(18,2)",
+183,SA.Social Exp,sa_social_exp,"numeric(18,2)",
+184,SA.Convention Exp,sa_convention_exp,"numeric(18,2)",
+185,SA.Copyright,sa_copyright,"numeric(18,2)",
+186,SA.WEEE,sa_weee,"numeric(18,2)",
+187,SA.Familynet,sa_familynet,"numeric(18,2)",
+188,SA.Other Exp,sa_other_exp,"numeric(18,2)",
+189,*R&D Expense,tot_r_and_d_expense,"numeric(18,2)",Y
+190,*Internal Expense,tot_internal_expense,"numeric(18,2)",Y
+191,RD.Ordinary Exp-Matl,rd_ordinary_exp_matl,"numeric(18,2)",
+192,RD Labor,rd_labor,"numeric(18,2)",
+193,RD.Depreciation,rd_depreciation,"numeric(18,2)",
+194,RD.Consumable,rd_consumable,"numeric(18,2)",
+195,RD.Others,rd_others,"numeric(18,2)",
+196,RD.ER,rd_er,"numeric(18,2)",
+197,RD.Mask,rd_mask,"numeric(18,2)",
+198,*External Expense,tot_external_expense,"numeric(18,2)",Y
+199,RD.Royalty,rd_royalty,"numeric(18,2)",
+200,RD.Outsourcing SVC,rd_outsourcing_svc,"numeric(18,2)",
+201,*G&A Expense,tot_g_and_a_expense,"numeric(18,2)",Y
+202,*Labor Cost(SA),tot_labor_cost_sa,"numeric(18,2)",Y
+203,GA.Labor Cost,ga_labor_cost,"numeric(18,2)",
+204,GA.Labor-Salaries,ga_labor_salaries,"numeric(18,2)",
+205,*Paid Commission(SA),tot_paid_commission_sa,"numeric(18,2)",Y
+206,GA.Comm-Consult,ga_comm_consult,"numeric(18,2)",
+207,GA.Comm-Litigation,ga_comm_litigation,"numeric(18,2)",
+208,GA.Comm-Audit,ga_comm_audit,"numeric(18,2)",
+209,GA.Comm-D/O,ga_comm_d_o,"numeric(18,2)",
+210,GA.Comm,ga_comm,"numeric(18,2)",
+211,*Expense(S),tot_expense_s,"numeric(18,2)",Y
+212,GA.Depreciation,ga_depreciation,"numeric(18,2)",
+213,GA.IT Exp,ga_it_exp,"numeric(18,2)",
+214,GA.Rent Exp,ga_rent_exp,"numeric(18,2)",
+215,GA.Telecom Exp,ga_telecom_exp,"numeric(18,2)",
+216,GA.Repairs&Maint Exp,ga_repairs_and_maint_exp,"numeric(18,2)",
+217,GA.Travel Exp,ga_travel_exp,"numeric(18,2)",
+218,GA.Insurance Premium,ga_insurance_premium,"numeric(18,2)",
+219,GA.Convention Exp,ga_convention_exp,"numeric(18,2)",
+220,GA.Other,ga_other,"numeric(18,2)",
+221,*Operating Profit,tot_operating_profit,"numeric(18,2)",Y
+222,*Non-Op. Incom. & Ex,tot_non_op_income_and_expense,"numeric(18,2)",Y
+223,*Non-Op. Income,tot_non_op_income,"numeric(18,2)",Y
+224,OP.Commission 3rd,op_commission_3rd,"numeric(18,2)",
+225,OP.Service Claim,op_service_claim,"numeric(18,2)",
+226,OP.Rental Income,op_rental_income,"numeric(18,2)",
+227,OP.Extra Gain,op_extra_gain,"numeric(18,2)",
+228,OP.Others,op_others,"numeric(18,2)",
+229,*Non-Op. Expense,tot_non_op_expense,"numeric(18,2)",Y
+230,OE.Loss on A/R Sale,oe_loss_on_a_r_sale,"numeric(18,2)",
+231,OE.Extra Loss,oe_extra_loss,"numeric(18,2)",
+232,OE.Others,oe_others,"numeric(18,2)",
+233,*Gain/Loss on Equity,tot_gain_loss_on_equity,"numeric(18,2)",Y
+234,*Gain on Equity,tot_gain_on_equity,"numeric(18,2)",Y
+235,EG.Gain on Equity,eg_gain_on_equity,"numeric(18,2)",
+236,*Loss on Equity,tot_loss_on_equity,"numeric(18,2)",Y
+237,EL.Loss on Equity,el_loss_on_equity,"numeric(18,2)",
+238,*Financial  Incom. & Exp.,tot_financial_income_and_expense,"numeric(18,2)",Y
+239,*Finance Profit,tot_finance_profit,"numeric(18,2)",Y
+240,FP.Gain on FX,fp_gain_on_fx,"numeric(18,2)",
+241,FP.Interest Income,fp_interest_income,"numeric(18,2)",
+242,FP.Fin Profit-Oths,fp_fin_profit_oths,"numeric(18,2)",
+243,*Finance Loss,tot_finance_loss,"numeric(18,2)",Y
+244,FE.Fo.Ex.Loss,fe_fo_ex_loss,"numeric(18,2)",
+245,FE.Interest Exp-Ext,fe_interest_exp_ext,"numeric(18,2)",
+246,FE.Interest Exp-Int,fe_interest_exp_int,"numeric(18,2)",
+247,FE.Financial Exp-Oth,fe_financial_exp_oth,"numeric(18,2)",
+248,*Profit Before Tax,tot_profit_before_tax,"numeric(18,2)",Y
+249,*Corporate Tax,tot_corporate_tax,"numeric(18,2)",Y
+250,Corp. Tax,corp_tax,"numeric(18,2)",
+251,*Net Income,tot_net_income,"numeric(18,2)",Y

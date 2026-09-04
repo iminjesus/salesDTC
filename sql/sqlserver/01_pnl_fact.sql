@@ -13,21 +13,14 @@ CREATE TABLE sales.pnl_fact (
 
     -- ══ 헤더/집계 키 (엑셀 좌측 블록) ════════
     cus_group                         varchar(20),            -- Cus_group
-    account                           varchar(20),            -- Account
-    site                              varchar(20),            -- Site
     record_type                       varchar(10),            -- Type
-    report_currency                   varchar(10),            -- Currency
     division2                         varchar(20),            -- Division 2
-    division                          varchar(20),            -- Division
+    prod_group                        varchar(20),            -- Prod_group
     fiscal_year                       smallint NOT NULL,      -- Year
-    version                           varchar(20) NOT NULL,   -- Ver
     sold_to                           varchar(20),            -- sold To
     forex_rate                        decimal(18,9),          -- Forex
     sales_usd                         decimal(18,2),          -- Sales U$
     op_profit_usd                     decimal(18,2),          -- Op Profit U$
-    flag                              varchar(10),            -- Flag
-    month_nm                          varchar(10),            -- Month
-    pp1                               varchar(20),            -- PP1
 
     -- ══ SAP 원장 차원 (Dimension) ════════
     customer                          varchar(20),            -- Customer
@@ -294,8 +287,8 @@ CREATE TABLE sales.pnl_fact (
 GO
 
 CREATE UNIQUE INDEX ux_pnl_fact_natural ON sales.pnl_fact (
-    fiscal_year, version, period, sold_to, material_group,
-    profit_center, sap_division, distribution_channel, doc_currency
+    fiscal_year, period, sold_to, material_group, profit_center,
+    sap_division, distribution_channel, doc_currency
 );
 CREATE INDEX ix_pnl_fact_period   ON sales.pnl_fact (fiscal_year, period);
 CREATE INDEX ix_pnl_fact_customer ON sales.pnl_fact (sold_to, fiscal_year, period);

@@ -1,19 +1,19 @@
 # salesDTC — 고객/제품군 단위 손익(P&L) 테이블
 
-엑셀로 관리하던 258컬럼짜리 손익 시트를 그대로 담는 DB 스키마와, 그 시트를 적재하는
+엑셀로 관리하던 251컬럼짜리 손익 시트를 그대로 담는 DB 스키마와, 그 시트를 적재하는
 스크립트다. 컬럼 순서·의미는 원본 헤더와 1:1로 대응하며, 매핑표는 `docs/column_map.csv`에 있다.
 
 ## 테이블 구조
 
-`sales.pnl_fact` — 1행 = **연도 x 버전 x 기간 x 고객(sold_to) x 제품군(material_group) x
+`sales.pnl_fact` — 1행 = **연도 x 기간 x 고객(sold_to) x 제품군(material_group) x
 손익센터 x 사업부 x 유통채널 x 통화** 한 조합의 손익.
 
 | 블록 | 컬럼 | 예 |
 |---|---|---|
-| 헤더/집계 키 | 1–16 | `cus_group`, `record_type`, `report_currency`, `division2`, `fiscal_year`, `version`, `sold_to`, `forex_rate`, `sales_usd`, `op_profit_usd` |
-| SAP 원장 차원 | 17–24 | `customer`, `material_group`, `nielsen_id`, `profit_center`, `sap_division`, `distribution_channel`, `period`, `doc_currency` |
-| 수량 | 25–27 | `qty_gross`, `qty_return`, `qty_net` |
-| 손익 계정 | 28–258 | `s_*` 매출, `sc_*` 매출원가, `sa_*` 판매비, `rd_*` 연구개발비, `ga_*` 일반관리비, `op_*`/`oe_*` 영업외, `eg_*`/`el_*` 지분법, `fp_*`/`fe_*` 금융손익 |
+| 헤더/집계 키 | 1–9 | `cus_group`, `record_type`, `division2`, `prod_group`, `fiscal_year`, `sold_to`, `forex_rate`, `sales_usd`, `op_profit_usd` |
+| SAP 원장 차원 | 10–17 | `customer`, `material_group`, `nielsen_id`, `profit_center`, `sap_division`, `distribution_channel`, `period`, `doc_currency` |
+| 수량 | 18–20 | `qty_gross`, `qty_return`, `qty_net` |
+| 손익 계정 | 21–251 | `s_*` 매출, `sc_*` 매출원가, `sa_*` 판매비, `rd_*` 연구개발비, `ga_*` 일반관리비, `op_*`/`oe_*` 영업외, `eg_*`/`el_*` 지분법, `fp_*`/`fe_*` 금융손익 |
 
 명명 규칙 두 가지만 알면 된다.
 
@@ -22,14 +22,14 @@
 - 계정 접두사 `S.` `SC.` `SA.` `RD.` `GA.` …는 그대로 소문자 접두사로 남는다
   (`SC.Mfg Repair&Maint` → `sc_mfg_repair_and_maint`).
 
-원본 헤더에 **같은 이름이 두 번** 나오는 컬럼이 둘 있어 이렇게 갈랐다.
+헷갈리기 쉬운 세 컬럼은 이름을 풀어 뒀다. 셋 다 서로 다른 축이다.
 
-| 원본 헤더 | 위치 | 컬럼명 |
-|---|---|---|
-| Currency | 5 (집계 블록, 값 `(USD)`) | `report_currency` |
-| Currency | 24 (원장, 값 `AUD`) | `doc_currency` |
-| Division | 7 (집계 블록, 값 `REF`/`CTV`) | `division` |
-| Division | 21 (SAP, 값 `E2`/`A1`) | `sap_division` |
+| 원본 헤더 | 값 예 | 컬럼명 | 뜻 |
+|---|---|---|---|
+| Division 2 | `DA` | `division2` | 사업본부 |
+| Prod_group | `REF`, `MWO` | `prod_group` | 제품군 |
+| Division | `E2`, `E5` | `sap_division` | SAP 사업부 |
+| Currency | `AUD` | `doc_currency` | 전표 통화 (`sales_usd`는 `forex_rate`로 환산한 USD) |
 
 ## 파일
 
@@ -79,16 +79,18 @@ python3 tools/generate_ddl.py
 
 ## 검증 상태
 
-PostgreSQL 16에서 01–05를 실행해 261컬럼(258 + `pnl_id` + `source_file` + `loaded_at`) 생성,
-콤마/빈칸/`#N/A`/회계식 음수가 섞인 TSV의 staging 적재·변환, 자연키 중복 적재 차단,
-그리고 `05_checks.sql`의 5개 검산식이 샘플 행 값에서 모두 통과하는 것까지 확인했다.
+PostgreSQL 16에서 01–05를 실행해 254컬럼(251 + `pnl_id` + `source_file` + `loaded_at`) 생성,
+샘플 2행(REF/MWO)을 TSV로 staging 적재·변환, 자연키 중복 적재 차단,
+`v_pnl_excel`로 원본 헤더 복원, `05_checks.sql`의 5개 검산식 통과까지 확인했다.
 SQL Server 판은 문법만 맞춰 생성했고 실행 검증은 하지 않았다.
 
 ## 남은 판단거리
 
-- **자연키 유니크 인덱스** — `ux_pnl_fact_natural`은 위 9개 키 컬럼 조합을 유일하게 본다.
-  실제 소스에서 이 조합이 한 행으로 유일한지 확인이 필요하다. 키 컬럼에 NULL이 섞이는
-  소스라면 인덱스를 빼고, 적재 전에 해당 기간을 `DELETE`하는 방식이 안전하다.
+- **자연키 유니크 인덱스** — `ux_pnl_fact_natural`은 `fiscal_year, period, sold_to,
+  material_group, profit_center, sap_division, distribution_channel, doc_currency`
+  8개 조합을 유일하게 본다. 이전 시트에 있던 `Ver`(버전)이 빠져서, 같은 기간을 버전만
+  바꿔 두 번 넣으면 충돌한다. 버전을 나란히 두려면 `Ver` 컬럼을 시트에 되살리거나
+  (그러면 생성기가 자동으로 키에 넣는다) 적재 전 해당 기간을 `DELETE` 하면 된다.
 - **`*Profit Before Tax`의 구성식** — 영업외/지분법/금융손익의 부호 규약이 샘플만으로는
   확정되지 않아 `05_checks.sql`에 넣지 않았다. 규약이 정해지면 검산식을 추가하면 된다.
 - 금액 정밀도는 `numeric(18,2)`, 수량은 `numeric(18,3)`, 환율은 `numeric(18,9)`로 잡았다.
