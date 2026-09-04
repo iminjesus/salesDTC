@@ -9,6 +9,10 @@
     sql/postgres/03_staging.sql           TSV 를 그대로 받는 text staging + 변환 함수
     sql/postgres/04_load_from_staging.sql staging → 팩트 변환 INSERT
     sql/sqlserver/01_pnl_fact.sql         SQL Server 판 팩트 테이블
+    sql/mysql/01_pnl_fact.sql             MySQL 판 (01~04 한 벌)
+    sql/mysql/02_v_pnl_excel.sql
+    sql/mysql/03_staging.sql
+    sql/mysql/04_load_from_staging.sql
     docs/column_map.csv                   엑셀 헤더 ↔ 컬럼명 ↔ 타입 매핑표
 
 설정은 전부 '엑셀 헤더 문자열' 을 키로 쓴다. 시트에서 컬럼이 빠지거나 순서가 바뀌어도
@@ -306,6 +310,145 @@ def gen_load(cols):
     return '\n'.join(L)
 
 
+# ── MySQL ────────────────────────────────────────────────────────
+# MySQL 은 schema = database 라서 sales 스키마 대신 DB 를 하나 쓴다.
+# 컬럼 COMMENT 는 CREATE TABLE 안에 인라인으로 들어간다.
+MYSQL_DB = 'sales_pnl'
+
+
+def my_type(c):
+    t = c['type'].replace('numeric', 'decimal')
+    return t
+
+
+def gen_mysql(cols):
+    w = max(len(c['name']) for c in cols) + 2
+    L = [f'-- MySQL 판. 엑셀 원본 {len(cols)} 컬럼 그대로.',
+         '-- tot_* 는 원본에서 * 가 붙은 소계 라인이다 (하위 계정의 합계이므로 중복 집계 주의).',
+         '-- MySQL 은 스키마와 DB 가 같은 개념이라 sales 스키마 대신 DB 를 하나 쓴다.',
+         f'-- 다른 DB 에 넣으려면 아래 두 줄만 바꾸면 된다.',
+         '',
+         f'CREATE DATABASE IF NOT EXISTS {MYSQL_DB} '
+         'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;',
+         f'USE {MYSQL_DB};',
+         '',
+         'DROP TABLE IF EXISTS pnl_fact;',
+         '',
+         'CREATE TABLE pnl_fact (',
+         '    pnl_id           bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,']
+    for c in cols:
+        if c['src'] in SECTIONS:
+            L += ['', f"    -- ══ {SECTIONS[c['src']]} " + '═' * 8]
+        typ = my_type(c) + (' NOT NULL' if c['not_null'] else '')
+        cmt = c['src'].replace("\\", "\\\\").replace("'", "''")
+        L.append(f"    {c['name']:<{w}}{typ:<22} COMMENT '{cmt}',")
+    L += ['',
+          '    -- ══ 적재 메타데이터 ════════',
+          f"    {'source_file':<{w}}varchar(260),",
+          f"    {'loaded_at':<{w}}datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),",
+          '',
+          '    -- 자연키: 같은 기간의 같은 고객 x 제품군 x 손익센터 조합은 1행.',
+          '    -- 재적재 시 중복을 막아준다. 키 컬럼에 NULL 이 섞이는 소스라면 이 인덱스를 빼고',
+          '    -- 적재 전 DELETE 로 해당 기간을 지우는 방식을 쓸 것.',
+          '    UNIQUE KEY ux_pnl_fact_natural (',
+          key_block(cols, indent='        '),
+          '    ),',
+          '    KEY ix_pnl_fact_period   (fiscal_year, period),',
+          '    KEY ix_pnl_fact_customer (sold_to, fiscal_year, period),',
+          '    KEY ix_pnl_fact_matgrp   (material_group, fiscal_year, period)',
+          ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC",
+          "  COMMENT='고객/제품군 단위 손익(P&L) 플랫 테이블. tot_* 는 엑셀 원본의 * 소계 라인.';",
+          '']
+    return '\n'.join(L)
+
+
+def gen_mysql_view(cols):
+    L = ['-- 엑셀 원본 헤더 그대로 내보내기용 뷰 (MySQL 은 식별자에 백틱을 쓴다).',
+         f'USE {MYSQL_DB};',
+         '',
+         'CREATE OR REPLACE VIEW v_pnl_excel AS',
+         'SELECT']
+    for i, c in enumerate(cols):
+        L.append(f"    {c['name']:<30} AS `{c['alias']}`{',' if i < len(cols) - 1 else ''}")
+    L += ['FROM pnl_fact;', '']
+    return '\n'.join(L)
+
+
+def gen_mysql_staging(cols):
+    w = max(len(c['name']) for c in cols) + 2
+    L = ['-- 엑셀에서 뽑은 TSV 를 있는 그대로 받는 임시 테이블: 전 컬럼 text.',
+         '-- "1,268.93" 같은 천단위 콤마, 빈칸, #N/A 를 일단 통과시킨 뒤 04 스크립트에서 변환한다.',
+         f'USE {MYSQL_DB};',
+         '',
+         'DROP TABLE IF EXISTS pnl_stg;',
+         'CREATE TABLE pnl_stg (']
+    L += [f"    {c['name']:<{w}}text{',' if i < len(cols) - 1 else ''}"
+          for i, c in enumerate(cols)]
+    L += [') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;', '', r"""
+-- 엑셀식 숫자 문자열 → decimal   ("1,268.93", "(1,234)", "", "-", "#N/A")
+DROP FUNCTION IF EXISTS to_num;
+DROP FUNCTION IF EXISTS to_txt;
+DELIMITER $$
+
+CREATE FUNCTION to_num(v text) RETURNS decimal(18,4)
+DETERMINISTIC
+BEGIN
+    DECLARE t varchar(64);
+    SET t = REPLACE(REPLACE(REPLACE(TRIM(COALESCE(v, '')), ',', ''), '$', ''), ' ', '');
+    IF t = '' OR t IN ('-', '#N/A', 'N/A', '#DIV/0!', '#VALUE!') THEN
+        RETURN NULL;
+    END IF;
+    IF t LIKE '(%)' THEN                       -- 회계식 음수 표기 (12.50) → -12.50
+        SET t = CONCAT('-', SUBSTRING(t, 2, CHAR_LENGTH(t) - 2));
+    END IF;
+    IF t NOT REGEXP '^-?[0-9]*\.?[0-9]+$' THEN
+        RETURN NULL;
+    END IF;
+    RETURN CAST(t AS decimal(18,4));
+END$$
+
+-- 텍스트 차원값 정리: 앞뒤 공백 제거, 빈칸/#N/A 는 NULL
+CREATE FUNCTION to_txt(v text) RETURNS varchar(260)
+DETERMINISTIC
+BEGIN
+    DECLARE t varchar(260);
+    SET t = TRIM(COALESCE(v, ''));
+    IF t = '' OR t = '#N/A' THEN
+        RETURN NULL;
+    END IF;
+    RETURN t;
+END$$
+
+DELIMITER ;
+""".strip(), '']
+    return '\n'.join(L)
+
+
+def gen_mysql_load(cols):
+    L = ['-- staging → 팩트 변환 적재.',
+         '--   1) TRUNCATE TABLE pnl_stg;',
+         '--   2) 엑셀을 TSV 로 저장한 뒤 아래 중 하나로 적재',
+         "--      LOAD DATA LOCAL INFILE 'pnl.tsv' INTO TABLE pnl_stg",
+         "--          FIELDS TERMINATED BY '\\t' ESCAPED BY ''",
+         "--          LINES TERMINATED BY '\\r\\n' IGNORE 1 LINES;",
+         '--      (Workbench 는 Server > Options File > local_infile 을 켜야 한다.',
+         '--       안 되면 테이블 우클릭 > Table Data Import Wizard 로 pnl_stg 에 넣어도 된다)',
+         '--   3) 이 파일 실행',
+         '--   4) TRUNCATE TABLE pnl_stg;',
+         '',
+         f'USE {MYSQL_DB};',
+         '',
+         'INSERT INTO pnl_fact (']
+    L += [f"    {c['name']}{',' if i < len(cols) - 1 else ''}" for i, c in enumerate(cols)]
+    L += [') SELECT']
+    for i, c in enumerate(cols):
+        expr = f"to_num({c['name']})" if c['numeric'] else f"to_txt({c['name']})"
+        L.append(f"    {expr}{',' if i < len(cols) - 1 else ''}")
+    L += ['FROM pnl_stg;', '']
+    return '\n'.join(L)
+
+
+
 def main():
     cols = load_columns()
     write('sql/postgres/01_pnl_fact.sql', gen_postgres(cols))
@@ -313,6 +456,10 @@ def main():
     write('sql/postgres/03_staging.sql', gen_staging(cols))
     write('sql/postgres/04_load_from_staging.sql', gen_load(cols))
     write('sql/sqlserver/01_pnl_fact.sql', gen_sqlserver(cols))
+    write('sql/mysql/01_pnl_fact.sql', gen_mysql(cols))
+    write('sql/mysql/02_v_pnl_excel.sql', gen_mysql_view(cols))
+    write('sql/mysql/03_staging.sql', gen_mysql_staging(cols))
+    write('sql/mysql/04_load_from_staging.sql', gen_mysql_load(cols))
     with open(os.path.join(ROOT, 'docs', 'column_map.csv'), 'w', newline='',
               encoding='utf-8') as f:
         w = csv.writer(f)

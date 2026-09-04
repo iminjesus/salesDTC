@@ -40,12 +40,44 @@
 | `sql/postgres/03_staging.sql` | TSV를 그대로 받는 text staging + 숫자/문자 정리 함수 |
 | `sql/postgres/04_load_from_staging.sql` | staging → 팩트 변환 INSERT |
 | `sql/postgres/05_checks.sql` | 적재 검산 (0행이면 정상) |
+| `sql/mysql/01_pnl_fact.sql` ~ `05_checks.sql` | MySQL 판 한 벌 (Workbench 용) |
 | `sql/sqlserver/01_pnl_fact.sql` | SQL Server 판 팩트 테이블 |
 | `docs/column_map.csv` | 엑셀 헤더 ↔ 컬럼명 ↔ 타입 매핑표 258행 |
 | `docs/excel_header.txt` | 원본 헤더 한 줄 (생성 입력) |
 | `tools/generate_ddl.py` | 위 SQL 전부를 헤더에서 재생성 |
 
-## 적재
+## 적재 — MySQL (Workbench)
+
+```sql
+-- Workbench 에서 순서대로 열어 실행
+sql/mysql/01_pnl_fact.sql        -- DB(sales_pnl) + 테이블
+sql/mysql/02_v_pnl_excel.sql     -- 엑셀 헤더 복원 뷰
+sql/mysql/03_staging.sql         -- staging + to_num()/to_txt()
+```
+
+엑셀을 **탭 구분 TSV**로 저장한 뒤:
+
+```sql
+USE sales_pnl;
+TRUNCATE TABLE pnl_stg;
+LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/pnl.tsv' INTO TABLE pnl_stg
+    FIELDS TERMINATED BY '\t' ESCAPED BY ''
+    LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
+```
+
+`LOAD DATA LOCAL INFILE` 가 막히면(`local_infile` 비활성) Workbench 좌측 스키마 트리에서
+`pnl_stg` 우클릭 → **Table Data Import Wizard** 로 넣어도 된다. 그 다음:
+
+```sql
+-- sql/mysql/04_load_from_staging.sql  실행 → 변환 적재
+-- sql/mysql/05_checks.sql             실행 → 검산 (아무 행도 안 나오면 정상)
+TRUNCATE TABLE pnl_stg;
+```
+
+MySQL 은 스키마와 DB 가 같은 개념이라 `sales` 스키마 대신 `sales_pnl` DB 를 쓴다.
+다른 DB 에 넣으려면 각 파일 첫머리의 `CREATE DATABASE` / `USE` 두 줄만 바꾸면 된다.
+
+## 적재 — PostgreSQL
 
 ```sh
 psql -f sql/postgres/01_pnl_fact.sql
@@ -79,9 +111,10 @@ python3 tools/generate_ddl.py
 
 ## 검증 상태
 
-PostgreSQL 16에서 01–05를 실행해 254컬럼(251 + `pnl_id` + `source_file` + `loaded_at`) 생성,
-샘플 2행(REF/MWO)을 TSV로 staging 적재·변환, 자연키 중복 적재 차단,
-`v_pnl_excel`로 원본 헤더 복원, `05_checks.sql`의 5개 검산식 통과까지 확인했다.
+PostgreSQL 16과 MySQL(MariaDB 10.11) 양쪽에서 01–05를 실행해 254컬럼
+(251 + `pnl_id` + `source_file` + `loaded_at`) 생성, 샘플 2행(REF/MWO)을 TSV로
+staging 적재·변환, 자연키 중복 적재 차단, `v_pnl_excel`로 원본 헤더 복원,
+`05_checks.sql`의 5개 검산식 통과까지 확인했다.
 SQL Server 판은 문법만 맞춰 생성했고 실행 검증은 하지 않았다.
 
 ## 남은 판단거리
