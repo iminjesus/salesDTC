@@ -9,6 +9,7 @@
     sql/postgres/03_staging.sql           TSV 를 그대로 받는 text staging + 변환 함수
     sql/postgres/04_load_from_staging.sql staging → 팩트 변환 INSERT
     sql/sqlserver/01_pnl_fact.sql         SQL Server 판 팩트 테이블
+    sql/mysql/00_setup_sales_2526.sql     한 파일로 끝나는 MySQL 셋업 (DB+테이블+적재)
     sql/mysql/01_pnl_fact.sql             MySQL 판 (01~04 한 벌)
     sql/mysql/02_v_pnl_excel.sql
     sql/mysql/03_staging.sql
@@ -551,6 +552,101 @@ def gen_mysql_direct(cols):
 
 
 
+# ── 한 파일로 끝나는 MySQL 셋업 (DB 생성 → 테이블 → INFILE 적재) ──────
+ONESHOT_DB = 'sales_2526'
+ONESHOT_FILE = 'C:/work/sales_dashboard/salesDTC/rawdata/sales_2526.csv'
+
+
+def gen_mysql_oneshot(cols):
+    w = max(len(c['name']) for c in cols) + 2
+    L = [f'-- sales_2526 한 방 셋업: DB 생성 → 테이블 생성 → CSV 적재.',
+         '-- MySQL Workbench 에서 이 파일을 열고 ⚡(Execute All) 한 번이면 끝난다.',
+         '--',
+         '-- 실행 전 확인 두 가지',
+         '--   1) 아래 LOAD DATA 의 파일 경로. 슬래시는 / 로 쓸 것 (\\ 는 이스케이프로 먹힌다).',
+         "--   2) Workbench 연결 설정 > Advanced > Others 에 OPT_LOCAL_INFILE=1 (없으면 3948).",
+         '--',
+         '-- 파일이 탭 구분(TSV)이면 FIELDS 줄을 이렇게 바꾼다:',
+         "--     FIELDS TERMINATED BY '\\t' ESCAPED BY ''",
+         '',
+         'SET GLOBAL local_infile = 1;',
+         '',
+         f'CREATE DATABASE IF NOT EXISTS {ONESHOT_DB} '
+         'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;',
+         f'USE {ONESHOT_DB};',
+         '',
+         '-- ── 1. 엑셀 값 정리용 함수 두 개 ────────────────────────────',
+         '--    "1,268.93" → 1268.93,  "" / "#N/A" → NULL,  "(12.50)" → -12.50',
+         '',
+         FUNCS,
+         '',
+         '-- ── 2. 테이블 ───────────────────────────────────────────────',
+         '--    컬럼 순서는 엑셀 시트와 1:1. 주석은 원본 헤더다.',
+         '',
+         'DROP TABLE IF EXISTS pnl_fact;',
+         'CREATE TABLE pnl_fact (',
+         '    pnl_id           bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,']
+    for c in cols:
+        if c['src'] in SECTIONS:
+            L += ['', f"    -- ══ {SECTIONS[c['src']]} " + '═' * 8]
+        typ = my_type(c) + (' NOT NULL' if c['not_null'] else '')
+        cmt = c['src'].replace("'", "''")
+        L.append(f"    {c['name']:<{w}}{typ:<22} COMMENT '{cmt}',")
+    L += ['',
+          f"    {'loaded_at':<{w}}datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),",
+          '',
+          '    -- 같은 기간의 같은 고객 x 제품군 조합은 1행. 실수로 두 번 적재해도',
+          '    -- 중복이 쌓이지 않는다 (LOCAL 적재에서는 에러 대신 경고 1062 로 건너뛴다).',
+          '    UNIQUE KEY ux_pnl_fact_natural (',
+          key_block(cols, indent='        '),
+          '    ),',
+          '    KEY ix_pnl_fact_period   (fiscal_year, period),',
+          '    KEY ix_pnl_fact_customer (sold_to, fiscal_year, period),',
+          '    KEY ix_pnl_fact_matgrp   (material_group, fiscal_year, period)',
+          ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC;',
+          '',
+          '-- ── 3. CSV 적재 ────────────────────────────────────────────',
+          '--    파일의 각 필드를 @변수로 받아 위 함수로 변환해 넣는다.',
+          '',
+          f"LOAD DATA LOCAL INFILE '{ONESHOT_FILE}'",
+          '    INTO TABLE pnl_fact',
+          "    FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '\"' ESCAPED BY ''",
+          "    LINES TERMINATED BY '\\r\\n'",
+          '    IGNORE 1 LINES          -- 헤더 줄 건너뛰기',
+          '(']
+    L += [f"    @{c['name']}{',' if i < len(cols) - 1 else ''}" for i, c in enumerate(cols)]
+    L += [')', 'SET']
+    for i, c in enumerate(cols):
+        fn = 'to_num' if c['numeric'] else 'to_txt'
+        L.append(f"    {c['name']} = {fn}(@{c['name']}){',' if i < len(cols) - 1 else ';'}")
+    L += ['',
+          '-- ── 4. 확인 ────────────────────────────────────────────────',
+          '',
+          'SELECT count(*) AS loaded_rows FROM pnl_fact;',
+          'SHOW WARNINGS;',
+          '',
+          '-- 값이 제자리에 들어갔는지 눈으로 확인',
+          'SELECT sold_to, material_group, prod_group, period,',
+          '       tot_net_sales, tot_cogs, tot_gross_margin, tot_operating_profit',
+          'FROM   pnl_fact',
+          'LIMIT  5;',
+          '',
+          '-- 검산: 아래 네 줄이 전부 0 이면 컬럼이 밀리지 않은 것이다.',
+          'SELECT',
+          '    sum(abs(tot_net_sales - (tot_s_gross_sales - tot_sales_deduction)) > 0.05) '
+          'AS err_net_sales,',
+          '    sum(abs(tot_gross_margin - (tot_net_sales - tot_cogs)) > 0.05) '
+          'AS err_gross_margin,',
+          '    sum(abs(tot_operating_expense - (tot_sales_expense + tot_r_and_d_expense '
+          '+ tot_g_and_a_expense)) > 0.05) AS err_op_expense,',
+          '    sum(abs(tot_operating_profit - (tot_gross_margin - tot_operating_expense)) > 0.05) '
+          'AS err_op_profit',
+          'FROM pnl_fact;',
+          '']
+    return '\n'.join(L)
+
+
+
 def main():
     cols = load_columns()
     write('sql/postgres/01_pnl_fact.sql', gen_postgres(cols))
@@ -562,6 +658,7 @@ def main():
     write('sql/mysql/02_v_pnl_excel.sql', gen_mysql_view(cols))
     write('sql/mysql/03_staging.sql', gen_mysql_staging(cols))
     write('sql/mysql/04_load_from_staging.sql', gen_mysql_load(cols))
+    write('sql/mysql/00_setup_sales_2526.sql', gen_mysql_oneshot(cols))
     write('sql/mysql/06_load_direct.sql', gen_mysql_direct(cols))
     write('sql/mysql/07_load_infile_columns.sql', gen_mysql_infile(cols))
     with open(os.path.join(ROOT, 'docs', 'column_map.csv'), 'w', newline='',

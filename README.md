@@ -40,7 +40,8 @@
 | `sql/postgres/03_staging.sql` | TSV를 그대로 받는 text staging + 숫자/문자 정리 함수 |
 | `sql/postgres/04_load_from_staging.sql` | staging → 팩트 변환 INSERT |
 | `sql/postgres/05_checks.sql` | 적재 검산 (0행이면 정상) |
-| `sql/mysql/01_pnl_fact.sql` ~ `05_checks.sql` | MySQL 판 한 벌 (Workbench 용) |
+| `sql/mysql/00_setup_sales_2526.sql` | **한 파일 셋업** — DB 생성 + 테이블 + CSV 적재 + 검산 |
+| `sql/mysql/01_pnl_fact.sql` ~ `05_checks.sql` | MySQL 판 단계별 한 벌 |
 | `sql/mysql/06_load_direct.sql` | staging 없이 파일 → `pnl_fact` 직접 적재 (MySQL 권장 경로) |
 | `sql/mysql/07_load_infile_columns.sql` | staging 적재용 컬럼 목록 명시판 — 버릴 컬럼·순서 불일치용 |
 | `sql/sqlserver/01_pnl_fact.sql` | SQL Server 판 팩트 테이블 |
@@ -50,11 +51,16 @@
 
 ## 적재 — MySQL (Workbench)
 
+**`sql/mysql/00_setup_sales_2526.sql` 한 파일이면 끝난다.** DB(`sales_2526`) 생성 →
+변환 함수 → 테이블 → CSV 적재 → 검산까지 들어 있다. Workbench 에서 열고 Execute All
+한 번. 실행 전에 파일 안의 `LOAD DATA` 경로와, 파일이 탭 구분이면 `FIELDS` 줄만 고친다.
+
+아래 01~07 은 단계별로 나눠 쓰고 싶을 때의 파일이다.
+
 ```sql
--- Workbench 에서 순서대로 열어 실행
 sql/mysql/01_pnl_fact.sql        -- DB(sales_pnl) + 테이블
 sql/mysql/02_v_pnl_excel.sql     -- 엑셀 헤더 복원 뷰
-sql/mysql/03_staging.sql         -- staging + to_num()/to_txt()
+sql/mysql/03_staging.sql         -- 변환 함수 + staging
 ```
 
 엑셀을 **탭 구분 TSV**로 저장한 뒤:
