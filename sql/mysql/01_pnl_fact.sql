@@ -1,17 +1,16 @@
--- MySQL 판. 엑셀 원본 251 컬럼 그대로.
--- tot_* 는 원본에서 * 가 붙은 소계 라인이다 (하위 계정의 합계이므로 중복 집계 주의).
--- MySQL 은 스키마와 DB 가 같은 개념이라 sales 스키마 대신 DB 를 하나 쓴다.
--- 다른 DB 에 넣으려면 아래 두 줄만 바꾸면 된다.
+-- MySQL: fact table only, 251 columns straight from the sheet.
+-- tot_* are the sheet's * subtotal lines (sums of the detail lines below them,
+-- so do not add both when aggregating).
+-- MySQL has no schema/database distinction, so this uses a database.
 
-CREATE DATABASE IF NOT EXISTS sales_pnl DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-USE sales_pnl;
+CREATE DATABASE IF NOT EXISTS sales_2526 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+USE sales_2526;
 
 DROP TABLE IF EXISTS pnl_fact;
-
 CREATE TABLE pnl_fact (
     pnl_id           bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
 
-    -- ══ 헤더/집계 키 (엑셀 좌측 블록) ════════
+    -- == Header / aggregation keys (left block of the sheet) ========
     cus_group                         varchar(20)            COMMENT 'Cus_group',
     record_type                       varchar(10)            COMMENT 'Type',
     division2                         varchar(20)            COMMENT 'Division 2',
@@ -22,7 +21,7 @@ CREATE TABLE pnl_fact (
     sales_usd                         decimal(18,2)          COMMENT 'Sales U$',
     op_profit_usd                     decimal(18,2)          COMMENT 'Op Profit U$',
 
-    -- ══ SAP 원장 차원 (Dimension) ════════
+    -- == SAP dimensions ========
     customer                          varchar(20)            COMMENT 'Customer',
     material_group                    varchar(20)            COMMENT 'Material Group',
     nielsen_id                        varchar(20)            COMMENT 'Nielsen ID',
@@ -32,12 +31,12 @@ CREATE TABLE pnl_fact (
     period                            varchar(10) NOT NULL   COMMENT 'Period',
     doc_currency                      varchar(10)            COMMENT 'Currency',
 
-    -- ══ 수량 (Quantity) ════════
+    -- == Quantity ========
     qty_gross                         decimal(18,3)          COMMENT 'Quantity(Gross)',
     qty_return                        decimal(18,3)          COMMENT 'Quantity(Return)',
     qty_net                           decimal(18,3)          COMMENT 'Quantity(Net)',
 
-    -- ══ 매출 (Sales) ════════
+    -- == Sales ========
     tot_s_rrp                         decimal(18,2)          COMMENT '*S.RRP',
     reference_price                   decimal(18,2)          COMMENT 'Reference Price',
     tot_dealer_discount               decimal(18,2)          COMMENT '*Delear Discount',
@@ -64,7 +63,7 @@ CREATE TABLE pnl_fact (
     s_sale_deduction_tax              decimal(18,2)          COMMENT 'S.Sale Deduction TAX',
     tot_net_sales                     decimal(18,2)          COMMENT '*Net Sales',
 
-    -- ══ 매출원가 (Cost of Goods Sold) ════════
+    -- == Cost of goods sold ========
     tot_cogs                          decimal(18,2)          COMMENT '*Cost of Goods Sold',
     tot_material_cost                 decimal(18,2)          COMMENT '*Material Cost',
     sc_material_cost                  decimal(18,2)          COMMENT 'SC.Material Cost',
@@ -149,7 +148,7 @@ CREATE TABLE pnl_fact (
     sc_stat_incidental                decimal(18,2)          COMMENT 'SC.Stat Incidental',
     sc_stat_sub_line_exp              decimal(18,2)          COMMENT 'SC.Stat.Sub-Line Exp',
 
-    -- ══ 매출총이익 / 판관비 (Gross Margin & Operating Expense) ════════
+    -- == Gross margin / operating expense ========
     tot_gross_margin                  decimal(18,2)          COMMENT '*Gross Margin',
     tot_operating_expense             decimal(18,2)          COMMENT '*Operating Expense',
     tot_sales_expense                 decimal(18,2)          COMMENT '*Sales Expense',
@@ -211,7 +210,7 @@ CREATE TABLE pnl_fact (
     sa_familynet                      decimal(18,2)          COMMENT 'SA.Familynet',
     sa_other_exp                      decimal(18,2)          COMMENT 'SA.Other Exp',
 
-    -- ══ 연구개발비 (R&D Expense) ════════
+    -- == R&D expense ========
     tot_r_and_d_expense               decimal(18,2)          COMMENT '*R&D Expense',
     tot_internal_expense              decimal(18,2)          COMMENT '*Internal Expense',
     rd_ordinary_exp_matl              decimal(18,2)          COMMENT 'RD.Ordinary Exp-Matl',
@@ -225,7 +224,7 @@ CREATE TABLE pnl_fact (
     rd_royalty                        decimal(18,2)          COMMENT 'RD.Royalty',
     rd_outsourcing_svc                decimal(18,2)          COMMENT 'RD.Outsourcing SVC',
 
-    -- ══ 일반관리비 (G&A Expense) ════════
+    -- == G&A expense ========
     tot_g_and_a_expense               decimal(18,2)          COMMENT '*G&A Expense',
     tot_labor_cost_sa                 decimal(18,2)          COMMENT '*Labor Cost(SA)',
     ga_labor_cost                     decimal(18,2)          COMMENT 'GA.Labor Cost',
@@ -247,7 +246,7 @@ CREATE TABLE pnl_fact (
     ga_convention_exp                 decimal(18,2)          COMMENT 'GA.Convention Exp',
     ga_other                          decimal(18,2)          COMMENT 'GA.Other',
 
-    -- ══ 영업이익 이하 (Operating Profit & below) ════════
+    -- == Operating profit and below ========
     tot_operating_profit              decimal(18,2)          COMMENT '*Operating Profit',
     tot_non_op_income_and_expense     decimal(18,2)          COMMENT '*Non-Op. Incom. & Ex',
     tot_non_op_income                 decimal(18,2)          COMMENT '*Non-Op. Income',
@@ -280,13 +279,11 @@ CREATE TABLE pnl_fact (
     corp_tax                          decimal(18,2)          COMMENT 'Corp. Tax',
     tot_net_income                    decimal(18,2)          COMMENT '*Net Income',
 
-    -- ══ 적재 메타데이터 ════════
-    source_file                       varchar(260),
     loaded_at                         datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
-    -- 자연키: 같은 기간의 같은 고객 x 제품군 x 손익센터 조합은 1행.
-    -- 재적재 시 중복을 막아준다. 키 컬럼에 NULL 이 섞이는 소스라면 이 인덱스를 빼고
-    -- 적재 전 DELETE 로 해당 기간을 지우는 방식을 쓸 것.
+    -- One row per period x customer x material group x profit center.
+    -- Loading the same file twice does not pile up duplicates: under
+    -- LOAD DATA LOCAL a duplicate key is warning 1062 and the row is skipped.
     UNIQUE KEY ux_pnl_fact_natural (
         fiscal_year, period, sold_to, material_group, profit_center,
         sap_division, distribution_channel, doc_currency
@@ -295,4 +292,4 @@ CREATE TABLE pnl_fact (
     KEY ix_pnl_fact_customer (sold_to, fiscal_year, period),
     KEY ix_pnl_fact_matgrp   (material_group, fiscal_year, period)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC
-  COMMENT='고객/제품군 단위 손익(P&L) 플랫 테이블. tot_* 는 엑셀 원본의 * 소계 라인.';
+  COMMENT='P&L by customer and material group. tot_* are the sheet''s * subtotal lines.';

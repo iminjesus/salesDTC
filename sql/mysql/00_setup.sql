@@ -1,22 +1,23 @@
--- sales_2526 한 방 셋업: DB 생성 → 테이블 생성 → CSV 적재.
--- MySQL Workbench 에서 이 파일을 열고 ⚡(Execute All) 한 번이면 끝난다.
+-- One-file setup for sales_2526: database -> table -> CSV load -> checks.
+-- Open in MySQL Workbench and hit Execute All. Nothing else is needed.
 --
--- 실행 전 확인 두 가지
---   1) 아래 LOAD DATA 의 파일 경로. 슬래시는 / 로 쓸 것 (\ 는 이스케이프로 먹힌다).
---   2) Workbench 연결 설정 > Advanced > Others 에 OPT_LOCAL_INFILE=1 (없으면 3948).
+-- Before running, check two things:
+--   1) the file path below. Use forward slashes; a backslash is an escape char.
+--   2) Workbench connection > Advanced > Others must have OPT_LOCAL_INFILE=1,
+--      otherwise the load fails with error 3948.
 --
--- 파일이 탭 구분(TSV)이면 FIELDS 줄을 이렇게 바꾼다:
+-- For a tab-separated file, change the FIELDS line to:
 --     FIELDS TERMINATED BY '\t' ESCAPED BY ''
 
 SET GLOBAL local_infile = 1;
 
+-- == 1. Cleanup functions ========
+--    "1,268.93" -> 1268.93,  "" / "#N/A" -> NULL,  "(12.50)" -> -12.50
+
 CREATE DATABASE IF NOT EXISTS sales_2526 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 USE sales_2526;
 
--- ── 1. 엑셀 값 정리용 함수 두 개 ────────────────────────────
---    "1,268.93" → 1268.93,  "" / "#N/A" → NULL,  "(12.50)" → -12.50
-
--- 엑셀식 숫자 문자열 → decimal   ("1,268.93", "(1,234)", "", "-", "#N/A")
+-- Excel-style number string -> decimal  ("1,268.93", "(1,234)", "", "-", "#N/A")
 DROP FUNCTION IF EXISTS to_num;
 DROP FUNCTION IF EXISTS to_txt;
 DELIMITER $$
@@ -29,7 +30,7 @@ BEGIN
     IF t = '' OR t IN ('-', '#N/A', 'N/A', '#DIV/0!', '#VALUE!') THEN
         RETURN NULL;
     END IF;
-    IF t LIKE '(%)' THEN                       -- 회계식 음수 표기 (12.50) → -12.50
+    IF t LIKE '(%)' THEN                       -- accounting negative (12.50) -> -12.50
         SET t = CONCAT('-', SUBSTRING(t, 2, CHAR_LENGTH(t) - 2));
     END IF;
     IF t NOT REGEXP '^-?[0-9]*\.?[0-9]+$' THEN
@@ -38,7 +39,7 @@ BEGIN
     RETURN CAST(t AS decimal(18,4));
 END$$
 
--- 텍스트 차원값 정리: 앞뒤 공백 제거, 빈칸/#N/A 는 NULL
+-- Dimension text: trim, and turn blank / #N/A into NULL
 CREATE FUNCTION to_txt(v text) RETURNS varchar(260)
 DETERMINISTIC
 BEGIN
@@ -52,14 +53,14 @@ END$$
 
 DELIMITER ;
 
--- ── 2. 테이블 ───────────────────────────────────────────────
---    컬럼 순서는 엑셀 시트와 1:1. 주석은 원본 헤더다.
+-- == 2. Table ========
+--    Column order matches the sheet 1:1; each comment is the original header.
 
 DROP TABLE IF EXISTS pnl_fact;
 CREATE TABLE pnl_fact (
     pnl_id           bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
 
-    -- ══ 헤더/집계 키 (엑셀 좌측 블록) ════════
+    -- == Header / aggregation keys (left block of the sheet) ========
     cus_group                         varchar(20)            COMMENT 'Cus_group',
     record_type                       varchar(10)            COMMENT 'Type',
     division2                         varchar(20)            COMMENT 'Division 2',
@@ -70,7 +71,7 @@ CREATE TABLE pnl_fact (
     sales_usd                         decimal(18,2)          COMMENT 'Sales U$',
     op_profit_usd                     decimal(18,2)          COMMENT 'Op Profit U$',
 
-    -- ══ SAP 원장 차원 (Dimension) ════════
+    -- == SAP dimensions ========
     customer                          varchar(20)            COMMENT 'Customer',
     material_group                    varchar(20)            COMMENT 'Material Group',
     nielsen_id                        varchar(20)            COMMENT 'Nielsen ID',
@@ -80,12 +81,12 @@ CREATE TABLE pnl_fact (
     period                            varchar(10) NOT NULL   COMMENT 'Period',
     doc_currency                      varchar(10)            COMMENT 'Currency',
 
-    -- ══ 수량 (Quantity) ════════
+    -- == Quantity ========
     qty_gross                         decimal(18,3)          COMMENT 'Quantity(Gross)',
     qty_return                        decimal(18,3)          COMMENT 'Quantity(Return)',
     qty_net                           decimal(18,3)          COMMENT 'Quantity(Net)',
 
-    -- ══ 매출 (Sales) ════════
+    -- == Sales ========
     tot_s_rrp                         decimal(18,2)          COMMENT '*S.RRP',
     reference_price                   decimal(18,2)          COMMENT 'Reference Price',
     tot_dealer_discount               decimal(18,2)          COMMENT '*Delear Discount',
@@ -112,7 +113,7 @@ CREATE TABLE pnl_fact (
     s_sale_deduction_tax              decimal(18,2)          COMMENT 'S.Sale Deduction TAX',
     tot_net_sales                     decimal(18,2)          COMMENT '*Net Sales',
 
-    -- ══ 매출원가 (Cost of Goods Sold) ════════
+    -- == Cost of goods sold ========
     tot_cogs                          decimal(18,2)          COMMENT '*Cost of Goods Sold',
     tot_material_cost                 decimal(18,2)          COMMENT '*Material Cost',
     sc_material_cost                  decimal(18,2)          COMMENT 'SC.Material Cost',
@@ -197,7 +198,7 @@ CREATE TABLE pnl_fact (
     sc_stat_incidental                decimal(18,2)          COMMENT 'SC.Stat Incidental',
     sc_stat_sub_line_exp              decimal(18,2)          COMMENT 'SC.Stat.Sub-Line Exp',
 
-    -- ══ 매출총이익 / 판관비 (Gross Margin & Operating Expense) ════════
+    -- == Gross margin / operating expense ========
     tot_gross_margin                  decimal(18,2)          COMMENT '*Gross Margin',
     tot_operating_expense             decimal(18,2)          COMMENT '*Operating Expense',
     tot_sales_expense                 decimal(18,2)          COMMENT '*Sales Expense',
@@ -259,7 +260,7 @@ CREATE TABLE pnl_fact (
     sa_familynet                      decimal(18,2)          COMMENT 'SA.Familynet',
     sa_other_exp                      decimal(18,2)          COMMENT 'SA.Other Exp',
 
-    -- ══ 연구개발비 (R&D Expense) ════════
+    -- == R&D expense ========
     tot_r_and_d_expense               decimal(18,2)          COMMENT '*R&D Expense',
     tot_internal_expense              decimal(18,2)          COMMENT '*Internal Expense',
     rd_ordinary_exp_matl              decimal(18,2)          COMMENT 'RD.Ordinary Exp-Matl',
@@ -273,7 +274,7 @@ CREATE TABLE pnl_fact (
     rd_royalty                        decimal(18,2)          COMMENT 'RD.Royalty',
     rd_outsourcing_svc                decimal(18,2)          COMMENT 'RD.Outsourcing SVC',
 
-    -- ══ 일반관리비 (G&A Expense) ════════
+    -- == G&A expense ========
     tot_g_and_a_expense               decimal(18,2)          COMMENT '*G&A Expense',
     tot_labor_cost_sa                 decimal(18,2)          COMMENT '*Labor Cost(SA)',
     ga_labor_cost                     decimal(18,2)          COMMENT 'GA.Labor Cost',
@@ -295,7 +296,7 @@ CREATE TABLE pnl_fact (
     ga_convention_exp                 decimal(18,2)          COMMENT 'GA.Convention Exp',
     ga_other                          decimal(18,2)          COMMENT 'GA.Other',
 
-    -- ══ 영업이익 이하 (Operating Profit & below) ════════
+    -- == Operating profit and below ========
     tot_operating_profit              decimal(18,2)          COMMENT '*Operating Profit',
     tot_non_op_income_and_expense     decimal(18,2)          COMMENT '*Non-Op. Incom. & Ex',
     tot_non_op_income                 decimal(18,2)          COMMENT '*Non-Op. Income',
@@ -330,8 +331,9 @@ CREATE TABLE pnl_fact (
 
     loaded_at                         datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
-    -- 같은 기간의 같은 고객 x 제품군 조합은 1행. 실수로 두 번 적재해도
-    -- 중복이 쌓이지 않는다 (LOCAL 적재에서는 에러 대신 경고 1062 로 건너뛴다).
+    -- One row per period x customer x material group x profit center.
+    -- Loading the same file twice does not pile up duplicates: under
+    -- LOAD DATA LOCAL a duplicate key is warning 1062 and the row is skipped.
     UNIQUE KEY ux_pnl_fact_natural (
         fiscal_year, period, sold_to, material_group, profit_center,
         sap_division, distribution_channel, doc_currency
@@ -339,16 +341,17 @@ CREATE TABLE pnl_fact (
     KEY ix_pnl_fact_period   (fiscal_year, period),
     KEY ix_pnl_fact_customer (sold_to, fiscal_year, period),
     KEY ix_pnl_fact_matgrp   (material_group, fiscal_year, period)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC
+  COMMENT='P&L by customer and material group. tot_* are the sheet''s * subtotal lines.';
 
--- ── 3. CSV 적재 ────────────────────────────────────────────
---    파일의 각 필드를 @변수로 받아 위 함수로 변환해 넣는다.
+-- == 3. Load ========
+--    Every field is read into a @variable and converted in the SET clause.
 
 LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/sales_2526.csv'
     INTO TABLE pnl_fact
     FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
     LINES TERMINATED BY '\r\n'
-    IGNORE 1 LINES          -- 헤더 줄 건너뛰기
+    IGNORE 1 LINES          -- skip the header row
 (
     @cus_group,
     @record_type,
@@ -855,18 +858,18 @@ SET
     corp_tax = to_num(@corp_tax),
     tot_net_income = to_num(@tot_net_income);
 
--- ── 4. 확인 ────────────────────────────────────────────────
+-- == 4. Verify ========
 
 SELECT count(*) AS loaded_rows FROM pnl_fact;
 SHOW WARNINGS;
 
--- 값이 제자리에 들어갔는지 눈으로 확인
+-- Eyeball a few rows to confirm values landed in the right columns.
 SELECT sold_to, material_group, prod_group, period,
        tot_net_sales, tot_cogs, tot_gross_margin, tot_operating_profit
 FROM   pnl_fact
 LIMIT  5;
 
--- 검산: 아래 네 줄이 전부 0 이면 컬럼이 밀리지 않은 것이다.
+-- Reconciliation: all four counters must be 0, otherwise columns are shifted.
 SELECT
     sum(abs(tot_net_sales - (tot_s_gross_sales - tot_sales_deduction)) > 0.05) AS err_net_sales,
     sum(abs(tot_gross_margin - (tot_net_sales - tot_cogs)) > 0.05) AS err_gross_margin,

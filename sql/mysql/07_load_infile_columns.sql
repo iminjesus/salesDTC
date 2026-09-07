@@ -1,25 +1,29 @@
--- 엑셀 TSV → pnl_stg 적재 (컬럼 목록 명시판).
+-- Load the file into pnl_stg with an explicit column list.
 --
--- 파일 맨 앞에 테이블에 없는 컬럼이 붙어 있으면(엑셀 인덱스 열, 예전 시트에만
--- 있던 Account/Site/Ver/Flag/Month/PP1 등) 아래 목록 맨 앞의 컬럼명을 그 수만큼
--- @skip1, @skip2 ... 로 바꾸면 된다. @변수로 받은 값은 테이블에 들어가지 않는다.
---   예) 앞 3개 무시:   (@skip1, @skip2, @skip3, cus_group, record_type, ...)
+-- Use this when the file has columns the table does not (an Excel index
+-- column, headers only the older sheet had) or when the order differs:
+-- replace those positions with @skip1, @skip2 ... and their values are
+-- discarded. The list order must match the file, not the table.
 --
--- 파일의 컬럼 순서가 테이블과 다를 때도 이 목록의 순서만 파일에 맞추면 된다.
--- 헤더 줄은 IGNORE 1 LINES 로 건너뛴다. 엑셀에서 저장한 파일이면 보통
--- LINES TERMINATED BY '\r\n' 이고, 리눅스/맥에서 만든 파일이면 '\n' 이다.
+-- Before running, check two things:
+--   1) the file path below. Use forward slashes; a backslash is an escape char.
+--   2) Workbench connection > Advanced > Others must have OPT_LOCAL_INFILE=1,
+--      otherwise the load fails with error 3948.
+--
+-- For a tab-separated file, change the FIELDS line to:
+--     FIELDS TERMINATED BY '\t' ESCAPED BY ''
 
-USE sales_pnl;
+USE sales_2526;
 
 TRUNCATE TABLE pnl_stg;
 
-LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/pnl.tsv'
+LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/sales_2526.csv'
     INTO TABLE pnl_stg
-    FIELDS TERMINATED BY '\t' ESCAPED BY ''
+    FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
     LINES TERMINATED BY '\r\n'
-    IGNORE 1 LINES
+    IGNORE 1 LINES          -- skip the header row
 (
-    cus_group,                     -- ← 앞부터 버리려면 이 줄들을 @skip1, @skip2 ... 로
+    cus_group,
     record_type,
     division2,
     prod_group,
@@ -273,5 +277,6 @@ LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/pnl.tsv'
 );
 
 SELECT count(*) AS staged FROM pnl_stg;
+SHOW WARNINGS;
 
--- 이어서 04_load_from_staging.sql 실행 → 05_checks.sql 로 검산.
+-- Then run 04_load_from_staging.sql, followed by 05_checks.sql.

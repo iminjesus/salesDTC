@@ -1,5 +1,5 @@
--- 엑셀에서 뽑은 TSV 를 있는 그대로 받는 임시 테이블: 전 컬럼 text.
--- "1,268.93" 같은 천단위 콤마, 빈칸, #N/A 를 일단 통과시킨 뒤 04 스크립트에서 변환한다.
+-- All-text staging table holding the raw TSV: thousands separators, blanks
+-- and #N/A pass through here and are converted by 04_load_from_staging.sql.
 
 DROP TABLE IF EXISTS sales.pnl_stg;
 CREATE TABLE sales.pnl_stg (
@@ -256,7 +256,7 @@ CREATE TABLE sales.pnl_stg (
     tot_net_income                    text
 );
 
--- 엑셀식 숫자 문자열 → numeric   ("1,268.93", "(1,234)", "", "-", "#N/A")
+-- Excel-style number string -> numeric  ("1,268.93", "(1,234)", "", "-", "#N/A")
 CREATE OR REPLACE FUNCTION sales.to_num(v text) RETURNS numeric
 LANGUAGE plpgsql IMMUTABLE AS $$
 DECLARE t text;
@@ -266,7 +266,7 @@ BEGIN
     IF t = '' OR t IN ('-', '#N/A', 'N/A', '#DIV/0!', '#VALUE!') THEN
         RETURN NULL;
     END IF;
-    IF t LIKE '(%)' THEN                       -- 회계식 음수 표기 (12.50) → -12.50
+    IF t LIKE '(%)' THEN                       -- accounting negative (12.50) -> -12.50
         t := '-' || btrim(t, '()');
     END IF;
     RETURN t::numeric;
@@ -274,7 +274,7 @@ EXCEPTION WHEN others THEN
     RETURN NULL;
 END $$;
 
--- 텍스트 차원값 정리: 앞뒤 공백 제거, 빈칸/#N/A 는 NULL
+-- Dimension text: trim, and turn blank / #N/A into NULL
 CREATE OR REPLACE FUNCTION sales.to_txt(v text) RETURNS text
 LANGUAGE sql IMMUTABLE AS $$
     SELECT nullif(nullif(btrim(coalesce(v, '')), ''), '#N/A')

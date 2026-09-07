@@ -1,11 +1,12 @@
--- 변환 함수 + 원본 TSV/CSV 를 그대로 받는 임시 테이블(전 컬럼 text).
--- "1,268.93" 같은 천단위 콤마, 빈칸, #N/A 를 일단 통과시킨 뒤 04 에서 변환한다.
+-- Cleanup functions plus an all-text staging table holding the raw file.
+-- Thousands separators, blanks and #N/A pass through here and are converted
+-- by 04_load_from_staging.sql.
 --
--- staging 없이 바로 넣고 싶으면 이 파일의 함수 부분만 실행하고
--- 06_load_direct.sql 을 쓰면 된다. 그 편이 단계가 하나 적다.
-USE sales_pnl;
+-- To skip staging entirely, run only the two functions below and use
+-- 06_load_direct.sql instead - one step fewer.
+USE sales_2526;
 
--- 엑셀식 숫자 문자열 → decimal   ("1,268.93", "(1,234)", "", "-", "#N/A")
+-- Excel-style number string -> decimal  ("1,268.93", "(1,234)", "", "-", "#N/A")
 DROP FUNCTION IF EXISTS to_num;
 DROP FUNCTION IF EXISTS to_txt;
 DELIMITER $$
@@ -18,7 +19,7 @@ BEGIN
     IF t = '' OR t IN ('-', '#N/A', 'N/A', '#DIV/0!', '#VALUE!') THEN
         RETURN NULL;
     END IF;
-    IF t LIKE '(%)' THEN                       -- 회계식 음수 표기 (12.50) → -12.50
+    IF t LIKE '(%)' THEN                       -- accounting negative (12.50) -> -12.50
         SET t = CONCAT('-', SUBSTRING(t, 2, CHAR_LENGTH(t) - 2));
     END IF;
     IF t NOT REGEXP '^-?[0-9]*\.?[0-9]+$' THEN
@@ -27,7 +28,7 @@ BEGIN
     RETURN CAST(t AS decimal(18,4));
 END$$
 
--- 텍스트 차원값 정리: 앞뒤 공백 제거, 빈칸/#N/A 는 NULL
+-- Dimension text: trim, and turn blank / #N/A into NULL
 CREATE FUNCTION to_txt(v text) RETURNS varchar(260)
 DETERMINISTIC
 BEGIN
@@ -41,9 +42,10 @@ END$$
 
 DELIMITER ;
 
--- 아래 text 251개 테이블은 MySQL 8 의 InnoDB 행 크기 제한(8126 byte)에 걸려
--- 그냥 만들면 Error 1118 이 난다. 값이 실제로는 짧아서 DYNAMIC 행 포맷이
--- 알아서 밖으로 빼주므로, 생성할 때만 strict 검사를 끄면 된다.
+-- MySQL 8 refuses a table of 251 text columns because of the InnoDB row size
+-- limit (8126 bytes, error 1118). The values are short, so the DYNAMIC row
+-- format stores them off-page at runtime; only the create-time check needs
+-- to be relaxed.
 SET SESSION innodb_strict_mode = OFF;
 
 DROP TABLE IF EXISTS pnl_stg;

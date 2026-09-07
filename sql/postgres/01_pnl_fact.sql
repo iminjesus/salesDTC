@@ -1,5 +1,6 @@
--- 고객 x 제품군 단위 손익(P&L) 플랫 테이블 — 엑셀 원본 251 컬럼 그대로.
--- tot_* 는 원본에서 * 가 붙은 소계 라인이다 (하위 계정의 합계이므로 중복 집계 주의).
+-- P&L by customer and material group: 251 columns straight from the sheet.
+-- tot_* are the sheet's * subtotal lines (sums of the detail lines below them,
+-- so do not add both when aggregating).
 
 CREATE SCHEMA IF NOT EXISTS sales;
 
@@ -8,7 +9,7 @@ DROP TABLE IF EXISTS sales.pnl_fact CASCADE;
 CREATE TABLE sales.pnl_fact (
     pnl_id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
-    -- ══ 헤더/집계 키 (엑셀 좌측 블록) ════════
+    -- == Header / aggregation keys (left block of the sheet) ========
     cus_group                         varchar(20),            -- Cus_group
     record_type                       varchar(10),            -- Type
     division2                         varchar(20),            -- Division 2
@@ -19,7 +20,7 @@ CREATE TABLE sales.pnl_fact (
     sales_usd                         numeric(18,2),          -- Sales U$
     op_profit_usd                     numeric(18,2),          -- Op Profit U$
 
-    -- ══ SAP 원장 차원 (Dimension) ════════
+    -- == SAP dimensions ========
     customer                          varchar(20),            -- Customer
     material_group                    varchar(20),            -- Material Group
     nielsen_id                        varchar(20),            -- Nielsen ID
@@ -29,12 +30,12 @@ CREATE TABLE sales.pnl_fact (
     period                            varchar(10) NOT NULL,   -- Period
     doc_currency                      varchar(10),            -- Currency
 
-    -- ══ 수량 (Quantity) ════════
+    -- == Quantity ========
     qty_gross                         numeric(18,3),          -- Quantity(Gross)
     qty_return                        numeric(18,3),          -- Quantity(Return)
     qty_net                           numeric(18,3),          -- Quantity(Net)
 
-    -- ══ 매출 (Sales) ════════
+    -- == Sales ========
     tot_s_rrp                         numeric(18,2),          -- *S.RRP
     reference_price                   numeric(18,2),          -- Reference Price
     tot_dealer_discount               numeric(18,2),          -- *Delear Discount
@@ -61,7 +62,7 @@ CREATE TABLE sales.pnl_fact (
     s_sale_deduction_tax              numeric(18,2),          -- S.Sale Deduction TAX
     tot_net_sales                     numeric(18,2),          -- *Net Sales
 
-    -- ══ 매출원가 (Cost of Goods Sold) ════════
+    -- == Cost of goods sold ========
     tot_cogs                          numeric(18,2),          -- *Cost of Goods Sold
     tot_material_cost                 numeric(18,2),          -- *Material Cost
     sc_material_cost                  numeric(18,2),          -- SC.Material Cost
@@ -146,7 +147,7 @@ CREATE TABLE sales.pnl_fact (
     sc_stat_incidental                numeric(18,2),          -- SC.Stat Incidental
     sc_stat_sub_line_exp              numeric(18,2),          -- SC.Stat.Sub-Line Exp
 
-    -- ══ 매출총이익 / 판관비 (Gross Margin & Operating Expense) ════════
+    -- == Gross margin / operating expense ========
     tot_gross_margin                  numeric(18,2),          -- *Gross Margin
     tot_operating_expense             numeric(18,2),          -- *Operating Expense
     tot_sales_expense                 numeric(18,2),          -- *Sales Expense
@@ -208,7 +209,7 @@ CREATE TABLE sales.pnl_fact (
     sa_familynet                      numeric(18,2),          -- SA.Familynet
     sa_other_exp                      numeric(18,2),          -- SA.Other Exp
 
-    -- ══ 연구개발비 (R&D Expense) ════════
+    -- == R&D expense ========
     tot_r_and_d_expense               numeric(18,2),          -- *R&D Expense
     tot_internal_expense              numeric(18,2),          -- *Internal Expense
     rd_ordinary_exp_matl              numeric(18,2),          -- RD.Ordinary Exp-Matl
@@ -222,7 +223,7 @@ CREATE TABLE sales.pnl_fact (
     rd_royalty                        numeric(18,2),          -- RD.Royalty
     rd_outsourcing_svc                numeric(18,2),          -- RD.Outsourcing SVC
 
-    -- ══ 일반관리비 (G&A Expense) ════════
+    -- == G&A expense ========
     tot_g_and_a_expense               numeric(18,2),          -- *G&A Expense
     tot_labor_cost_sa                 numeric(18,2),          -- *Labor Cost(SA)
     ga_labor_cost                     numeric(18,2),          -- GA.Labor Cost
@@ -244,7 +245,7 @@ CREATE TABLE sales.pnl_fact (
     ga_convention_exp                 numeric(18,2),          -- GA.Convention Exp
     ga_other                          numeric(18,2),          -- GA.Other
 
-    -- ══ 영업이익 이하 (Operating Profit & below) ════════
+    -- == Operating profit and below ========
     tot_operating_profit              numeric(18,2),          -- *Operating Profit
     tot_non_op_income_and_expense     numeric(18,2),          -- *Non-Op. Incom. & Ex
     tot_non_op_income                 numeric(18,2),          -- *Non-Op. Income
@@ -277,14 +278,14 @@ CREATE TABLE sales.pnl_fact (
     corp_tax                          numeric(18,2),          -- Corp. Tax
     tot_net_income                    numeric(18,2),          -- *Net Income
 
-    -- ══ 적재 메타데이터 ════════
+    -- == Load metadata ========
     source_file                       varchar(260),
     loaded_at                         timestamptz NOT NULL DEFAULT now()
 );
 
--- 자연키: 같은 기간의 같은 고객 x 제품군 x 손익센터 조합은 1행.
--- 재적재 시 중복을 막아준다. 키 컬럼에 NULL 이 섞이는 소스라면 이 인덱스는 빼고
--- 적재 전 DELETE 로 해당 기간을 지우는 방식을 쓸 것.
+-- Natural key: one row per period x customer x material group x profit center.
+-- Drop this index if the source has NULLs in the key columns, and delete the
+-- period before reloading instead.
 CREATE UNIQUE INDEX ux_pnl_fact_natural ON sales.pnl_fact (
     fiscal_year, period, sold_to, material_group, profit_center,
     sap_division, distribution_channel, doc_currency
@@ -294,7 +295,7 @@ CREATE INDEX ix_pnl_fact_period   ON sales.pnl_fact (fiscal_year, period);
 CREATE INDEX ix_pnl_fact_customer ON sales.pnl_fact (sold_to, fiscal_year, period);
 CREATE INDEX ix_pnl_fact_matgrp   ON sales.pnl_fact (material_group, fiscal_year, period);
 
-COMMENT ON TABLE sales.pnl_fact IS '고객/제품군 단위 손익(P&L) 플랫 테이블. tot_* 컬럼은 엑셀 원본의 * 소계 라인.';
+COMMENT ON TABLE sales.pnl_fact IS 'P&L by customer and material group. tot_* are the sheet''s * subtotal lines.';
 
 COMMENT ON COLUMN sales.pnl_fact.cus_group IS 'Cus_group';
 COMMENT ON COLUMN sales.pnl_fact.record_type IS 'Type';

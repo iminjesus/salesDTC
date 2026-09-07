@@ -1,9 +1,9 @@
--- 적재 검산 (MySQL 판). 붙여준 샘플 행에서 실제로 성립하는 관계식만 넣었다.
--- 각 쿼리는 "어긋난 행"을 돌려주므로, 0행이면 정상이다.
--- (엑셀 소계 * 라인을 그대로 담은 tot_* 컬럼끼리의 관계이므로,
---  ETL 이 컬럼을 밀려 넣었는지 잡아내는 용도로 쓰면 좋다.)
+-- Load reconciliation (MySQL). Only relationships that actually hold in the source rows.
+-- Each query returns the rows that break the rule, so zero rows means it is fine.
+-- These compare the sheet's * subtotal lines against each other, which is what
+-- catches an ETL that shifted columns by one.
 
-USE sales_pnl;
+USE sales_2526;
 
 -- 1) *Net Sales = *S.Gross Sales - *Sales Deduction
 SELECT 'net_sales' AS check_name, pnl_id, sold_to, material_group,
@@ -35,8 +35,8 @@ SELECT 'operating_profit' AS check_name, pnl_id, sold_to, material_group,
 FROM   pnl_fact
 WHERE  abs(tot_operating_profit - (tot_gross_margin - tot_operating_expense)) > 0.05;
 
--- 5) 환산 검산: Sales U$ ≈ *Net Sales x Forex  (엑셀 좌측 집계 블록 vs 원장)
---    반올림 차이가 있어 허용오차를 크게 잡는다.
+-- 5) Currency translation: Sales U$ ~ *Net Sales x Forex (aggregation block vs ledger).
+--    Rounding differences are expected, so the tolerance is wide.
 SELECT 'sales_usd' AS check_name, pnl_id, sold_to, material_group,
        sales_usd, tot_net_sales, forex_rate,
        sales_usd - tot_net_sales * forex_rate AS diff

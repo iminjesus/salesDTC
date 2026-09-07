@@ -1,4 +1,4 @@
--- 엑셀 원본 헤더 그대로 내보내기용 뷰.
+-- View that gives the original Excel headers back.
 --   \copy (SELECT * FROM sales.v_pnl_excel) TO 'pnl.csv' WITH (FORMAT csv, HEADER true)
 CREATE OR REPLACE VIEW sales.v_pnl_excel AS
 SELECT

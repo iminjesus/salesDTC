@@ -1,4 +1,4 @@
-pos,excel_header,column_name,postgres_type,is_subtotal
+pos,excel_header,column_name,sql_type,is_subtotal
 1,Cus_group,cus_group,varchar(20),
 2,Type,record_type,varchar(10),
 3,Division 2,division2,varchar(20),

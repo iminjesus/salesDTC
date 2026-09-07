@@ -1,8 +1,8 @@
--- staging → 팩트 변환 적재.
+-- staging -> fact.
 --   1) TRUNCATE sales.pnl_stg;
 --   2) \copy sales.pnl_stg FROM 'pnl.tsv' WITH (FORMAT csv, DELIMITER E'\t', HEADER true, QUOTE E'\b')
---      (QUOTE 를 백스페이스로 둬서 엑셀 값 안의 따옴표를 그대로 통과시킨다)
---   3) 이 파일 실행
+--      (QUOTE is a backspace so quotes inside Excel values pass through)
+--   3) run this file
 --   4) TRUNCATE sales.pnl_stg;
 
 INSERT INTO sales.pnl_fact (

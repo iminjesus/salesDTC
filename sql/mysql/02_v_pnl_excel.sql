@@ -1,5 +1,5 @@
--- 엑셀 원본 헤더 그대로 내보내기용 뷰 (MySQL 은 식별자에 백틱을 쓴다).
-USE sales_pnl;
+-- View that gives the original Excel headers back (MySQL quotes with backticks).
+USE sales_2526;
 
 CREATE OR REPLACE VIEW v_pnl_excel AS
 SELECT

@@ -1,26 +1,29 @@
--- staging 없이 파일 → pnl_fact 직접 적재.
--- 03_staging.sql 의 to_num()/to_txt() 함수가 먼저 만들어져 있어야 한다
--- (그 파일에서 CREATE FUNCTION 두 개만 실행해도 된다).
+-- File -> pnl_fact directly, without a staging table.
+-- The to_num()/to_txt() functions from 03_staging.sql must exist
+-- (running just the two CREATE FUNCTION blocks there is enough).
 --
--- 파일 형식에 맞춰 FIELDS/LINES 두 줄만 고치면 된다.
---   콤마 CSV  : FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
---   탭 TSV    : FIELDS TERMINATED BY '\t' ESCAPED BY ''
---   윈도우 파일: LINES TERMINATED BY '\r\n'   / 그 외: '\n'
+-- Before running, check two things:
+--   1) the file path below. Use forward slashes; a backslash is an escape char.
+--   2) Workbench connection > Advanced > Others must have OPT_LOCAL_INFILE=1,
+--      otherwise the load fails with error 3948.
 --
--- 파일에 테이블로 안 옮길 컬럼이 섞여 있으면, 그 자리 @변수를 SET 절에서 빼기만
--- 하면 된다. @변수는 SET 에서 안 쓰면 그냥 버려진다.
+-- For a tab-separated file, change the FIELDS line to:
+--     FIELDS TERMINATED BY '\t' ESCAPED BY ''
 --
--- LOCAL 을 쓰면 자연키 중복이 에러가 아니라 경고(1062)로 처리되고 그 행은
--- 조용히 건너뛴다. 두 번 돌려도 중복이 쌓이진 않지만, 몇 행이 들어갔는지는
--- 아래 SHOW WARNINGS 와 행 수로 직접 확인할 것.
+-- If the file carries columns that do not belong in the table, drop the
+-- matching @variable from the SET clause - unused @variables are discarded.
+--
+-- Under LOCAL, a duplicate natural key is warning 1062 rather than an error
+-- and that row is skipped silently. Re-running is safe, but always check the
+-- row count and SHOW WARNINGS below.
 
-USE sales_pnl;
+USE sales_2526;
 
 LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/sales_2526.csv'
     INTO TABLE pnl_fact
     FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
     LINES TERMINATED BY '\r\n'
-    IGNORE 1 LINES
+    IGNORE 1 LINES          -- skip the header row
 (
     @cus_group,
     @record_type,
@@ -527,7 +530,20 @@ SET
     corp_tax = to_num(@corp_tax),
     tot_net_income = to_num(@tot_net_income);
 
-SELECT count(*) AS loaded FROM pnl_fact;
+
+SELECT count(*) AS loaded_rows FROM pnl_fact;
 SHOW WARNINGS;
 
--- 이어서 05_checks.sql 로 검산 (아무 행도 안 나오면 정상).
+-- Eyeball a few rows to confirm values landed in the right columns.
+SELECT sold_to, material_group, prod_group, period,
+       tot_net_sales, tot_cogs, tot_gross_margin, tot_operating_profit
+FROM   pnl_fact
+LIMIT  5;
+
+-- Reconciliation: all four counters must be 0, otherwise columns are shifted.
+SELECT
+    sum(abs(tot_net_sales - (tot_s_gross_sales - tot_sales_deduction)) > 0.05) AS err_net_sales,
+    sum(abs(tot_gross_margin - (tot_net_sales - tot_cogs)) > 0.05) AS err_gross_margin,
+    sum(abs(tot_operating_expense - (tot_sales_expense + tot_r_and_d_expense + tot_g_and_a_expense)) > 0.05) AS err_op_expense,
+    sum(abs(tot_operating_profit - (tot_gross_margin - tot_operating_expense)) > 0.05) AS err_op_profit
+FROM pnl_fact;

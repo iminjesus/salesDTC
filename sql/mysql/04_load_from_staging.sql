@@ -1,15 +1,11 @@
--- staging → 팩트 변환 적재.
+-- staging -> fact.
 --   1) TRUNCATE TABLE pnl_stg;
---   2) 엑셀을 TSV 로 저장한 뒤 아래 중 하나로 적재
---      LOAD DATA LOCAL INFILE 'pnl.tsv' INTO TABLE pnl_stg
---          FIELDS TERMINATED BY '\t' ESCAPED BY ''
---          LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
---      (Workbench 는 Server > Options File > local_infile 을 켜야 한다.
---       안 되면 테이블 우클릭 > Table Data Import Wizard 로 pnl_stg 에 넣어도 된다)
---   3) 이 파일 실행
+--   2) load the file into pnl_stg (07_load_infile_columns.sql, or the
+--      Table Data Import Wizard if LOAD DATA LOCAL is unavailable)
+--   3) run this file
 --   4) TRUNCATE TABLE pnl_stg;
 
-USE sales_pnl;
+USE sales_2526;
 
 INSERT INTO pnl_fact (
     cus_group,

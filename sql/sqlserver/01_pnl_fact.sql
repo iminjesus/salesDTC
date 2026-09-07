@@ -1,6 +1,6 @@
--- SQL Server 판. Postgres 판(sql/postgres/01_pnl_fact.sql)과 컬럼 구성은 동일하다.
--- 주의: SQL Server 의 UNIQUE INDEX 는 NULL 끼리도 같은 값으로 보므로,
---       자연키에 NULL 이 들어오는 소스라면 인덱스를 빼거나 필터 인덱스로 바꿀 것.
+-- SQL Server. Same columns as the PostgreSQL version.
+-- Note: a SQL Server UNIQUE INDEX treats NULLs as equal, so drop the index
+--       or make it filtered if the source has NULLs in the key columns.
 
 IF SCHEMA_ID('sales') IS NULL EXEC('CREATE SCHEMA sales');
 GO
@@ -11,7 +11,7 @@ GO
 CREATE TABLE sales.pnl_fact (
     pnl_id           bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
 
-    -- ══ 헤더/집계 키 (엑셀 좌측 블록) ════════
+    -- == Header / aggregation keys (left block of the sheet) ========
     cus_group                         varchar(20),            -- Cus_group
     record_type                       varchar(10),            -- Type
     division2                         varchar(20),            -- Division 2
@@ -22,7 +22,7 @@ CREATE TABLE sales.pnl_fact (
     sales_usd                         decimal(18,2),          -- Sales U$
     op_profit_usd                     decimal(18,2),          -- Op Profit U$
 
-    -- ══ SAP 원장 차원 (Dimension) ════════
+    -- == SAP dimensions ========
     customer                          varchar(20),            -- Customer
     material_group                    varchar(20),            -- Material Group
     nielsen_id                        varchar(20),            -- Nielsen ID
@@ -32,12 +32,12 @@ CREATE TABLE sales.pnl_fact (
     period                            varchar(10) NOT NULL,   -- Period
     doc_currency                      varchar(10),            -- Currency
 
-    -- ══ 수량 (Quantity) ════════
+    -- == Quantity ========
     qty_gross                         decimal(18,3),          -- Quantity(Gross)
     qty_return                        decimal(18,3),          -- Quantity(Return)
     qty_net                           decimal(18,3),          -- Quantity(Net)
 
-    -- ══ 매출 (Sales) ════════
+    -- == Sales ========
     tot_s_rrp                         decimal(18,2),          -- *S.RRP
     reference_price                   decimal(18,2),          -- Reference Price
     tot_dealer_discount               decimal(18,2),          -- *Delear Discount
@@ -64,7 +64,7 @@ CREATE TABLE sales.pnl_fact (
     s_sale_deduction_tax              decimal(18,2),          -- S.Sale Deduction TAX
     tot_net_sales                     decimal(18,2),          -- *Net Sales
 
-    -- ══ 매출원가 (Cost of Goods Sold) ════════
+    -- == Cost of goods sold ========
     tot_cogs                          decimal(18,2),          -- *Cost of Goods Sold
     tot_material_cost                 decimal(18,2),          -- *Material Cost
     sc_material_cost                  decimal(18,2),          -- SC.Material Cost
@@ -149,7 +149,7 @@ CREATE TABLE sales.pnl_fact (
     sc_stat_incidental                decimal(18,2),          -- SC.Stat Incidental
     sc_stat_sub_line_exp              decimal(18,2),          -- SC.Stat.Sub-Line Exp
 
-    -- ══ 매출총이익 / 판관비 (Gross Margin & Operating Expense) ════════
+    -- == Gross margin / operating expense ========
     tot_gross_margin                  decimal(18,2),          -- *Gross Margin
     tot_operating_expense             decimal(18,2),          -- *Operating Expense
     tot_sales_expense                 decimal(18,2),          -- *Sales Expense
@@ -211,7 +211,7 @@ CREATE TABLE sales.pnl_fact (
     sa_familynet                      decimal(18,2),          -- SA.Familynet
     sa_other_exp                      decimal(18,2),          -- SA.Other Exp
 
-    -- ══ 연구개발비 (R&D Expense) ════════
+    -- == R&D expense ========
     tot_r_and_d_expense               decimal(18,2),          -- *R&D Expense
     tot_internal_expense              decimal(18,2),          -- *Internal Expense
     rd_ordinary_exp_matl              decimal(18,2),          -- RD.Ordinary Exp-Matl
@@ -225,7 +225,7 @@ CREATE TABLE sales.pnl_fact (
     rd_royalty                        decimal(18,2),          -- RD.Royalty
     rd_outsourcing_svc                decimal(18,2),          -- RD.Outsourcing SVC
 
-    -- ══ 일반관리비 (G&A Expense) ════════
+    -- == G&A expense ========
     tot_g_and_a_expense               decimal(18,2),          -- *G&A Expense
     tot_labor_cost_sa                 decimal(18,2),          -- *Labor Cost(SA)
     ga_labor_cost                     decimal(18,2),          -- GA.Labor Cost
@@ -247,7 +247,7 @@ CREATE TABLE sales.pnl_fact (
     ga_convention_exp                 decimal(18,2),          -- GA.Convention Exp
     ga_other                          decimal(18,2),          -- GA.Other
 
-    -- ══ 영업이익 이하 (Operating Profit & below) ════════
+    -- == Operating profit and below ========
     tot_operating_profit              decimal(18,2),          -- *Operating Profit
     tot_non_op_income_and_expense     decimal(18,2),          -- *Non-Op. Incom. & Ex
     tot_non_op_income                 decimal(18,2),          -- *Non-Op. Income
@@ -280,7 +280,7 @@ CREATE TABLE sales.pnl_fact (
     corp_tax                          decimal(18,2),          -- Corp. Tax
     tot_net_income                    decimal(18,2),          -- *Net Income
 
-    -- ══ 적재 메타데이터 ════════
+    -- == Load metadata ========
     source_file                       varchar(260),
     loaded_at                         datetime2(3) NOT NULL CONSTRAINT df_pnl_loaded_at DEFAULT sysutcdatetime()
 );
@@ -294,4 +294,3 @@ CREATE INDEX ix_pnl_fact_period   ON sales.pnl_fact (fiscal_year, period);
 CREATE INDEX ix_pnl_fact_customer ON sales.pnl_fact (sold_to, fiscal_year, period);
 CREATE INDEX ix_pnl_fact_matgrp   ON sales.pnl_fact (material_group, fiscal_year, period);
 GO
-
