@@ -90,8 +90,9 @@ anything, so the result tells you the real line ending (`lines_read = 1` means t
 line ending is wrong), the real delimiter (`comma_fields` vs `tab_fields`) and whether
 the character set is right (garbled text in `head`).
 
-`to_num()` / `to_txt()` turn anything unparseable into NULL rather than raising, so a
-misaligned file cannot abort the load halfway through — the reconciliation counters
+`to_num()` / `to_txt()` turn anything unparseable into NULL rather than raising — text
+in a numeric column, values too wide for `decimal(18,4)`, stray bytes — so a misaligned
+file cannot abort the load halfway through — the reconciliation counters
 are what tell you it was misaligned (NULL counters mean nothing parsed at all).
 
 Under `LOAD DATA LOCAL`, a duplicate natural key is **warning 1062** rather than an

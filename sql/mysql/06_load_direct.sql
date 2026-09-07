@@ -541,6 +541,14 @@ SET
 SELECT count(*) AS loaded_rows FROM pnl_fact;
 SHOW WARNINGS;
 
+-- Values that could not be parsed as a number land as NULL. A handful is normal
+-- (blank cells, #N/A); a large count means the file is misaligned or the wrong
+-- delimiter/character set is in use - run 08_probe_file.sql.
+SELECT count(*) AS rows_total,
+       sum(tot_net_sales IS NULL)        AS null_net_sales,
+       sum(tot_operating_profit IS NULL) AS null_op_profit
+FROM   pnl_fact;
+
 -- Eyeball a few rows to confirm values landed in the right columns.
 SELECT sold_to, material_group, prod_group, period,
        tot_net_sales, tot_cogs, tot_gross_margin, tot_operating_profit
