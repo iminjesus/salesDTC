@@ -7,6 +7,9 @@
 USE sales_2526;
 
 -- Excel-style number string -> decimal  ("1,268.93", "(1,234)", "", "-", "#N/A")
+-- Anything that is not a plain number becomes NULL rather than raising, so a
+-- misaligned file cannot abort the load halfway through. The reconciliation
+-- queries at the end are what tell you the file was misaligned.
 DROP FUNCTION IF EXISTS to_num;
 DROP FUNCTION IF EXISTS to_txt;
 DELIMITER $$
@@ -14,15 +17,16 @@ DELIMITER $$
 CREATE FUNCTION to_num(v text) RETURNS decimal(18,4)
 DETERMINISTIC
 BEGIN
-    DECLARE t varchar(64);
-    SET t = REPLACE(REPLACE(REPLACE(TRIM(COALESCE(v, '')), ',', ''), '$', ''), ' ', '');
+    DECLARE t varchar(255);
+    SET t = LEFT(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(v, '')), ',', ''),
+                                 '$', ''), ' ', ''), 255);
     IF t = '' OR t IN ('-', '#N/A', 'N/A', '#DIV/0!', '#VALUE!') THEN
         RETURN NULL;
     END IF;
     IF t LIKE '(%)' THEN                       -- accounting negative (12.50) -> -12.50
         SET t = CONCAT('-', SUBSTRING(t, 2, CHAR_LENGTH(t) - 2));
     END IF;
-    IF t NOT REGEXP '^-?[0-9]*\.?[0-9]+$' THEN
+    IF CHAR_LENGTH(t) > 30 OR t NOT REGEXP '^-?[0-9]*\.?[0-9]+$' THEN
         RETURN NULL;
     END IF;
     RETURN CAST(t AS decimal(18,4));
@@ -33,7 +37,7 @@ CREATE FUNCTION to_txt(v text) RETURNS varchar(260)
 DETERMINISTIC
 BEGIN
     DECLARE t varchar(260);
-    SET t = TRIM(COALESCE(v, ''));
+    SET t = LEFT(TRIM(COALESCE(v, '')), 260);
     IF t = '' OR t = '#N/A' THEN
         RETURN NULL;
     END IF;

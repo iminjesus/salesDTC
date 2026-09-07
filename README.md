@@ -84,6 +84,16 @@ If the file carries columns the table does not, or in a different order, drop th
 matching `@variable` from the `SET` clause (direct) or replace those names with
 `@skip1, @skip2 …` (staging).
 
+If a load fails or the reconciliation counters come back non-zero or NULL, run
+`sql/mysql/08_probe_file.sql`. It reads the file as whole lines without splitting
+anything, so the result tells you the real line ending (`lines_read = 1` means the
+line ending is wrong), the real delimiter (`comma_fields` vs `tab_fields`) and whether
+the character set is right (garbled text in `head`).
+
+`to_num()` / `to_txt()` turn anything unparseable into NULL rather than raising, so a
+misaligned file cannot abort the load halfway through — the reconciliation counters
+are what tell you it was misaligned (NULL counters mean nothing parsed at all).
+
 Under `LOAD DATA LOCAL`, a duplicate natural key is **warning 1062** rather than an
 error and the row is skipped silently. Re-running is safe, but always check the row
 count and `SHOW WARNINGS`.

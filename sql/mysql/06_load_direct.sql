@@ -547,7 +547,10 @@ SELECT sold_to, material_group, prod_group, period,
 FROM   pnl_fact
 LIMIT  5;
 
--- Reconciliation: all four counters must be 0, otherwise columns are shifted.
+-- Reconciliation: all four counters must be 0.
+--   non-zero -> columns are shifted
+--   NULL     -> nothing parsed at all, so the delimiter, line ending or
+--               character set is wrong. Run 08_probe_file.sql.
 SELECT
     sum(abs(tot_net_sales - (tot_s_gross_sales - tot_sales_deduction)) > 0.05) AS err_net_sales,
     sum(abs(tot_gross_margin - (tot_net_sales - tot_cogs)) > 0.05) AS err_gross_margin,

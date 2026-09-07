@@ -11,6 +11,7 @@ Outputs
     sql/mysql/04_load_from_staging.sql    staging -> fact
     sql/mysql/06_load_direct.sql          file -> fact, no staging table
     sql/mysql/07_load_infile_columns.sql  explicit column list for staging loads
+    sql/mysql/08_probe_file.sql           read the file as raw lines to diagnose a load
     sql/postgres/01_pnl_fact.sql          fact table + indexes + column comments
     sql/postgres/02_v_pnl_excel.sql       view exposing the original Excel headers
     sql/postgres/03_staging.sql           all-text staging table + cleanup functions
@@ -190,6 +191,9 @@ def column_lines(cols, width, dialect='pg'):
 # ── Cleanup functions, shared by the MySQL scripts ──────────────────────────
 MYSQL_FUNCS = r"""
 -- Excel-style number string -> decimal  ("1,268.93", "(1,234)", "", "-", "#N/A")
+-- Anything that is not a plain number becomes NULL rather than raising, so a
+-- misaligned file cannot abort the load halfway through. The reconciliation
+-- queries at the end are what tell you the file was misaligned.
 DROP FUNCTION IF EXISTS to_num;
 DROP FUNCTION IF EXISTS to_txt;
 DELIMITER $$
@@ -197,15 +201,16 @@ DELIMITER $$
 CREATE FUNCTION to_num(v text) RETURNS decimal(18,4)
 DETERMINISTIC
 BEGIN
-    DECLARE t varchar(64);
-    SET t = REPLACE(REPLACE(REPLACE(TRIM(COALESCE(v, '')), ',', ''), '$', ''), ' ', '');
+    DECLARE t varchar(255);
+    SET t = LEFT(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(v, '')), ',', ''),
+                                 '$', ''), ' ', ''), 255);
     IF t = '' OR t IN ('-', '#N/A', 'N/A', '#DIV/0!', '#VALUE!') THEN
         RETURN NULL;
     END IF;
     IF t LIKE '(%)' THEN                       -- accounting negative (12.50) -> -12.50
         SET t = CONCAT('-', SUBSTRING(t, 2, CHAR_LENGTH(t) - 2));
     END IF;
-    IF t NOT REGEXP '^-?[0-9]*\.?[0-9]+$' THEN
+    IF CHAR_LENGTH(t) > 30 OR t NOT REGEXP '^-?[0-9]*\.?[0-9]+$' THEN
         RETURN NULL;
     END IF;
     RETURN CAST(t AS decimal(18,4));
@@ -216,7 +221,7 @@ CREATE FUNCTION to_txt(v text) RETURNS varchar(260)
 DETERMINISTIC
 BEGIN
     DECLARE t varchar(260);
-    SET t = TRIM(COALESCE(v, ''));
+    SET t = LEFT(TRIM(COALESCE(v, '')), 260);
     IF t = '' OR t = '#N/A' THEN
         RETURN NULL;
     END IF;
@@ -276,7 +281,10 @@ VERIFY = [
     'FROM   pnl_fact',
     'LIMIT  5;',
     '',
-    '-- Reconciliation: all four counters must be 0, otherwise columns are shifted.',
+    '-- Reconciliation: all four counters must be 0.',
+    '--   non-zero -> columns are shifted',
+    '--   NULL     -> nothing parsed at all, so the delimiter, line ending or',
+    '--               character set is wrong. Run 08_probe_file.sql.',
     'SELECT',
     '    sum(abs(tot_net_sales - (tot_s_gross_sales - tot_sales_deduction)) > 0.05)'
     ' AS err_net_sales,',
@@ -616,6 +624,48 @@ def gen_sqlserver(cols):
     return '\n'.join(L)
 
 
+def gen_mysql_probe(cols):
+    """Read the file as whole lines to find the real delimiter and line ending."""
+    L = ['-- File probe: run this first when a load fails and you are not sure what the',
+         '-- file actually looks like. It reads whole lines, splitting nothing.',
+         '--',
+         '-- How to read the result:',
+         '--   lines_read = 1        -> the line ending is wrong. The file is probably LF',
+         "--                           only, so use LINES TERMINATED BY '\\n'.",
+         f'--   comma_fields ~ {len(cols)}    -> comma separated, keep FIELDS TERMINATED BY \',\'',
+         '--                           (a few more is fine: quoted values like "1,268.93"',
+         '--                            carry commas of their own)',
+         f'--   tab_fields   = {len(cols)}    -> tab separated, use FIELDS TERMINATED BY \'\\t\'',
+         '--   garbled Korean in head -> wrong CHARACTER SET (try euckr)',
+         '--',
+         '-- Change CHARACTER SET / LINES TERMINATED BY here the same way as in the load.',
+         '',
+         f'USE {MYSQL_DB};',
+         '',
+         'DROP TABLE IF EXISTS raw_probe;',
+         'CREATE TABLE raw_probe (line text) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;',
+         '',
+         f"LOAD DATA LOCAL INFILE '{DATA_FILE}'",
+         '    INTO TABLE raw_probe',
+         '    CHARACTER SET utf8mb4',
+         "    FIELDS TERMINATED BY '\\0' ESCAPED BY ''    -- split nothing",
+         "    LINES TERMINATED BY '\\r\\n';",
+         '',
+         'SELECT count(*) AS lines_read FROM raw_probe;',
+         '',
+         'SELECT CHAR_LENGTH(line)                                        AS len,',
+         "       CHAR_LENGTH(line) - CHAR_LENGTH(REPLACE(line, ',',  '')) + 1 AS comma_fields,",
+         "       CHAR_LENGTH(line) - CHAR_LENGTH(REPLACE(line, '\\t', '')) + 1 AS tab_fields,",
+         '       LEFT(line, 120)                                          AS head',
+         'FROM   raw_probe',
+         'LIMIT  3;',
+         '',
+         '-- DROP TABLE raw_probe;',
+         '']
+    return '\n'.join(L)
+
+
+
 def main():
     cols = load_columns()
     write('sql/mysql/00_setup.sql', gen_mysql_oneshot(cols))
@@ -625,6 +675,7 @@ def main():
     write('sql/mysql/04_load_from_staging.sql', gen_mysql_load(cols))
     write('sql/mysql/06_load_direct.sql', gen_mysql_direct(cols))
     write('sql/mysql/07_load_infile_columns.sql', gen_mysql_infile(cols))
+    write('sql/mysql/08_probe_file.sql', gen_mysql_probe(cols))
     write('sql/postgres/01_pnl_fact.sql', gen_postgres(cols))
     write('sql/postgres/02_v_pnl_excel.sql', gen_pg_view(cols))
     write('sql/postgres/03_staging.sql', gen_pg_staging(cols))
