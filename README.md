@@ -17,6 +17,11 @@ reconciliation counters. Two things to check before running:
 
 For a tab-separated file, change the `FIELDS` line to `FIELDS TERMINATED BY '\t' ESCAPED BY ''`.
 
+Excel's plain **CSV (Comma delimited)** is written in the Windows ANSI code page, not
+UTF-8, and loading it as `utf8mb4` fails with **error 1300**. Either change the
+`CHARACTER SET` line in the load statement to `euckr` (Korean Windows ANSI), or re-save
+the file from Excel as **CSV UTF-8** and leave the script alone.
+
 ## Table
 
 `sales_2526.pnl_fact` — one row per **year x period x customer (`sold_to`) x material
@@ -106,7 +111,8 @@ live in the `NAME` dict.
 
 Run against PostgreSQL 16, MySQL 8.0.46 and MariaDB 10.11: 254 columns
 (251 + `pnl_id` + load metadata) created, the two sample rows loaded from an
-Excel-style comma CSV (including quoted `"1,268.93"`), values matching the source,
+Excel-style comma CSV (including quoted `"1,268.93"`) in both UTF-8 and Windows ANSI
+(CP949, loaded with `CHARACTER SET euckr`), values matching the source,
 duplicate reload blocked, original headers restored through `v_pnl_excel`, and all
 reconciliation checks passing. The SQL Server file is syntax-only — it has not been run.
 

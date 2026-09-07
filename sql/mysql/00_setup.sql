@@ -8,6 +8,10 @@
 --
 -- For a tab-separated file, change the FIELDS line to:
 --     FIELDS TERMINATED BY '\t' ESCAPED BY ''
+--
+-- Excel saves plain "CSV (Comma delimited)" in the Windows ANSI code page, not
+-- UTF-8. Loading that as utf8mb4 fails with error 1300 - either set
+-- CHARACTER SET euckr below, or re-save the file as "CSV UTF-8" from Excel.
 
 SET GLOBAL local_infile = 1;
 
@@ -349,6 +353,9 @@ CREATE TABLE pnl_fact (
 
 LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/sales_2526.csv'
     INTO TABLE pnl_fact
+    CHARACTER SET utf8mb4   -- error 1300 means the file is not UTF-8:
+                            -- use euckr for a Korean Windows ANSI csv,
+                            -- or re-save it from Excel as "CSV UTF-8"
     FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
     LINES TERMINATED BY '\r\n'
     IGNORE 1 LINES          -- skip the header row
