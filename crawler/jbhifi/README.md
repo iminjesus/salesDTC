@@ -49,6 +49,13 @@ scroll-to-bottom per category, so at the default `--delay 1.5` it takes a few mi
 
 `CATEGORIES` at the top of the script is only the fallback list used by `--category`.
 
+## Stopping part way
+
+The CSV is rewritten after every page, and written atomically, so whatever has been
+collected is always on disk. Ctrl+C stops the scroll, extracts the products already
+loaded on that page, saves, and exits — the run summary then says `(stopped early)`.
+A crawl killed half way still leaves a usable file.
+
 ## Output
 
 `jbhifi_samsung.csv`, UTF-8 with BOM so Excel opens it without mangling:

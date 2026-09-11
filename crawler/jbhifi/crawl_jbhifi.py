@@ -359,7 +359,12 @@ def discover_categories(page, payloads: list, brand: str, limit: int) -> list[tu
 
 
 # ── page driving ────────────────────────────────────────────────────────────
-def harvest(page, payloads: list, url: str, args, dump: Path | None) -> list[dict]:
+def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
+    """Load a listing page and pull the products out of it.
+
+    Returns (rows, stopped). Ctrl+C during the scroll does not throw the page
+    away: scrolling stops and whatever has loaded so far is still extracted.
+    """
     print(f'  open {url}', flush=True)
     payloads.clear()
     page.goto(url, wait_until='domcontentloaded', timeout=args.timeout * 1000)
@@ -369,18 +374,23 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> list[dic
         print('    no product links appeared (blocked, or the layout changed)')
 
     # Scroll until the list stops growing - the listing pages load as you go.
-    last, stable = 0, 0
-    for i in range(args.max_scrolls):
-        page.mouse.wheel(0, 4000)
-        time.sleep(args.delay)
-        count = page.evaluate('document.querySelectorAll(\'a[href*="/products/"]\').length')
-        if count == last:
-            stable += 1
-            if stable >= 2:
-                break
-        else:
-            stable = 0
-        last = count
+    last, stable, stopped = 0, 0, False
+    try:
+        for _ in range(args.max_scrolls):
+            page.mouse.wheel(0, 4000)
+            time.sleep(args.delay)
+            count = page.evaluate(
+                'document.querySelectorAll(\'a[href*="/products/"]\').length')
+            if count == last:
+                stable += 1
+                if stable >= 2:
+                    break
+            else:
+                stable = 0
+            last = count
+    except KeyboardInterrupt:
+        stopped = True
+        print('\n    stopped scrolling - extracting what is loaded')
     print(f'    {last} product links, {len(payloads)} json responses')
 
     rows = []
@@ -401,7 +411,7 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> list[dic
         (dump / f'page-{stamp}.html').write_text(page.content(), encoding='utf-8')
         (dump / f'payloads-{stamp}.json').write_text(
             json.dumps(payloads, ensure_ascii=False, indent=1)[:8_000_000], encoding='utf-8')
-    return rows
+    return rows, stopped
 
 
 def merge(rows: list[dict]) -> list[dict]:
@@ -421,29 +431,65 @@ def merge(rows: list[dict]) -> list[dict]:
         out.append('name:' + re.sub(r'\s+', ' ', r['product_name']).strip().lower())
         return out
 
-    def score(r):
-        return (r['source'] == 'network', r['discount_pct'] is not None,
-                bool(r['sku']), bool(r['product_url']))
+    ID_FIELDS = ('sku', 'product_url', 'site_category', 'brand', 'sku_field')
+    PRICE_FIELDS = ('on_sale', 'original_price', 'sale_price', 'discount_pct')
+
+    def combine(cur: dict, new: dict) -> dict:
+        """Fold new into cur. Identity fields fill gaps; price fields are taken as a
+        set from whichever row actually knows about a discount - a card showing a
+        struck-through price beats a feed that only carries the current price."""
+        for f in ID_FIELDS:
+            if not cur.get(f) and new.get(f):
+                cur[f] = new[f]
+        cur_knows = cur.get('discount_pct') is not None
+        new_knows = new.get('discount_pct') is not None
+        if new_knows and not cur_knows:
+            for f in PRICE_FIELDS:
+                cur[f] = new[f]
+        elif new_knows and cur_knows and new['sale_price'] < cur['sale_price']:
+            for f in PRICE_FIELDS:                     # keep the better advertised price
+                cur[f] = new[f]
+        elif not cur_knows and not new_knows and new.get('sale_price') \
+                and new['sale_price'] < cur.get('sale_price', float('inf')):
+            for f in PRICE_FIELDS:
+                cur[f] = new[f]
+        if cur.get('source') != 'network' and new.get('source') == 'network':
+            cur['source'] = 'network'
+        return cur
 
     for r in rows:
         ids = identities(r)
         key = next((alias[i] for i in ids if i in alias), ids[0])
         cur = best.get(key)
-        if cur is None or score(r) > score(cur):
-            # keep whichever fields the better row is missing
-            if cur is not None:
-                for f in ('sku', 'product_url', 'site_category', 'brand', 'sku_field'):
-                    if not r.get(f) and cur.get(f):
-                        r[f] = cur[f]
-                r['category'] = cur.get('category') or r.get('category')
-            best[key] = r
-        else:
-            for f in ('sku', 'product_url', 'site_category', 'brand', 'sku_field'):
-                if not cur.get(f) and r.get(f):
-                    cur[f] = r[f]
+        best[key] = r if cur is None else combine(cur, r)
         for i in ids:
             alias[i] = key
     return list(best.values())
+
+
+COLUMNS = ['crawled_at', 'category', 'brand', 'product_name', 'product_url', 'sku',
+           'sku_field', 'on_sale', 'original_price', 'sale_price', 'discount_pct',
+           'currency']
+
+
+def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> int:
+    """Write everything gathered so far. Called after every page, so an interrupted
+    run still leaves a usable file behind."""
+    rows = merge(rows)
+    if brand_filter:
+        b = brand.lower()
+        rows = [r for r in rows
+                if b in r['product_name'].lower() or b in r['brand'].lower()
+                or b in r['product_url'].lower()]
+    rows.sort(key=lambda r: (r['category'], r['product_name']))
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    with tmp.open('w', newline='', encoding='utf-8-sig') as f:   # utf-8-sig: Excel friendly
+        w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction='ignore')
+        w.writeheader()
+        for r in rows:
+            w.writerow({**r, 'on_sale': 'Y' if r['on_sale'] else 'N'})
+    tmp.replace(path)        # atomic: the CSV is never half-written, even if killed here
+    return len(rows)
 
 
 def main() -> int:
@@ -496,6 +542,7 @@ def main() -> int:
     if dump:
         dump.mkdir(parents=True, exist_ok=True)
 
+    out = Path(args.out)
     stamp = datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S')
     all_rows: list[dict] = []
     payloads: list = []
@@ -523,6 +570,7 @@ def main() -> int:
         discovered_from = None
         queue = list(targets)
         done = set()
+        interrupted = False
 
         while queue:
             name, url = queue.pop(0)
@@ -530,7 +578,13 @@ def main() -> int:
                 continue
             done.add(url)
             try:
-                rows = harvest(page, payloads, url, args, dump)
+                rows, stopped = harvest(page, payloads, url, args, dump)
+                if stopped:
+                    interrupted = True
+            except KeyboardInterrupt:
+                print('\n  stopped - keeping what has been collected')
+                interrupted = True
+                break
             except Exception as exc:
                 print(f'    failed: {exc}')
                 continue
@@ -539,6 +593,10 @@ def main() -> int:
                 r['crawled_at'] = stamp
                 r['currency'] = 'AUD'
             all_rows += rows
+            saved = write_csv(out, all_rows, args.brand, not args.no_brand_filter)
+            print(f'    saved {saved} products so far -> {out}')
+            if interrupted:
+                break
 
             # After the first (seed) page, ask the site which categories it has
             # for this brand and queue them up one by one.
@@ -552,30 +610,26 @@ def main() -> int:
                     print(f'    - {lbl}')
                     queue.append((lbl, curl))
                 print()
-            time.sleep(args.delay)
+            try:
+                time.sleep(args.delay)
+            except KeyboardInterrupt:
+                print('\n  stopped - keeping what has been collected')
+                interrupted = True
+                break
 
         browser.close()
 
+    write_csv(out, all_rows, args.brand, not args.no_brand_filter)
     rows = merge(all_rows)
     if not args.no_brand_filter:
         b = args.brand.lower()
         rows = [r for r in rows
                 if b in r['product_name'].lower() or b in r['brand'].lower()
                 or b in r['product_url'].lower()]
-    rows.sort(key=lambda r: (r['category'], r['product_name']))
-
-    cols = ['crawled_at', 'category', 'brand', 'product_name', 'product_url', 'sku',
-            'sku_field', 'on_sale', 'original_price', 'sale_price', 'discount_pct',
-            'currency']
-    out = Path(args.out)
-    with out.open('w', newline='', encoding='utf-8-sig') as f:   # utf-8-sig: Excel friendly
-        w = csv.DictWriter(f, fieldnames=cols, extrasaction='ignore')
-        w.writeheader()
-        for r in rows:
-            w.writerow({**r, 'on_sale': 'Y' if r['on_sale'] else 'N'})
 
     on_sale = sum(1 for r in rows if r['on_sale'])
-    print(f'\n{len(rows)} products -> {out}  ({on_sale} on sale)')
+    note = ' (stopped early)' if interrupted else ''
+    print(f'\n{len(rows)} products -> {out}  ({on_sale} on sale){note}')
     fields = sorted({r['sku_field'] for r in rows if r.get('sku_field')})
     if fields:
         print(f"sku column taken from the site field(s): {', '.join(fields)}")
