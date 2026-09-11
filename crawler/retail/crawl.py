@@ -48,27 +48,68 @@ except ImportError:                                    # pragma: no cover
              '    pip install -r requirements.txt\n'
              '    python -m playwright install chromium')
 
-BASE = 'https://www.jbhifi.com.au'
+# Everything site-specific lives here; the extraction below is shared. Each site
+# filters by brand through its own facet parameter, so listing pages come back
+# already filtered instead of relying on the name check afterwards.
+SITES = {
+    'jbhifi': {
+        'base':          'https://www.jbhifi.com.au',
+        'search':        '/search',
+        'query_param':   'query',
+        'brand_param':   'Brand',
+        # /search?query=samsung&Brand=SAMSUNG
+        'brand_value':   lambda b: b.upper(),
+        'query_value':   lambda b: b.lower(),
+        'link_selector': 'a[href*="/products/"]',
+        'product_href':  r'/products/',
+        'category_href': r'/collections/([a-z0-9\-]+)',
+        'category_path': '/collections/{slug}',
+        'categories': {
+            'tvs':        '/collections/tvs',
+            'phones':     '/collections/mobile-phones',
+            'tablets':    '/collections/tablets',
+            'laptops':    '/collections/laptops',
+            'audio':      '/collections/headphones',
+            'wearables':  '/collections/smart-watches-fitness-trackers',
+            'whitegoods': '/collections/fridges',
+            'laundry':    '/collections/washing-machines',
+            'monitors':   '/collections/computer-monitors',
+        },
+    },
+    'harveynorman': {
+        'base':          'https://www.harveynorman.com.au',
+        'search':        '/catalogsearch/result/',
+        'query_param':   'q',
+        'brand_param':   'af',
+        # /catalogsearch/result/?q=samsung&af=def_general_brand%3ASamsung
+        'brand_value':   lambda b: f'def_general_brand:{b.title()}',
+        'query_value':   lambda b: b.lower(),
+        'link_selector': 'a[href$=".html"]',
+        'product_href':  r'\.html$',
+        'category_href': r'/([a-z0-9\-]+/[a-z0-9\-]+)/?$',
+        'category_path': '/{slug}',
+        'categories': {},
+    },
+}
 
-# The site filters by brand itself through a facet parameter, so the listing pages
-# come back with the brand already applied instead of being filtered here:
-#   /search?query=samsung&Brand=SAMSUNG
-BRAND_PARAM = 'Brand'
+# Filled in from the chosen site at start-up.
+SITE = SITES['jbhifi']
+BASE = SITE['base']
+BRAND_PARAM = SITE['brand_param']
+LINK_SELECTOR = SITE['link_selector']
+
+
+def use_site(name: str) -> None:
+    global SITE, BASE, BRAND_PARAM, LINK_SELECTOR, CATEGORIES
+    SITE = SITES[name]
+    BASE = SITE['base']
+    BRAND_PARAM = SITE['brand_param']
+    LINK_SELECTOR = SITE['link_selector']
+    CATEGORIES = {'search': SITE['search'], **SITE['categories']}
 
 # Named categories -> listing URL. Add your own; the value is used as-is.
 # 'search' is the plain site search the brand page links to.
-CATEGORIES = {
-    'search':      f'{BASE}/search',
-    'tvs':         f'{BASE}/collections/tvs',
-    'phones':      f'{BASE}/collections/mobile-phones',
-    'tablets':     f'{BASE}/collections/tablets',
-    'laptops':     f'{BASE}/collections/laptops',
-    'audio':       f'{BASE}/collections/headphones',
-    'wearables':   f'{BASE}/collections/smart-watches-fitness-trackers',
-    'whitegoods':  f'{BASE}/collections/fridges',
-    'laundry':     f'{BASE}/collections/washing-machines',
-    'monitors':    f'{BASE}/collections/computer-monitors',
-}
+CATEGORIES = {'search': SITE['search'], **SITE['categories']}
 
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
       'Chrome/124.0 Safari/537.36 (price-monitor; contact: your-email@example.com)')
@@ -105,8 +146,8 @@ def listing_url(url: str, brand: str) -> str:
     """
     parts = urlsplit(url if url.startswith('http') else BASE + url)
     params = dict(parse_qsl(parts.query, keep_blank_values=True))
-    params.setdefault('query', brand.lower())
-    params.setdefault(BRAND_PARAM, brand.upper())
+    params.setdefault(SITE['query_param'], SITE['query_value'](brand))
+    params.setdefault(SITE['brand_param'], SITE['brand_value'](brand))
     return urlunsplit(parts._replace(query=urlencode(params)))
 
 
@@ -184,7 +225,7 @@ def abs_url(u) -> str:
     if u.startswith('http'):
         return u
     if not u.startswith('/'):
-        u = '/products/' + u              # bare slug / handle
+        u = '/' + u                       # bare slug / handle
     return BASE + u
 
 
@@ -250,11 +291,11 @@ def from_record(rec: dict) -> dict | None:
 
 # ── extractor 2: the rendered cards ─────────────────────────────────────────
 DOM_JS = r"""
-() => {
+(SELECTOR) => {
   const RE = /\$\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?/g;
   const seen = new Set(), out = [];
   // A product card is the smallest block that holds a /products/ link and a price.
-  for (const a of document.querySelectorAll('a[href*="/products/"]')) {
+  for (const a of document.querySelectorAll(SELECTOR)) {
     let card = a, hops = 0;
     while (card && hops < 6 && !RE.test(card.innerText || '')) {
       RE.lastIndex = 0; card = card.parentElement; hops++;
@@ -353,7 +394,7 @@ def from_dom(card: dict) -> dict | None:
 CAT_LINKS_JS = r"""
 () => {
   const out = [];
-  for (const a of document.querySelectorAll('a[href*="/collections/"], a[href*="category"]')) {
+  for (const a of document.querySelectorAll('a[href]')) {
     const href = a.getAttribute('href') || '';
     const text = (a.innerText || a.getAttribute('aria-label') || '').trim();
     if (href && text && text.length < 60) out.push({ href, text });
@@ -396,11 +437,13 @@ def discover_categories(page, payloads: list, brand: str, limit: int) -> list[tu
 
     for link in page.evaluate(CAT_LINKS_JS):
         href, text = link['href'], link['text']
-        m = re.search(r'/collections/([a-z0-9\-]+)', href)
+        if re.search(SITE['product_href'], href.split('?')[0]):
+            continue                              # that is a product, not a category
+        m = re.search(SITE['category_href'], href.split('?')[0])
         if not m:
             continue
         slug = m.group(1)
-        if slug in seen or slug in ('all', 'sale'):
+        if slug in seen or slug.split('/')[-1] in ('all', 'sale', 'home'):
             continue
         seen.add(slug)
         cats.append((text or slug, listing_url(abs_url(href), brand)))
@@ -411,7 +454,8 @@ def discover_categories(page, payloads: list, brand: str, limit: int) -> list[tu
         if not slug or slug in seen:
             continue
         seen.add(slug)
-        cats.append((name, listing_url(f'{BASE}/collections/{slug}', brand)))
+        cats.append((name, listing_url(BASE + SITE['category_path'].format(slug=slug),
+                                       brand)))
 
     return cats[:limit]
 
@@ -427,7 +471,7 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
     payloads.clear()
     page.goto(url, wait_until='domcontentloaded', timeout=args.timeout * 1000)
     try:
-        page.wait_for_selector('a[href*="/products/"]', timeout=args.timeout * 1000)
+        page.wait_for_selector(LINK_SELECTOR, timeout=args.timeout * 1000)
     except Exception:
         print('    no product links appeared (blocked, or the layout changed)')
 
@@ -438,7 +482,7 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
             page.mouse.wheel(0, 4000)
             time.sleep(args.delay)
             count = page.evaluate(
-                'document.querySelectorAll(\'a[href*="/products/"]\').length')
+                'sel => document.querySelectorAll(sel).length', LINK_SELECTOR)
             if count == last:
                 stable += 1
                 if stable >= 2:
@@ -459,7 +503,7 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
             row = from_record(rec)
             if row:
                 rows.append(row)
-    for card in page.evaluate(DOM_JS):
+    for card in page.evaluate(DOM_JS, LINK_SELECTOR):
         row = from_dom(card)
         if row:
             rows.append(row)
@@ -608,6 +652,8 @@ def fill_models(page, rows: list[dict], args) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--site', default='jbhifi', choices=sorted(SITES),
+                    help='which retailer to crawl (default: jbhifi)')
     ap.add_argument('--brand', default='SAMSUNG',
                     help='brand to search for and filter on (default: SAMSUNG)')
     ap.add_argument('--category', nargs='*', default=[],
@@ -619,7 +665,7 @@ def main() -> int:
                     help='cap on discovered categories (default: 25)')
     ap.add_argument('--url', nargs='*', default=[],
                     help='explicit listing URLs, used instead of --category')
-    ap.add_argument('--out', default='jbhifi_samsung.csv', help='output CSV path')
+    ap.add_argument('--out', help='output CSV path (default: <site>_<brand>.csv)')
     ap.add_argument('--delay', type=float, default=1.5,
                     help='seconds between scrolls (default: 1.5)')
     ap.add_argument('--max-scrolls', type=int, default=40)
@@ -635,6 +681,7 @@ def main() -> int:
     ap.add_argument('--no-brand-filter', action='store_true',
                     help='keep every product, not just the brand')
     args = ap.parse_args()
+    use_site(args.site)
 
     def label(u: str) -> str:
         m = re.search(r'/([^/?]+)(?:\?|$)', u)
@@ -658,7 +705,7 @@ def main() -> int:
     if dump:
         dump.mkdir(parents=True, exist_ok=True)
 
-    out = Path(args.out)
+    out = Path(args.out or f'{args.site}_{args.brand.lower()}.csv')
     stamp = datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S')
     all_rows: list[dict] = []
     payloads: list = []

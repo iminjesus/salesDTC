@@ -1,7 +1,16 @@
-# JB Hi-Fi Samsung crawler
+# Retail price crawler
 
-Pulls Samsung listings from jbhifi.com.au into a CSV: on-sale flag, product name,
-original price, sale price and % off.
+Pulls brand listings from an Australian retailer into a CSV: on-sale flag, product
+name, original price, sale price and % off. Two sites are configured:
+
+| `--site` | search page |
+|---|---|
+| `jbhifi` (default) | `jbhifi.com.au/search?query=samsung&Brand=SAMSUNG` |
+| `harveynorman` | `harveynorman.com.au/catalogsearch/result/?q=samsung&af=def_general_brand%3ASamsung` |
+
+Everything site-specific — base url, the search path, the query and brand facet
+parameters, how product and category links look — is the `SITES` dict at the top of
+`crawl.py`. The extraction below it is shared, so adding a retailer is one entry.
 
 ## Install
 
@@ -13,25 +22,30 @@ python -m playwright install chromium
 ## Run
 
 ```sh
-# default: /search?query=samsung&Brand=SAMSUNG, then every category the site
-# offers for that brand
-python crawl_jbhifi.py
+# JB Hi-Fi: search for SAMSUNG, then every category the site offers for it
+python crawl.py
+
+# Harvey Norman, same treatment
+python crawl.py --site harveynorman
 
 # just the search page, no category pass
-python crawl_jbhifi.py --no-discover
+python crawl.py --no-discover
 
-# a fixed set of categories instead of discovering them
-python crawl_jbhifi.py --category tvs phones whitegoods --out samsung_2026-09-11.csv
+# a fixed set of categories instead of discovering them (jbhifi only, for now)
+python crawl.py --category tvs phones whitegoods --out samsung_2026-09-11.csv
 
-# any listing URL, e.g. an already filtered collection page
-python crawl_jbhifi.py --url "https://www.jbhifi.com.au/collections/tvs?query=samsung"
+# any listing URL, used exactly as given
+python crawl.py --url "https://www.jbhifi.com.au/collections/tvs?query=samsung"
 
 # also read each product's MODEL code off its product page (slow: one page each)
-python crawl_jbhifi.py --with-model
+python crawl.py --with-model
 
 # watch it work, and keep the raw payloads
-python crawl_jbhifi.py --headed --dump-dir dump
+python crawl.py --headed --dump-dir dump
 ```
+
+`crawl_jbhifi.py` still works — it forwards to `crawl.py --site jbhifi`.
+The default output file is `<site>_<brand>.csv`.
 
 ### Brand
 
@@ -43,8 +57,9 @@ https://www.jbhifi.com.au/search?query=samsung&Brand=SAMSUNG
 https://www.jbhifi.com.au/collections/tvs?query=samsung&Brand=SAMSUNG
 ```
 
-`--brand` sets both (`--brand LG` gives `query=lg&Brand=LG`), and the facet name itself
-is `BRAND_PARAM` at the top of the script. A URL passed with `--url` is used exactly as
+`--brand` sets both (`--brand LG` gives `query=lg&Brand=LG` on JB Hi-Fi, and
+`q=lg&af=def_general_brand:Lg` on Harvey Norman), and the parameter names and value
+shapes live in that site's `SITES` entry. A URL passed with `--url` is used exactly as
 given, so any facets already on it are kept. The name-based filter still runs afterwards
 as a safety net; `--no-brand-filter` turns that off.
 
@@ -66,7 +81,8 @@ the JSON it fetched — and walks them one at a time, printing what it found:
 `--max-categories` caps that list (25 by default). A full pass is one page load and a
 scroll-to-bottom per category, so at the default `--delay 1.5` it takes a few minutes.
 
-`CATEGORIES` at the top of the script is only the fallback list used by `--category`.
+The named list used by `--category` is the `categories` entry for that site, and is
+only a fallback — Harvey Norman has none, since discovery covers it.
 
 ### Prices
 
