@@ -68,6 +68,7 @@ Three easily confused columns are spelled out. They are different axes:
 | `docs/column_map.csv` | Excel header ↔ column name ↔ type, 251 rows |
 | `docs/excel_header.txt` | the original header line (generator input) |
 | `tools/generate_ddl.py` | regenerates every SQL file from that header |
+| `crawler/jbhifi/` | JB Hi-Fi Samsung price crawler -> CSV (see its own README) |
 
 ## Loading notes
 
