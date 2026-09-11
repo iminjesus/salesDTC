@@ -26,6 +26,9 @@ python crawl_jbhifi.py --category tvs phones whitegoods --out samsung_2026-09-11
 # any listing URL, e.g. an already filtered collection page
 python crawl_jbhifi.py --url "https://www.jbhifi.com.au/collections/tvs?query=samsung"
 
+# also read each product's MODEL code off its product page (slow: one page each)
+python crawl_jbhifi.py --with-model
+
 # watch it work, and keep the raw payloads
 python crawl_jbhifi.py --headed --dump-dir dump
 ```
@@ -65,6 +68,23 @@ scroll-to-bottom per category, so at the default `--delay 1.5` it takes a few mi
 
 `CATEGORIES` at the top of the script is only the fallback list used by `--category`.
 
+### Prices
+
+Cards show up to three numbers — the ticket price, the price being charged, and the
+discount as an amount (`$100 OFF`, `SAVE $500`). Only the first two are prices: a
+number is treated as a discount amount when `OFF` follows it or `SAVE` precedes it,
+each checked only as far as the neighbouring number so a word belonging to the next
+price is not misread. `original_price` is then the ticket price and `sale_price` the
+highest price below it.
+
+### Model codes
+
+`model` is filled from the listing data when the site carries a model field. JB Hi-Fi
+prints it on the product page instead (`MODEL: SM-A376BZAAATS_11901362224  SKU: 892910`),
+so `--with-model` visits each product page that still has no model and reads it there.
+That is one extra page load per product, so a full run takes considerably longer; the
+crawler prints an estimate before starting and Ctrl+C keeps what it has filled.
+
 ## Stopping part way
 
 The CSV is rewritten after every page, and written atomically, so whatever has been
@@ -89,6 +109,7 @@ open, so the crawler retries for a few seconds and then writes to a sibling file
 | `product_url` | absolute |
 | `sku` | site product id, when available |
 | `sku_field` | which field on the site the `sku` came from, e.g. `sku` or `objectID` — so the number is traceable rather than anonymous |
+| `model` | manufacturer model code, e.g. `SM-A376BZAAATS_11901362224`. Filled from the listing data when it carries one; otherwise only with `--with-model` |
 | `on_sale` | `Y` / `N` |
 | `original_price` | the was / RRP price; equals `sale_price` when not on sale |
 | `sale_price` | price being charged now |

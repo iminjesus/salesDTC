@@ -88,6 +88,11 @@ SKU_KEYS   = ('sku', 'skuid', 'itemcode', 'productcode', 'productid', 'objectid'
 CAT_KEYS   = ('category', 'categories', 'productcategory', 'primarycategory',
               'categorypath', 'categoryname', 'breadcrumb', 'departmentname')
 BRAND_KEYS = ('brand', 'brandname', 'manufacturer', 'vendor')
+MODEL_KEYS = ('model', 'modelnumber', 'modelcode', 'modelname', 'mpn',
+              'manufacturerpartnumber', 'partnumber', 'productmodel')
+
+# The product page prints it as "MODEL: SM-A376BZAAATS_11901362224 SKU: 892910"
+MODEL_TEXT = re.compile(r'\bmodel\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9._/\-]{3,})', re.I)
 
 MONEY = re.compile(r'\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)')
 
@@ -233,6 +238,7 @@ def from_record(rec: dict) -> dict | None:
         'product_url': abs_url(pick(rec, URL_KEYS)),
         'sku': str(sku or ''),
         'sku_field': sku_key,
+        'model': flatten_text(pick(rec, MODEL_KEYS)),
         'site_category': flatten_text(pick(rec, CAT_KEYS)),
         'on_sale': on_sale,
         'original_price': was if was is not None else sale,
@@ -245,13 +251,15 @@ def from_record(rec: dict) -> dict | None:
 # ── extractor 2: the rendered cards ─────────────────────────────────────────
 DOM_JS = r"""
 () => {
+  const RE = /\$\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?/g;
   const seen = new Set(), out = [];
   // A product card is the smallest block that holds a /products/ link and a price.
   for (const a of document.querySelectorAll('a[href*="/products/"]')) {
     let card = a, hops = 0;
-    while (card && hops < 6 && !/\$\s*\d/.test(card.innerText || '')) {
-      card = card.parentElement; hops++;
+    while (card && hops < 6 && !RE.test(card.innerText || '')) {
+      RE.lastIndex = 0; card = card.parentElement; hops++;
     }
+    RE.lastIndex = 0;
     if (!card) continue;
     const href = a.getAttribute('href');
     if (!href || seen.has(href)) continue;
@@ -262,32 +270,64 @@ DOM_JS = r"""
               || (card.querySelector('h1,h2,h3,h4,[class*="title" i],[class*="name" i]')
                   ?.innerText || '').trim();
 
-    // Struck-through / "was" price, if the card shows one.
+    // Struck-through / ticket / "was" price, if the card shows one.
     let wasText = '';
-    for (const el of card.querySelectorAll('s, del, [class*="was" i], [class*="strike" i], [class*="rrp" i], [class*="compare" i]')) {
+    for (const el of card.querySelectorAll('s, del, [class*="was" i], [class*="strike" i], [class*="ticket" i], [class*="rrp" i], [class*="compare" i]')) {
       if (/\$\s*\d/.test(el.innerText || '')) { wasText = el.innerText; break; }
     }
-    const prices = (text.match(/\$\s*[0-9][0-9,]*(?:\.[0-9]{1,2})?/g) || []);
-    out.push({ href, name, wasText, prices, text: text.slice(0, 400) });
+
+    // Every money token with the text around it, so "$100 OFF" can be told apart
+    // from an actual price.
+    const tokens = [];
+    let m;
+    RE.lastIndex = 0;
+    while ((m = RE.exec(text)) !== null) {
+      const end = m.index + m[0].length;
+      // Clip each window at the neighbouring '$', so a word belonging to the next
+      // price ("... $2,449 SAVE $500") is not read as belonging to this one.
+      const before = text.slice(Math.max(0, m.index - 24), m.index).split('$').pop();
+      const after = text.slice(end, end + 24).split('$')[0];
+      tokens.push({ value: m[0], before, after });
+    }
+    out.push({ href, name, wasText, tokens, text: text.slice(0, 400) });
   }
   return out;
 }
 """
 
 
+# A discount amount rather than a price. The two shapes read in opposite
+# directions: "$100 OFF" has the word after it, "SAVE $500" has it before.
+OFF_AFTER = re.compile(r'^\W*off\b', re.I)
+OFF_BEFORE = re.compile(r'\b(save|saving|less|off)\W*$', re.I)
+
+
 def from_dom(card: dict) -> dict | None:
     name = (card.get('name') or '').strip()
-    prices = [to_money(p) for p in card.get('prices') or []]
-    prices = [p for p in prices if p]
+    prices, offs = [], []
+    for tok in card.get('tokens') or []:
+        v = to_money(tok.get('value'))
+        if not v:
+            continue
+        is_off = (OFF_AFTER.search(tok.get('after') or '')
+                  or OFF_BEFORE.search(tok.get('before') or ''))
+        (offs if is_off else prices).append(v)
     if not name or not prices:
         return None
+
     was = to_money(card.get('wasText'))
-    if was:
-        sale = min(p for p in prices if p != was) if any(p != was for p in prices) else was
+    if was is None and len(prices) > 1:
+        was = max(prices)                       # no markup: the highest is the ticket price
+    if was is not None:
+        # The sale price is the highest price below the ticket price - not the
+        # lowest, which would pick up a "$100 OFF" badge that slipped through.
+        below = [p for p in prices if p < was]
+        sale = max(below) if below else was
+        # Backstop: if a candidate is exactly the gap, it was the discount amount.
+        if below and (was - sale) in offs + prices and sale != max(below, default=sale):
+            sale = max(below)
     else:
         sale = prices[0]
-        # two prices and no explicit markup: assume higher one is the was price
-        was = max(prices) if len(prices) > 1 and max(prices) > sale else None
     if was is not None and was <= sale:
         was = None
     return {
@@ -296,6 +336,7 @@ def from_dom(card: dict) -> dict | None:
         'product_url': abs_url(card.get('href')),
         'sku': '',
         'sku_field': '',
+        'model': (MODEL_TEXT.search(card.get('text') or '') or [None, ''])[1],
         'site_category': '',
         'on_sale': was is not None,
         'original_price': was if was is not None else sale,
@@ -448,7 +489,7 @@ def merge(rows: list[dict]) -> list[dict]:
         out.append('name:' + re.sub(r'\s+', ' ', r['product_name']).strip().lower())
         return out
 
-    ID_FIELDS = ('sku', 'product_url', 'site_category', 'brand', 'sku_field')
+    ID_FIELDS = ('sku', 'product_url', 'site_category', 'brand', 'sku_field', 'model')
     PRICE_FIELDS = ('on_sale', 'original_price', 'sale_price', 'discount_pct')
 
     def combine(cur: dict, new: dict) -> dict:
@@ -463,8 +504,9 @@ def merge(rows: list[dict]) -> list[dict]:
         if new_knows and not cur_knows:
             for f in PRICE_FIELDS:
                 cur[f] = new[f]
-        elif new_knows and cur_knows and new['sale_price'] < cur['sale_price']:
-            for f in PRICE_FIELDS:                     # keep the better advertised price
+        elif new_knows and cur_knows and cur.get('source') != 'network' \
+                and new.get('source') == 'network':
+            for f in PRICE_FIELDS:     # the feed beats a card read out of rendered text
                 cur[f] = new[f]
         elif not cur_knows and not new_knows and new.get('sale_price') \
                 and new['sale_price'] < cur.get('sale_price', float('inf')):
@@ -485,8 +527,8 @@ def merge(rows: list[dict]) -> list[dict]:
 
 
 COLUMNS = ['crawled_at', 'category', 'brand', 'product_name', 'product_url', 'sku',
-           'sku_field', 'on_sale', 'original_price', 'sale_price', 'discount_pct',
-           'currency']
+           'sku_field', 'model', 'on_sale', 'original_price', 'sale_price',
+           'discount_pct', 'currency']
 
 
 def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> tuple:
@@ -530,6 +572,39 @@ def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> t
     return len(rows), alt
 
 
+def fill_models(page, rows: list[dict], args) -> int:
+    """Open each product page that has no model code and read it off the page.
+
+    Listing cards carry the sku but usually not the model, which is printed on the
+    product page as "MODEL: ... SKU: ...". One page load per product, so this is
+    opt-in (--with-model).
+    """
+    todo = [r for r in rows if not r.get('model') and r.get('product_url')]
+    if not todo:
+        return 0
+    print(f'\n  filling model codes from {len(todo)} product pages '
+          f'(about {len(todo) * args.delay / 60:.0f} min)')
+    filled = 0
+    for i, r in enumerate(todo, 1):
+        try:
+            page.goto(r['product_url'], wait_until='domcontentloaded',
+                      timeout=args.timeout * 1000)
+            text = page.evaluate('document.body.innerText.slice(0, 4000)')
+            m = MODEL_TEXT.search(text or '')
+            if m:
+                r['model'] = m.group(1)
+                filled += 1
+            time.sleep(args.delay)
+        except KeyboardInterrupt:
+            print('    stopped - keeping the models filled so far')
+            break
+        except Exception:
+            continue
+        if i % 25 == 0:
+            print(f'    {i}/{len(todo)}')
+    return filled
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -554,6 +629,9 @@ def main() -> int:
                     help='Chromium executable to use, when Playwright cannot find its own '
                          '(also read from CHROMIUM_PATH)')
     ap.add_argument('--dump-dir', help='keep raw payloads and an HTML snapshot here')
+    ap.add_argument('--with-model', action='store_true',
+                    help='also open each product page to read its MODEL code '
+                         '(one extra page load per product, so it is slow)')
     ap.add_argument('--no-brand-filter', action='store_true',
                     help='keep every product, not just the brand')
     args = ap.parse_args()
@@ -654,6 +732,14 @@ def main() -> int:
                 print('\n  stopped - keeping what has been collected')
                 interrupted = True
                 break
+
+        if args.with_model and not interrupted:
+            try:
+                n = fill_models(page, merge(all_rows), args)
+                print(f'  model code filled for {n} products')
+                write_csv(out, all_rows, args.brand, not args.no_brand_filter)
+            except KeyboardInterrupt:
+                pass
 
         browser.close()
 
