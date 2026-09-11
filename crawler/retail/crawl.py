@@ -728,6 +728,13 @@ def main() -> int:
     ap.add_argument('--max-scrolls', type=int, default=40)
     ap.add_argument('--timeout', type=int, default=30, help='per-step timeout, seconds')
     ap.add_argument('--headed', action='store_true', help='show the browser')
+    ap.add_argument('--profile', metavar='DIR',
+                    help='keep cookies in this folder between runs, so a check you '
+                         'passed once is not asked again (e.g. --profile .profile)')
+    ap.add_argument('--pause-on-block', action='store_true',
+                    help='when a page comes back with no products, wait at the console '
+                         'so you can deal with it in the browser yourself, then retry '
+                         'that page. Use with --headed.')
     ap.add_argument('--browser-path', default=os.environ.get('CHROMIUM_PATH'),
                     help='Chromium executable to use, when Playwright cannot find its own '
                          '(also read from CHROMIUM_PATH)')
@@ -739,6 +746,10 @@ def main() -> int:
                     help='keep every product, not just the brand')
     args = ap.parse_args()
     use_site(args.site)
+    if args.pause_on_block and not args.headed:
+        print('--pause-on-block needs --headed, so there is a window to work in.',
+              file=sys.stderr)
+        return 2
 
     def label(u: str) -> str:
         m = re.search(r'/([^/?]+)(?:\?|$)', u)
@@ -771,10 +782,18 @@ def main() -> int:
         launch = {'headless': not args.headed}
         if args.browser_path:
             launch['executable_path'] = args.browser_path
-        browser = pw.chromium.launch(**launch)
-        ctx = browser.new_context(user_agent=UA, locale='en-AU',
-                                  viewport={'width': 1440, 'height': 1000})
-        page = ctx.new_page()
+        common = {'user_agent': UA, 'locale': 'en-AU',
+                  'viewport': {'width': 1440, 'height': 1000}}
+        if args.profile:
+            # A persistent profile keeps cookies, so a check passed by hand once is
+            # not asked again on the next category or the next run.
+            browser = None
+            ctx = pw.chromium.launch_persistent_context(args.profile, **launch, **common)
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        else:
+            browser = pw.chromium.launch(**launch)
+            ctx = browser.new_context(**common)
+            page = ctx.new_page()
 
         def on_response(resp):
             ct = (resp.headers or {}).get('content-type', '')
@@ -799,6 +818,16 @@ def main() -> int:
             done.add(url)
             try:
                 rows, stopped = harvest(page, payloads, url, args, dump)
+                if not rows and args.pause_on_block and not stopped:
+                    print('\n  This page returned nothing. If the browser is showing a')
+                    print('  check to confirm you are human, complete it in the browser')
+                    print('  window, then press Enter here to read the page again.')
+                    print('  (--profile DIR keeps it from being asked every time.)')
+                    try:
+                        input('  press Enter to continue: ')
+                        rows, stopped = harvest(page, payloads, url, args, dump)
+                    except (EOFError, KeyboardInterrupt):
+                        interrupted = True
                 if stopped:
                     interrupted = True
             except KeyboardInterrupt:
@@ -848,7 +877,9 @@ def main() -> int:
             except KeyboardInterrupt:
                 pass
 
-        browser.close()
+        ctx.close()
+        if browser is not None:
+            browser.close()
 
     _, out = write_csv(out, all_rows, args.brand, not args.no_brand_filter)
     rows = merge(all_rows)

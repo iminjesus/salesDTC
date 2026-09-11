@@ -160,6 +160,25 @@ a link counts as a product when an ancestor within a few levels shows a price, a
 whose only price-bearing ancestor is the page body — navigation, footer — are skipped.
 The wait-and-scroll counter watches price elements there instead of links.
 
+### When the site asks you to prove you are human
+
+Harvey Norman puts a bot check in front of the search results. The crawler does not
+try to get around it — pass it yourself, once:
+
+```sh
+python crawl.py --site harveynorman --headed --pause-on-block --profile .profile
+```
+
+`--headed` gives you the browser window, `--pause-on-block` waits at the console
+whenever a page comes back empty so you can complete the check and press Enter, and
+`--profile` keeps the resulting cookies in that folder so later pages and later runs
+are not asked again. Raise `--delay` as well; a slower crawl is less likely to be
+challenged in the first place.
+
+A check like this is the site saying it does not want automated access. Worth reading
+their terms before running this regularly, and asking them for a feed if this becomes
+something you depend on.
+
 ## If it comes back empty
 
 ```sh
