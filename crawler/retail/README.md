@@ -25,8 +25,9 @@ python -m playwright install chromium
 # JB Hi-Fi: search for SAMSUNG, then every category the site offers for it
 python crawl.py
 
-# Harvey Norman, same treatment
-python crawl.py --site harveynorman
+# Harvey Norman, same treatment. It is not served to a hidden browser, so a
+# window opens automatically; --profile keeps the cookies between runs.
+python crawl.py --site harveynorman --profile .profile
 
 # just the search page, no category pass
 python crawl.py --no-discover
@@ -172,8 +173,12 @@ The wait-and-scroll counter watches price elements there instead of links.
 
 ### When the site asks you to prove you are human
 
-Harvey Norman puts a bot check in front of the search results. The crawler does not
-try to get around it — pass it yourself, once:
+Harvey Norman does not serve a hidden browser at all: run it headless and the page
+comes back empty. `--site harveynorman` therefore opens a visible window by default
+(`--headless` overrides it, and JB Hi-Fi is unaffected).
+
+There is also a bot check in front of the search results. The crawler does not try to
+get around it — pass it yourself, once:
 
 ```sh
 python crawl.py --site harveynorman --headed --pause-on-block --profile .profile

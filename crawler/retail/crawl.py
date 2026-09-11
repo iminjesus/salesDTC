@@ -89,6 +89,9 @@ SITES = {
         # tracks the price elements instead, which is what grows as you scroll.
         'link_selector': 'a[href]',
         'wait_selector': '[class*="price" i], [data-price], [itemprop="price"]',
+        # A headless browser gets an empty challenge page here; a visible one is
+        # served normally, so run with a window unless told otherwise.
+        'needs_headed':  True,
         'product_href':  r'',
         'category_href': r'/([a-z0-9\-]+/[a-z0-9\-]+)/?$',
         'category_path': '/{slug}',
@@ -808,6 +811,8 @@ def main() -> int:
     ap.add_argument('--max-scrolls', type=int, default=40)
     ap.add_argument('--timeout', type=int, default=30, help='per-step timeout, seconds')
     ap.add_argument('--headed', action='store_true', help='show the browser')
+    ap.add_argument('--headless', action='store_true',
+                    help='force a hidden browser even for sites that need a window')
     ap.add_argument('--profile', metavar='DIR',
                     help='keep cookies in this folder between runs, so a check you '
                          'passed once is not asked again (e.g. --profile .profile)')
@@ -830,6 +835,11 @@ def main() -> int:
                     help='keep every product, not just the brand')
     args = ap.parse_args()
     use_site(args.site)
+    if SITE.get('needs_headed') and not args.headed and not args.headless:
+        args.headed = True
+        print(f'{args.site} does not serve a headless browser, so a window is used.')
+        print('Pass --headless to override, and --profile DIR to keep the cookies '
+              'from a check you clear.\n')
     if args.pause_on_block and not args.headed:
         print('--pause-on-block needs --headed, so there is a window to work in.',
               file=sys.stderr)
