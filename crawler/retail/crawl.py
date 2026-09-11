@@ -798,6 +798,10 @@ def main() -> int:
                     help='cap on discovered categories (default: 25)')
     ap.add_argument('--url', nargs='*', default=[],
                     help='explicit listing URLs, used instead of --category')
+    ap.add_argument('--from-html', nargs='*', default=[], metavar='PATH',
+                    help='parse pages already saved to disk (files, or a folder of '
+                         'them) instead of fetching anything. Save the listing page '
+                         'from your own browser with Ctrl+S and point this at it.')
     ap.add_argument('--out', help='output CSV path (default: <site>_<brand>.csv)')
     ap.add_argument('--delay', type=float, default=1.5,
                     help='seconds between scrolls (default: 1.5)')
@@ -835,7 +839,17 @@ def main() -> int:
         m = re.search(r'/([^/?]+)(?:\?|$)', u)
         return m.group(1) if m else u
 
-    if args.url:
+    if args.from_html:
+        files = []
+        for raw in args.from_html:
+            path = Path(raw)
+            files += sorted(path.glob('*.htm*')) if path.is_dir() else [path]
+        missing = [f for f in files if not f.exists()]
+        for f in missing:
+            print(f'no such file: {f}', file=sys.stderr)
+        files = [f for f in files if f.exists()]
+        targets = [(f.stem, f.resolve().as_uri()) for f in files]
+    elif args.url:
         targets = [(label(u), u) for u in args.url]
     elif args.category:
         unknown = [c for c in args.category if c not in CATEGORIES]
@@ -931,7 +945,7 @@ def main() -> int:
             # After the first (seed) page, ask the site which categories it has
             # for this brand and queue them up one by one.
             if discovered_from is None and not args.no_discover and not args.url \
-                    and not args.category:
+                    and not args.category and not args.from_html:
                 discovered_from = url
                 found = discover_categories(page, payloads, args.brand,
                                             args.max_categories)
@@ -947,7 +961,7 @@ def main() -> int:
                 interrupted = True
                 break
 
-        if args.with_model and not interrupted:
+        if args.with_model and not interrupted and not args.from_html:
             try:
                 to_fill = merge(all_rows)
                 if not args.no_brand_filter:

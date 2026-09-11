@@ -185,6 +185,24 @@ whenever a page comes back empty so you can complete the check and press Enter, 
 are not asked again. Raise `--delay` as well; a slower crawl is less likely to be
 challenged in the first place.
 
+If the run reports `page title :` empty, `links : 0` and json keys like
+`features, c, pass` / `token, renewInSec, cookieDomain`, the page never arrived at all —
+that is the protection layer answering, not a layout change, and no selector will fix it.
+
+### Parsing pages you saved yourself
+
+When a site will not serve an automated browser, browse it normally, save the listing
+page (Ctrl+S, "Webpage, Complete" or "Single File"), and parse the file:
+
+```sh
+python crawl.py --site harveynorman --from-html saved\           # a folder of pages
+python crawl.py --site harveynorman --from-html page1.html page2.html
+```
+
+Nothing is fetched — the same extractors run over the local file, and product urls are
+still resolved against the real site. Category discovery and `--with-model` are skipped,
+since both need the network.
+
 A check like this is the site saying it does not want automated access. Worth reading
 their terms before running this regularly, and asking them for a feed if this becomes
 something you depend on.
