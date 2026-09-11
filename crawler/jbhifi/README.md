@@ -13,7 +13,8 @@ python -m playwright install chromium
 ## Run
 
 ```sh
-# default: search SAMSUNG, then crawl every category the site offers for it
+# default: /search?query=samsung&Brand=SAMSUNG, then every category the site
+# offers for that brand
 python crawl_jbhifi.py
 
 # just the search page, no category pass
@@ -28,6 +29,21 @@ python crawl_jbhifi.py --url "https://www.jbhifi.com.au/collections/tvs?query=sa
 # watch it work, and keep the raw payloads
 python crawl_jbhifi.py --headed --dump-dir dump
 ```
+
+### Brand
+
+Every listing URL the crawler builds carries the site's own brand facet, so the pages
+come back already filtered:
+
+```
+https://www.jbhifi.com.au/search?query=samsung&Brand=SAMSUNG
+https://www.jbhifi.com.au/collections/tvs?query=samsung&Brand=SAMSUNG
+```
+
+`--brand` sets both (`--brand LG` gives `query=lg&Brand=LG`), and the facet name itself
+is `BRAND_PARAM` at the top of the script. A URL passed with `--url` is used exactly as
+given, so any facets already on it are kept. The name-based filter still runs afterwards
+as a safety net; `--no-brand-filter` turns that off.
 
 ### Categories
 

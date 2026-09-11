@@ -39,6 +39,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 try:
     from playwright.sync_api import sync_playwright
@@ -49,19 +50,24 @@ except ImportError:                                    # pragma: no cover
 
 BASE = 'https://www.jbhifi.com.au'
 
+# The site filters by brand itself through a facet parameter, so the listing pages
+# come back with the brand already applied instead of being filtered here:
+#   /search?query=samsung&Brand=SAMSUNG
+BRAND_PARAM = 'Brand'
+
 # Named categories -> listing URL. Add your own; the value is used as-is.
 # 'search' is the plain site search the brand page links to.
 CATEGORIES = {
-    'search':      f'{BASE}/search?query={{brand}}',
-    'tvs':         f'{BASE}/collections/tvs?query={{brand}}',
-    'phones':      f'{BASE}/collections/mobile-phones?query={{brand}}',
-    'tablets':     f'{BASE}/collections/tablets?query={{brand}}',
-    'laptops':     f'{BASE}/collections/laptops?query={{brand}}',
-    'audio':       f'{BASE}/collections/headphones?query={{brand}}',
-    'wearables':   f'{BASE}/collections/smart-watches-fitness-trackers?query={{brand}}',
-    'whitegoods':  f'{BASE}/collections/fridges?query={{brand}}',
-    'laundry':     f'{BASE}/collections/washing-machines?query={{brand}}',
-    'monitors':    f'{BASE}/collections/computer-monitors?query={{brand}}',
+    'search':      f'{BASE}/search',
+    'tvs':         f'{BASE}/collections/tvs',
+    'phones':      f'{BASE}/collections/mobile-phones',
+    'tablets':     f'{BASE}/collections/tablets',
+    'laptops':     f'{BASE}/collections/laptops',
+    'audio':       f'{BASE}/collections/headphones',
+    'wearables':   f'{BASE}/collections/smart-watches-fitness-trackers',
+    'whitegoods':  f'{BASE}/collections/fridges',
+    'laundry':     f'{BASE}/collections/washing-machines',
+    'monitors':    f'{BASE}/collections/computer-monitors',
 }
 
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -84,6 +90,19 @@ CAT_KEYS   = ('category', 'categories', 'productcategory', 'primarycategory',
 BRAND_KEYS = ('brand', 'brandname', 'manufacturer', 'vendor')
 
 MONEY = re.compile(r'\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)')
+
+
+def listing_url(url: str, brand: str) -> str:
+    """Add the search term and the brand facet, leaving any the url already has.
+
+        /search                      -> /search?query=samsung&Brand=SAMSUNG
+        /collections/tvs?query=x     -> /collections/tvs?query=x&Brand=SAMSUNG
+    """
+    parts = urlsplit(url if url.startswith('http') else BASE + url)
+    params = dict(parse_qsl(parts.query, keep_blank_values=True))
+    params.setdefault('query', brand.lower())
+    params.setdefault(BRAND_PARAM, brand.upper())
+    return urlunsplit(parts._replace(query=urlencode(params)))
 
 
 # ── small helpers ───────────────────────────────────────────────────────────
@@ -343,9 +362,7 @@ def discover_categories(page, payloads: list, brand: str, limit: int) -> list[tu
         if slug in seen or slug in ('all', 'sale'):
             continue
         seen.add(slug)
-        sep = '&' if '?' in href else '?'
-        url = abs_url(href) + f'{sep}query={brand}'
-        cats.append((text or slug, url))
+        cats.append((text or slug, listing_url(abs_url(href), brand)))
 
     # Facet names have no url of their own; map them onto a search refinement.
     for name in facet_categories(payloads):
@@ -353,7 +370,7 @@ def discover_categories(page, payloads: list, brand: str, limit: int) -> list[tu
         if not slug or slug in seen:
             continue
         seen.add(slug)
-        cats.append((name, f'{BASE}/collections/{slug}?query={brand}'))
+        cats.append((name, listing_url(f'{BASE}/collections/{slug}', brand)))
 
     return cats[:limit]
 
@@ -530,10 +547,10 @@ def main() -> int:
         unknown = [c for c in args.category if c not in CATEGORIES]
         if unknown:
             print(f'unknown category: {", ".join(unknown)}', file=sys.stderr)
-        targets = [(c, CATEGORIES[c].format(brand=args.brand))
+        targets = [(c, listing_url(CATEGORIES[c], args.brand))
                    for c in args.category if c in CATEGORIES]
     else:
-        targets = [('search', CATEGORIES['search'].format(brand=args.brand))]
+        targets = [('search', listing_url(CATEGORIES['search'], args.brand))]
     if not targets:
         print('nothing to crawl', file=sys.stderr)
         return 2
