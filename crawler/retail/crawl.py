@@ -325,6 +325,21 @@ DOM_JS = r"""
       if (/\$\s*\d/.test(el.innerText || '')) { wasText = el.innerText; break; }
     }
 
+    // Prices carried by elements that say they are prices. A badge like
+    // "Save $2,000" is not one of these, which is what keeps it out of the
+    // price list even when it sits right next to the real price.
+    const priced = [];
+    for (const el of card.querySelectorAll(
+        '[class*="price" i], [data-price], [itemprop="price"], [class*="amount" i]')) {
+      const t = (el.innerText || '').trim();
+      if (!/\$\s*\d/.test(t)) continue;
+      if (el.querySelector('[class*="price" i], [data-price], [itemprop="price"]'))
+        continue;                       // outer wrapper; the inner ones carry the values
+      const cls = ((el.className || '') + ' ' + (el.getAttribute('data-testid') || '')
+                   + ' ' + (el.parentElement?.className || '')).toLowerCase();
+      priced.push({ text: t, cls, struck: !!el.closest('s, del') });
+    }
+
     // Every money token with the text around it, so "$100 OFF" can be told apart
     // from an actual price.
     const tokens = [];
@@ -338,7 +353,7 @@ DOM_JS = r"""
       const after = text.slice(end, end + 24).split('$')[0];
       tokens.push({ value: m[0], before, after });
     }
-    out.push({ href, name, wasText, tokens, text: text.slice(0, 400) });
+    out.push({ href, name, wasText, tokens, priced, text: text.slice(0, 400) });
   }
   return out;
 }
@@ -347,12 +362,51 @@ DOM_JS = r"""
 
 # A discount amount rather than a price. The two shapes read in opposite
 # directions: "$100 OFF" has the word after it, "SAVE $500" has it before.
-OFF_AFTER = re.compile(r'^\W*off\b', re.I)
-OFF_BEFORE = re.compile(r'\b(save|saving|less|off)\W*$', re.I)
+OFF_AFTER = re.compile(r'^\W*(off|cashback|credit|bonus|back)\b', re.I)
+OFF_BEFORE = re.compile(r'\b(save|saved|saving|savings|less|off|bonus|cashback|'
+                        r'credit|gift|voucher|redeem)\W*$', re.I)
+# Class names that say which side of a discount a price element is on.
+WAS_CLASS = re.compile(r'was|strike|rrp|ticket|compare|before|original|regular', re.I)
+NOW_CLASS = re.compile(r'now|sale|special|current|final|today|our', re.I)
+SAVE_CLASS = re.compile(r'save|saving|discount|bonus|cashback|credit', re.I)
 
 
 def from_dom(card: dict) -> dict | None:
     name = (card.get('name') or '').strip()
+
+    # Preferred path: elements that declare themselves as prices.
+    was = now = None
+    plain = []
+    for el in card.get('priced') or []:
+        v = to_money(el.get('text'))
+        if not v or SAVE_CLASS.search(el.get('cls') or ''):
+            continue
+        if el.get('struck') or WAS_CLASS.search(el.get('cls') or ''):
+            was = v if was is None else max(was, v)
+        elif NOW_CLASS.search(el.get('cls') or ''):
+            now = v if now is None else min(now, v)
+        else:
+            plain.append(v)
+    if now is None and plain:
+        now = min(plain) if was is None else min([p for p in plain if p <= was] or plain)
+    if was is None and len(plain) > 1:
+        was = max(plain)
+    if now is not None and name:
+        if was is not None and was <= now:
+            was = None
+        return {
+            'brand': '', 'product_name': name,
+            'product_url': abs_url(card.get('href')), 'sku': '', 'sku_field': '',
+            'model': (MODEL_TEXT.search(card.get('text') or '') or [None, ''])[1],
+            'site_category': '',
+            'on_sale': was is not None,
+            'original_price': was if was is not None else now,
+            'sale_price': now,
+            'discount_pct': discount(was, now),
+            'source': 'dom',
+        }
+
+    # Fallback: read the money out of the card's text.
     prices, offs = [], []
     for tok in card.get('tokens') or []:
         v = to_money(tok.get('value'))
@@ -628,7 +682,8 @@ COLUMNS = ['crawled_at', 'category', 'brand', 'product_name', 'product_url', 'sk
            'discount_pct', 'currency']
 
 
-def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> tuple:
+def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool,
+              max_discount: float = 100.0) -> tuple:
     """Write everything gathered so far and return (row count, path written).
 
     Called after every page, so an interrupted run still leaves a usable file.
@@ -637,6 +692,7 @@ def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> t
     the returned path is what the caller should keep writing to.
     """
     rows = merge(rows)
+    rows = drop_impossible_discounts(rows, max_discount)
     if brand_filter:
         rows = keep_brand(rows, brand)
     rows.sort(key=lambda r: (r['category'], r['product_name']))
@@ -664,6 +720,26 @@ def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> t
         return len(rows), path
     print(f'    {path.name} is still locked; writing to {alt.name} from here on')
     return len(rows), alt
+
+
+def drop_impossible_discounts(rows: list[dict], limit: float) -> list[dict]:
+    """A discount far past anything a retailer runs means a savings or bonus amount
+    was read as the price ("$7,944  SAVE $2,000" coming out as 7,944 -> 2,000).
+    The higher number is the price in that case, so keep it and drop the discount."""
+    hit = []
+    for r in rows:
+        if r.get('discount_pct') and r['discount_pct'] > limit:
+            hit.append(r)
+            r['sale_price'] = r['original_price']
+            r['on_sale'] = False
+            r['discount_pct'] = None
+    if hit:
+        print(f'\n  {len(hit)} product(s) showed a discount over {limit:g}% - that is '
+              'almost always a savings')
+        print('  amount read as the price, so the discount was dropped. Worth a look:')
+        for r in hit[:10]:
+            print(f"    {r['product_name'][:60]}  {r['product_url']}")
+    return rows
 
 
 def keep_brand(rows: list[dict], brand: str) -> list[dict]:
@@ -742,6 +818,10 @@ def main() -> int:
     ap.add_argument('--with-model', action='store_true',
                     help='also open each product page to read its MODEL code '
                          '(one extra page load per product, so it is slow)')
+    ap.add_argument('--max-discount', type=float, default=70.0,
+                    help='reject a discount above this %% as a misread - the higher '
+                         'number is kept as the price and the row is reported '
+                         '(default: 70, use 100 to trust everything)')
     ap.add_argument('--no-brand-filter', action='store_true',
                     help='keep every product, not just the brand')
     args = ap.parse_args()
@@ -842,7 +922,8 @@ def main() -> int:
                 r['crawled_at'] = stamp
                 r['currency'] = 'AUD'
             all_rows += rows
-            saved, out = write_csv(out, all_rows, args.brand, not args.no_brand_filter)
+            saved, out = write_csv(out, all_rows, args.brand, not args.no_brand_filter,
+                                   args.max_discount)
             print(f'    saved {saved} products so far -> {out}')
             if interrupted:
                 break
@@ -873,7 +954,8 @@ def main() -> int:
                     to_fill = keep_brand(to_fill, args.brand)
                 n = fill_models(page, to_fill, args)
                 print(f'  model code filled for {n} products')
-                write_csv(out, all_rows, args.brand, not args.no_brand_filter)
+                write_csv(out, all_rows, args.brand, not args.no_brand_filter,
+                          args.max_discount)
             except KeyboardInterrupt:
                 pass
 
@@ -881,8 +963,10 @@ def main() -> int:
         if browser is not None:
             browser.close()
 
-    _, out = write_csv(out, all_rows, args.brand, not args.no_brand_filter)
+    _, out = write_csv(out, all_rows, args.brand, not args.no_brand_filter,
+                       args.max_discount)
     rows = merge(all_rows)
+    rows = drop_impossible_discounts(rows, args.max_discount)
     if not args.no_brand_filter:
         rows = keep_brand(rows, args.brand)
 

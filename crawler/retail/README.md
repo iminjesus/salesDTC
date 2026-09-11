@@ -86,12 +86,22 @@ only a fallback — Harvey Norman has none, since discovery covers it.
 
 ### Prices
 
-Cards show up to three numbers — the ticket price, the price being charged, and the
-discount as an amount (`$100 OFF`, `SAVE $500`). Only the first two are prices: a
-number is treated as a discount amount when `OFF` follows it or `SAVE` precedes it,
-each checked only as far as the neighbouring number so a word belonging to the next
-price is not misread. `original_price` is then the ticket price and `sale_price` the
-highest price below it.
+Prices are read from the elements that declare themselves as prices — `[class*=price]`,
+`[itemprop=price]`, `[data-price]` — and the element's own class says which side it is
+on (`was`/`ticket`/`rrp`/`strike` against `now`/`sale`/`special`). Elements whose class
+says saving, discount, bonus or cashback are skipped outright. This is what keeps a
+`Save $2,000` badge from being read as the price.
+
+When a card carries no such elements, the money in its text is read instead, and a
+number counts as a discount amount when `OFF`/`CASHBACK`/`BONUS` follows it or
+`SAVE`/`LESS`/`CREDIT`/`GIFT` precedes it. Each context window stops at the
+neighbouring number so a word belonging to the next price is not misread.
+`original_price` is then the ticket price and `sale_price` the highest price below it.
+
+**`--max-discount`** (70% by default) is the backstop. A discount past it is almost
+always a savings amount that got read as the price, so the discount is dropped, the
+higher number is kept as the price, and the affected products are listed at the end of
+the run for a manual look. Pass `--max-discount 100` to keep everything as read.
 
 ### Model codes
 
