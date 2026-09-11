@@ -84,8 +84,12 @@ SITES = {
         # /catalogsearch/result/?q=samsung&af=def_general_brand%3ASamsung
         'brand_value':   lambda b: f'def_general_brand:{b.title()}',
         'query_value':   lambda b: b.lower(),
-        'link_selector': 'a[href$=".html"]',
-        'product_href':  r'\.html$',
+        # Product urls here are not a reliable shape, so every link is considered
+        # and the price-bearing card around it decides. The wait/count selector
+        # tracks the price elements instead, which is what grows as you scroll.
+        'link_selector': 'a[href]',
+        'wait_selector': '[class*="price" i], [data-price], [itemprop="price"]',
+        'product_href':  r'',
         'category_href': r'/([a-z0-9\-]+/[a-z0-9\-]+)/?$',
         'category_path': '/{slug}',
         'categories': {},
@@ -97,14 +101,16 @@ SITE = SITES['jbhifi']
 BASE = SITE['base']
 BRAND_PARAM = SITE['brand_param']
 LINK_SELECTOR = SITE['link_selector']
+WAIT_SELECTOR = SITE['link_selector']
 
 
 def use_site(name: str) -> None:
-    global SITE, BASE, BRAND_PARAM, LINK_SELECTOR, CATEGORIES
+    global SITE, BASE, BRAND_PARAM, LINK_SELECTOR, WAIT_SELECTOR, CATEGORIES
     SITE = SITES[name]
     BASE = SITE['base']
     BRAND_PARAM = SITE['brand_param']
     LINK_SELECTOR = SITE['link_selector']
+    WAIT_SELECTOR = SITE.get('wait_selector') or SITE['link_selector']
     CATEGORIES = {'search': SITE['search'], **SITE['categories']}
 
 # Named categories -> listing URL. Add your own; the value is used as-is.
@@ -301,7 +307,9 @@ DOM_JS = r"""
       RE.lastIndex = 0; card = card.parentElement; hops++;
     }
     RE.lastIndex = 0;
-    if (!card) continue;
+    // Climbing as far as the page body means this link just happens to sit on a
+    // page that has prices somewhere - navigation, footer - not a product card.
+    if (!card || card === document.body || card === document.documentElement) continue;
     const href = a.getAttribute('href');
     if (!href || seen.has(href)) continue;
     seen.add(href);
@@ -437,7 +445,7 @@ def discover_categories(page, payloads: list, brand: str, limit: int) -> list[tu
 
     for link in page.evaluate(CAT_LINKS_JS):
         href, text = link['href'], link['text']
-        if re.search(SITE['product_href'], href.split('?')[0]):
+        if SITE['product_href'] and re.search(SITE['product_href'], href.split('?')[0]):
             continue                              # that is a product, not a category
         m = re.search(SITE['category_href'], href.split('?')[0])
         if not m:
@@ -471,7 +479,7 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
     payloads.clear()
     page.goto(url, wait_until='domcontentloaded', timeout=args.timeout * 1000)
     try:
-        page.wait_for_selector(LINK_SELECTOR, timeout=args.timeout * 1000)
+        page.wait_for_selector(WAIT_SELECTOR, timeout=args.timeout * 1000)
     except Exception:
         print('    no product links appeared (blocked, or the layout changed)')
 
@@ -482,7 +490,7 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
             page.mouse.wheel(0, 4000)
             time.sleep(args.delay)
             count = page.evaluate(
-                'sel => document.querySelectorAll(sel).length', LINK_SELECTOR)
+                'sel => document.querySelectorAll(sel).length', WAIT_SELECTOR)
             if count == last:
                 stable += 1
                 if stable >= 2:
@@ -493,7 +501,7 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
     except KeyboardInterrupt:
         stopped = True
         print('\n    stopped scrolling - extracting what is loaded')
-    print(f'    {last} product links, {len(payloads)} json responses')
+    print(f'    {last} price elements, {len(payloads)} json responses')
 
     rows = []
     for body in payloads:
@@ -508,12 +516,57 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
         if row:
             rows.append(row)
 
+    if not rows and dump is None:
+        dump = Path('dump')               # nothing found: keep the evidence anyway
+        dump.mkdir(parents=True, exist_ok=True)
     if dump:
         stamp = re.sub(r'[^a-z0-9]+', '-', url.lower())[-60:]
         (dump / f'page-{stamp}.html').write_text(page.content(), encoding='utf-8')
         (dump / f'payloads-{stamp}.json').write_text(
             json.dumps(payloads, ensure_ascii=False, indent=1)[:8_000_000], encoding='utf-8')
+    if not rows:
+        print('    nothing matched on this page:')
+        diagnose(page, payloads, dump)
     return rows, stopped
+
+
+def diagnose(page, payloads: list, dump: Path | None) -> None:
+    """Print what the page actually looks like, so an empty result can be pinned
+    down from the console alone instead of needing the dump shipped anywhere."""
+    try:
+        info = page.evaluate(r"""
+        () => {
+          const hrefs = [...document.querySelectorAll('a[href]')]
+            .map(a => a.getAttribute('href')).filter(Boolean);
+          const uniq = [...new Set(hrefs)];
+          const money = (document.body.innerText.match(/\$\s*[0-9][0-9,]*/g) || []);
+          const classes = new Set();
+          for (const el of document.querySelectorAll('[class*="price" i]'))
+            (el.className || '').split(/\s+/).forEach(c => c && classes.add(c));
+          return { links: hrefs.length, sample: uniq.slice(0, 12),
+                   money: money.slice(0, 8), priceClasses: [...classes].slice(0, 8),
+                   title: document.title,
+                   bodyStart: (document.body.innerText || '').trim().slice(0, 200) };
+        }
+        """)
+    except Exception as exc:
+        print(f'    could not inspect the page: {exc}')
+        return
+
+    print(f"    page title : {info['title']}")
+    print(f"    links      : {info['links']}")
+    for h in info['sample']:
+        print(f'      {h[:100]}')
+    print(f"    prices seen: {', '.join(info['money']) or 'none'}")
+    print(f"    price css  : {', '.join(info['priceClasses']) or 'none'}")
+    if not info['money']:
+        print(f"    body starts: {info['bodyStart'][:120]!r}")
+    for body in payloads[:4]:
+        if isinstance(body, dict):
+            print(f"    json keys  : {', '.join(list(body)[:10])}")
+    if dump:
+        print(f'    raw page and payloads written to {dump}')
+
 
 
 def merge(rows: list[dict]) -> list[dict]:
@@ -585,10 +638,7 @@ def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> t
     """
     rows = merge(rows)
     if brand_filter:
-        b = brand.lower()
-        rows = [r for r in rows
-                if b in r['product_name'].lower() or b in r['brand'].lower()
-                or b in r['product_url'].lower()]
+        rows = keep_brand(rows, brand)
     rows.sort(key=lambda r: (r['category'], r['product_name']))
     tmp = path.with_suffix(path.suffix + '.tmp')
     with tmp.open('w', newline='', encoding='utf-8-sig') as f:   # utf-8-sig: Excel friendly
@@ -614,6 +664,13 @@ def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> t
         return len(rows), path
     print(f'    {path.name} is still locked; writing to {alt.name} from here on')
     return len(rows), alt
+
+
+def keep_brand(rows: list[dict], brand: str) -> list[dict]:
+    b = brand.lower()
+    return [r for r in rows
+            if b in r['product_name'].lower() or b in r['brand'].lower()
+            or b in r['product_url'].lower()]
 
 
 def fill_models(page, rows: list[dict], args) -> int:
@@ -782,7 +839,10 @@ def main() -> int:
 
         if args.with_model and not interrupted:
             try:
-                n = fill_models(page, merge(all_rows), args)
+                to_fill = merge(all_rows)
+                if not args.no_brand_filter:
+                    to_fill = keep_brand(to_fill, args.brand)
+                n = fill_models(page, to_fill, args)
                 print(f'  model code filled for {n} products')
                 write_csv(out, all_rows, args.brand, not args.no_brand_filter)
             except KeyboardInterrupt:
@@ -793,10 +853,7 @@ def main() -> int:
     _, out = write_csv(out, all_rows, args.brand, not args.no_brand_filter)
     rows = merge(all_rows)
     if not args.no_brand_filter:
-        b = args.brand.lower()
-        rows = [r for r in rows
-                if b in r['product_name'].lower() or b in r['brand'].lower()
-                or b in r['product_url'].lower()]
+        rows = keep_brand(rows, args.brand)
 
     on_sale = sum(1 for r in rows if r['on_sale'])
     note = ' (stopped early)' if interrupted else ''

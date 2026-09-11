@@ -152,13 +152,26 @@ winning row are filled in from the others.
 `category` is the product's own category as the site reports it (`Home > TVs`) when the
 data carries one, and otherwise the page the row was found on.
 
+### When the product links have no fixed shape
+
+On JB Hi-Fi a product link is recognisable (`/products/...`). Harvey Norman has no such
+shape, so there the crawler considers every link and lets the surrounding block decide:
+a link counts as a product when an ancestor within a few levels shows a price, and links
+whose only price-bearing ancestor is the page body — navigation, footer — are skipped.
+The wait-and-scroll counter watches price elements there instead of links.
+
 ## If it comes back empty
 
 ```sh
 python crawl_jbhifi.py --headed --dump-dir dump
 ```
 
-`dump/` then holds the captured JSON payloads and an HTML snapshot of the page. That
+A page that yields nothing now prints what it actually saw — title, link count, a
+dozen sample hrefs, the prices and price-related class names on the page, and the
+top-level keys of any JSON it fetched — and writes `dump/` even without the flag.
+That console block is usually enough to fix the site entry.
+
+`dump/` holds the captured JSON payloads and an HTML snapshot of the page. That
 is what the field names have to be pinned against — send it over and the parser can be
 made exact rather than heuristic. An empty result usually means one of:
 
