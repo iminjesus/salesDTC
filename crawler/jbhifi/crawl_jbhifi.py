@@ -77,7 +77,10 @@ WAS_KEYS   = ('wasprice', 'originalprice', 'regularprice', 'listprice', 'rrp',
 SALE_FLAGS = ('onsale', 'ison sale', 'isonsale', 'isdiscounted', 'hasdiscount',
               'ispromotional', 'onpromotion', 'issale')
 URL_KEYS   = ('url', 'producturl', 'link', 'permalink', 'slug', 'handle', 'path')
-SKU_KEYS   = ('sku', 'skuid', 'productid', 'itemcode', 'code', 'objectid', 'id')
+# In priority order: a field actually called sku beats the search engine's own id.
+SKU_KEYS   = ('sku', 'skuid', 'itemcode', 'productcode', 'productid', 'objectid', 'id')
+CAT_KEYS   = ('category', 'categories', 'productcategory', 'primarycategory',
+              'categorypath', 'categoryname', 'breadcrumb', 'departmentname')
 BRAND_KEYS = ('brand', 'brandname', 'manufacturer', 'vendor')
 
 MONEY = re.compile(r'\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)')
@@ -90,12 +93,32 @@ def norm_key(k: str) -> str:
 
 def pick(d: dict, keys) -> object:
     """First value in d whose normalised key matches one of keys."""
-    lookup = {norm_key(k): v for k, v in d.items()}
+    return pick_with_key(d, keys)[0]
+
+
+def pick_with_key(d: dict, keys) -> tuple:
+    """As pick(), but also returns the source key - so the CSV can say where a
+    value such as the sku actually came from."""
+    lookup = {norm_key(k): (k, v) for k, v in d.items()}
     for k in keys:
-        v = lookup.get(norm_key(k))
-        if v not in (None, '', [], {}):
-            return v
-    return None
+        hit = lookup.get(norm_key(k))
+        if hit and hit[1] not in (None, '', [], {}):
+            return hit[1], hit[0]
+    return None, ''
+
+
+def flatten_text(v) -> str:
+    """'TVs' | ['Home','TVs'] | [{'name':'TVs'}] -> 'Home > TVs'"""
+    if v is None:
+        return ''
+    if isinstance(v, str):
+        return v.strip()
+    if isinstance(v, dict):
+        return flatten_text(pick(v, ('name', 'title', 'label', 'value')))
+    if isinstance(v, (list, tuple)):
+        parts = [flatten_text(x) for x in v]
+        return ' > '.join(p for p in parts if p)
+    return str(v)
 
 
 def to_money(v) -> float | None:
@@ -184,11 +207,14 @@ def from_record(rec: dict) -> dict | None:
     flag = pick(rec, SALE_FLAGS)
     on_sale = bool(flag) if isinstance(flag, bool) else (was is not None and was > sale)
     brand = pick(rec, BRAND_KEYS)
+    sku, sku_key = pick_with_key(rec, SKU_KEYS)
     return {
         'brand': str(brand) if brand else '',
         'product_name': name.strip(),
         'product_url': abs_url(pick(rec, URL_KEYS)),
-        'sku': str(pick(rec, SKU_KEYS) or ''),
+        'sku': str(sku or ''),
+        'sku_field': sku_key,
+        'site_category': flatten_text(pick(rec, CAT_KEYS)),
         'on_sale': on_sale,
         'original_price': was if was is not None else sale,
         'sale_price': sale,
@@ -250,12 +276,86 @@ def from_dom(card: dict) -> dict | None:
         'product_name': name,
         'product_url': abs_url(card.get('href')),
         'sku': '',
+        'sku_field': '',
+        'site_category': '',
         'on_sale': was is not None,
         'original_price': was if was is not None else sale,
         'sale_price': sale,
         'discount_pct': discount(was, sale),
         'source': 'dom',
     }
+
+
+# ── category discovery ──────────────────────────────────────────────────────
+# The categories are whatever the site itself offers for this brand, so they are
+# read off the seed search page rather than hard-coded: the refinement links in
+# the markup, plus any facet counts in the JSON the page fetched.
+CAT_LINKS_JS = r"""
+() => {
+  const out = [];
+  for (const a of document.querySelectorAll('a[href*="/collections/"], a[href*="category"]')) {
+    const href = a.getAttribute('href') || '';
+    const text = (a.innerText || a.getAttribute('aria-label') || '').trim();
+    if (href && text && text.length < 60) out.push({ href, text });
+  }
+  return out;
+}
+"""
+
+
+def facet_categories(payloads: list) -> list[str]:
+    """Facet blocks look like {"category": {"TVs": 42, "Phones": 17}}."""
+    found, seen = [], set()
+
+    def walk_facets(node, key_hint='', depth=0):
+        if depth > 10 or not isinstance(node, (dict, list)):
+            return
+        if isinstance(node, list):
+            for v in node:
+                walk_facets(v, key_hint, depth + 1)
+            return
+        for k, v in node.items():
+            hint = str(k).lower()
+            if isinstance(v, dict) and v and 'categor' in hint:
+                # {name: count} map
+                if all(isinstance(x, (int, float)) for x in v.values()):
+                    for name in v:
+                        if name not in seen:
+                            seen.add(name)
+                            found.append(str(name))
+                    continue
+            walk_facets(v, hint, depth + 1)
+
+    walk_facets(payloads)
+    return found
+
+
+def discover_categories(page, payloads: list, brand: str, limit: int) -> list[tuple]:
+    """Return [(label, url)] for the categories the site shows for this brand."""
+    cats, seen = [], set()
+
+    for link in page.evaluate(CAT_LINKS_JS):
+        href, text = link['href'], link['text']
+        m = re.search(r'/collections/([a-z0-9\-]+)', href)
+        if not m:
+            continue
+        slug = m.group(1)
+        if slug in seen or slug in ('all', 'sale'):
+            continue
+        seen.add(slug)
+        sep = '&' if '?' in href else '?'
+        url = abs_url(href) + f'{sep}query={brand}'
+        cats.append((text or slug, url))
+
+    # Facet names have no url of their own; map them onto a search refinement.
+    for name in facet_categories(payloads):
+        slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        cats.append((name, f'{BASE}/collections/{slug}?query={brand}'))
+
+    return cats[:limit]
 
 
 # ── page driving ────────────────────────────────────────────────────────────
@@ -305,19 +405,44 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> list[dic
 
 
 def merge(rows: list[dict]) -> list[dict]:
-    """One row per product; a network row wins over a dom row, and a row that
-    knows the original price wins over one that does not."""
+    """One row per product. The same product shows up several times - once per
+    extractor, and once per category page it appears on - so identity falls back
+    from sku to url to name: a dom row has no sku, and a network row may carry no
+    url, which is why matching on a single field left duplicates behind."""
     best: dict[str, dict] = {}
+    alias: dict[str, str] = {}          # every identity seen -> the key it merged into
+
+    def identities(r):
+        out = []
+        if r['sku']:
+            out.append('sku:' + r['sku'])
+        if r['product_url']:
+            out.append('url:' + r['product_url'].rstrip('/').lower())
+        out.append('name:' + re.sub(r'\s+', ' ', r['product_name']).strip().lower())
+        return out
+
+    def score(r):
+        return (r['source'] == 'network', r['discount_pct'] is not None,
+                bool(r['sku']), bool(r['product_url']))
+
     for r in rows:
-        key = r['product_url'] or f"{r['product_name']}|{r['sale_price']}"
+        ids = identities(r)
+        key = next((alias[i] for i in ids if i in alias), ids[0])
         cur = best.get(key)
-        if cur is None:
+        if cur is None or score(r) > score(cur):
+            # keep whichever fields the better row is missing
+            if cur is not None:
+                for f in ('sku', 'product_url', 'site_category', 'brand', 'sku_field'):
+                    if not r.get(f) and cur.get(f):
+                        r[f] = cur[f]
+                r['category'] = cur.get('category') or r.get('category')
             best[key] = r
-            continue
-        score = (r['source'] == 'network', r['discount_pct'] is not None, bool(r['sku']))
-        cur_score = (cur['source'] == 'network', cur['discount_pct'] is not None, bool(cur['sku']))
-        if score > cur_score:
-            best[key] = r
+        else:
+            for f in ('sku', 'product_url', 'site_category', 'brand', 'sku_field'):
+                if not cur.get(f) and r.get(f):
+                    cur[f] = r[f]
+        for i in ids:
+            alias[i] = key
     return list(best.values())
 
 
@@ -326,8 +451,13 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--brand', default='SAMSUNG',
                     help='brand to search for and filter on (default: SAMSUNG)')
-    ap.add_argument('--category', nargs='*', default=['search'],
-                    help='categories to crawl: ' + ', '.join(CATEGORIES) + ' (default: search)')
+    ap.add_argument('--category', nargs='*', default=[],
+                    help='crawl these named categories instead of discovering them: '
+                         + ', '.join(CATEGORIES))
+    ap.add_argument('--no-discover', action='store_true',
+                    help='only crawl the seed search page, skip category discovery')
+    ap.add_argument('--max-categories', type=int, default=25,
+                    help='cap on discovered categories (default: 25)')
     ap.add_argument('--url', nargs='*', default=[],
                     help='explicit listing URLs, used instead of --category')
     ap.add_argument('--out', default='jbhifi_samsung.csv', help='output CSV path')
@@ -348,11 +478,16 @@ def main() -> int:
         m = re.search(r'/([^/?]+)(?:\?|$)', u)
         return m.group(1) if m else u
 
-    targets = [(label(u), u) for u in args.url] or [
-        (c, CATEGORIES[c].format(brand=args.brand)) for c in args.category if c in CATEGORIES]
-    unknown = [c for c in args.category if c not in CATEGORIES and not args.url]
-    if unknown:
-        print(f'unknown category: {", ".join(unknown)}', file=sys.stderr)
+    if args.url:
+        targets = [(label(u), u) for u in args.url]
+    elif args.category:
+        unknown = [c for c in args.category if c not in CATEGORIES]
+        if unknown:
+            print(f'unknown category: {", ".join(unknown)}', file=sys.stderr)
+        targets = [(c, CATEGORIES[c].format(brand=args.brand))
+                   for c in args.category if c in CATEGORIES]
+    else:
+        targets = [('search', CATEGORIES['search'].format(brand=args.brand))]
     if not targets:
         print('nothing to crawl', file=sys.stderr)
         return 2
@@ -385,17 +520,38 @@ def main() -> int:
 
         page.on('response', on_response)
 
-        for name, url in targets:
+        discovered_from = None
+        queue = list(targets)
+        done = set()
+
+        while queue:
+            name, url = queue.pop(0)
+            if url in done:
+                continue
+            done.add(url)
             try:
                 rows = harvest(page, payloads, url, args, dump)
             except Exception as exc:
                 print(f'    failed: {exc}')
                 continue
             for r in rows:
-                r['category'] = name
+                r['category'] = r.get('site_category') or name
                 r['crawled_at'] = stamp
                 r['currency'] = 'AUD'
             all_rows += rows
+
+            # After the first (seed) page, ask the site which categories it has
+            # for this brand and queue them up one by one.
+            if discovered_from is None and not args.no_discover and not args.url \
+                    and not args.category:
+                discovered_from = url
+                found = discover_categories(page, payloads, args.brand,
+                                            args.max_categories)
+                print(f'\n  discovered {len(found)} categories:')
+                for lbl, curl in found:
+                    print(f'    - {lbl}')
+                    queue.append((lbl, curl))
+                print()
             time.sleep(args.delay)
 
         browser.close()
@@ -409,7 +565,8 @@ def main() -> int:
     rows.sort(key=lambda r: (r['category'], r['product_name']))
 
     cols = ['crawled_at', 'category', 'brand', 'product_name', 'product_url', 'sku',
-            'on_sale', 'original_price', 'sale_price', 'discount_pct', 'currency']
+            'sku_field', 'on_sale', 'original_price', 'sale_price', 'discount_pct',
+            'currency']
     out = Path(args.out)
     with out.open('w', newline='', encoding='utf-8-sig') as f:   # utf-8-sig: Excel friendly
         w = csv.DictWriter(f, fieldnames=cols, extrasaction='ignore')
@@ -419,6 +576,14 @@ def main() -> int:
 
     on_sale = sum(1 for r in rows if r['on_sale'])
     print(f'\n{len(rows)} products -> {out}  ({on_sale} on sale)')
+    fields = sorted({r['sku_field'] for r in rows if r.get('sku_field')})
+    if fields:
+        print(f"sku column taken from the site field(s): {', '.join(fields)}")
+    by_cat: dict[str, int] = {}
+    for r in rows:
+        by_cat[r['category']] = by_cat.get(r['category'], 0) + 1
+    for cat, n in sorted(by_cat.items(), key=lambda kv: -kv[1]):
+        print(f'  {n:5}  {cat}')
     if not rows:
         print('Nothing was captured. Re-run with --dump-dir dump --headed and check the '
               'dump: the site may be blocking the browser, or the field names moved.')
