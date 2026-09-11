@@ -489,9 +489,14 @@ COLUMNS = ['crawled_at', 'category', 'brand', 'product_name', 'product_url', 'sk
            'currency']
 
 
-def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> int:
-    """Write everything gathered so far. Called after every page, so an interrupted
-    run still leaves a usable file behind."""
+def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> tuple:
+    """Write everything gathered so far and return (row count, path written).
+
+    Called after every page, so an interrupted run still leaves a usable file.
+    On Windows the swap into place is refused while the CSV is open in Excel, so
+    it retries and then falls back to a sibling file rather than losing the rows -
+    the returned path is what the caller should keep writing to.
+    """
     rows = merge(rows)
     if brand_filter:
         b = brand.lower()
@@ -505,8 +510,24 @@ def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool) -> i
         w.writeheader()
         for r in rows:
             w.writerow({**r, 'on_sale': 'Y' if r['on_sale'] else 'N'})
-    tmp.replace(path)        # atomic: the CSV is never half-written, even if killed here
-    return len(rows)
+    # Swap into place so the CSV on disk is never half-written, even if killed here.
+    for attempt in range(6):
+        try:
+            tmp.replace(path)
+            return len(rows), path
+        except PermissionError:
+            if attempt == 0:
+                print(f'    {path.name} is locked - is it open in Excel? retrying')
+            time.sleep(0.5 * (attempt + 1))
+
+    alt = path.with_name(f'{path.stem}-{datetime.now().strftime("%H%M%S")}{path.suffix}')
+    try:
+        tmp.replace(alt)
+    except OSError as exc:
+        print(f'    could not save: {exc}')
+        return len(rows), path
+    print(f'    {path.name} is still locked; writing to {alt.name} from here on')
+    return len(rows), alt
 
 
 def main() -> int:
@@ -610,7 +631,7 @@ def main() -> int:
                 r['crawled_at'] = stamp
                 r['currency'] = 'AUD'
             all_rows += rows
-            saved = write_csv(out, all_rows, args.brand, not args.no_brand_filter)
+            saved, out = write_csv(out, all_rows, args.brand, not args.no_brand_filter)
             print(f'    saved {saved} products so far -> {out}')
             if interrupted:
                 break
@@ -636,7 +657,7 @@ def main() -> int:
 
         browser.close()
 
-    write_csv(out, all_rows, args.brand, not args.no_brand_filter)
+    _, out = write_csv(out, all_rows, args.brand, not args.no_brand_filter)
     rows = merge(all_rows)
     if not args.no_brand_filter:
         b = args.brand.lower()

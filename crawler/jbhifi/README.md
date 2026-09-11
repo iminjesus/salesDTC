@@ -72,6 +72,10 @@ collected is always on disk. Ctrl+C stops the scroll, extracts the products alre
 loaded on that page, saves, and exits — the run summary then says `(stopped early)`.
 A crawl killed half way still leaves a usable file.
 
+Keep the CSV closed while it runs. Windows refuses to overwrite a file Excel has
+open, so the crawler retries for a few seconds and then writes to a sibling file
+(`jbhifi_samsung-012218.csv`) and carries on there rather than dropping the rows.
+
 ## Output
 
 `jbhifi_samsung.csv`, UTF-8 with BOM so Excel opens it without mangling:
