@@ -12,6 +12,7 @@ column list, and every column carries its original header as a comment.
 |---|---|---|
 | `sql/customer.sql` | `customer` | `rawdata/customer_2608.csv`, keyed by SAP Sold-To |
 | `sql/product.sql` | `product` | `rawdata/product_2608.csv`, keyed by SKU |
+| `sql/load.sql` | — | loads both files and checks the result |
 
 ```sql
 -- in MySQL Workbench
@@ -19,19 +20,9 @@ sql/customer.sql
 sql/product.sql
 ```
 
-Then load each file. A commented example sits at the bottom of each script:
-
-```sql
-LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/customer_2608.csv'
-    INTO TABLE customer
-    CHARACTER SET utf8mb4
-    FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
-    LINES TERMINATED BY '\r\n'
-    IGNORE 1 LINES;
-
-SELECT count(*) FROM customer;
-SHOW WARNINGS;
-```
+Then run `sql/load.sql`, which truncates and loads both files and prints the row
+counts, warnings, a sample of each table and two sanity counts. The same statement is
+also at the bottom of each CREATE script if you would rather run one at a time.
 
 Things worth knowing before the load:
 
