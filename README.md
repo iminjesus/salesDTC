@@ -29,9 +29,12 @@ Things worth knowing before the load:
 - `LOAD DATA LOCAL INFILE` needs `local_infile` on both sides: `SET GLOBAL local_infile = 1`
   on the server, and `OPT_LOCAL_INFILE=1` in the Workbench connection under
   Advanced → Others.
-- **Error 1300** means the file is not UTF-8. Excel's plain "CSV (Comma delimited)" is
-  written in the Windows code page — either change `CHARACTER SET` to `euckr`, or
-  re-save the file from Excel as "CSV UTF-8".
+- **Error 1300** means `CHARACTER SET` does not match the file. Excel's plain
+  "CSV (Comma delimited)" is the Windows code page, not UTF-8:
+  `latin1` for Excel ANSI on a Western Windows (MySQL's latin1 is really
+  Windows-1252, so ™, – and ® come through), `euckr` for a Windows ANSI file with
+  Hangul in it, `utf8mb4` only if it was saved as "CSV UTF-8". The scripts default to
+  `latin1`.
 - `utf8mb4` matters for the product file: descriptions carry characters like the
   trademark sign in `Slim S-pen™ Case`.
 - `Range` is a reserved word in MySQL, so that column is `product_range`.

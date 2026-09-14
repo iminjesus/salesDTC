@@ -6,9 +6,16 @@
 --   * Close the CSVs in Excel.
 --   * Use forward slashes in the paths; a backslash is an escape character.
 --
--- If a load stops with error 1300, the file is not UTF-8 - Excel's plain
--- "CSV (Comma delimited)" is written in the Windows code page. Either change
--- CHARACTER SET below to euckr, or re-save the file from Excel as "CSV UTF-8".
+-- CHARACTER SET must match how the file was written. Excel's plain
+-- "CSV (Comma delimited)" is the Windows code page, not UTF-8:
+--
+--   latin1    Excel ANSI on a Western Windows. MySQL's latin1 is really
+--             Windows-1252, so (TM), en dash and (R) come through correctly.
+--   euckr     Windows ANSI on a Korean system, i.e. a file with Hangul in it.
+--   utf8mb4   the file was saved from Excel as "CSV UTF-8".
+--
+-- The wrong one shows up as error 1300, or as mangled characters in the
+-- description column. The last query in this script counts those.
 --
 -- For a tab-separated file, change the FIELDS line to:
 --     FIELDS TERMINATED BY '\t' ESCAPED BY ''
@@ -22,7 +29,7 @@ TRUNCATE TABLE customer;
 
 LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/customer_2608.csv'
     INTO TABLE customer
-    CHARACTER SET utf8mb4
+    CHARACTER SET latin1
     FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
     LINES TERMINATED BY '\r\n'
     IGNORE 1 LINES;
@@ -35,7 +42,7 @@ TRUNCATE TABLE product;
 
 LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/product_2608.csv'
     INTO TABLE product
-    CHARACTER SET utf8mb4
+    CHARACTER SET latin1
     FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
     LINES TERMINATED BY '\r\n'
     IGNORE 1 LINES;

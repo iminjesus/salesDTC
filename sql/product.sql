@@ -40,7 +40,8 @@ CREATE TABLE product (
 --
 -- LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/product_2608.csv'
 --     INTO TABLE product
---     CHARACTER SET utf8mb4        -- error 1300 -> the file is Windows ANSI: use euckr
+--     CHARACTER SET latin1         -- Excel ANSI (Western). utf8mb4 if saved as
+--                                  -- "CSV UTF-8", euckr if the file has Hangul
 --     FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
 --     LINES TERMINATED BY '\r\n'
 --     IGNORE 1 LINES;
