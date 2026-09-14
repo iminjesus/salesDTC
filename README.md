@@ -13,6 +13,7 @@ column list, and every column carries its original header as a comment.
 | `sql/customer.sql` | `customer` | `rawdata/customer_2608.csv`, keyed by SAP Sold-To |
 | `sql/product.sql` | `product` | `rawdata/product_2608.csv`, keyed by SKU |
 | `sql/load.sql` | — | loads both files and checks the result |
+| `sql/probe_file.sql` | — | run this when a load misbehaves: reads the file as raw lines and reports its line endings, separator and encoding |
 
 ```sql
 -- in MySQL Workbench
@@ -38,6 +39,11 @@ Things worth knowing before the load:
 - `utf8mb4` matters for the product file: descriptions carry characters like the
   trademark sign in `Slim S-pen™ Case`.
 - `Range` is a reserved word in MySQL, so that column is `product_range`.
+- **Warning 1265 `Data truncated` on every column, with far fewer rows than the file
+  has**, means the rows are not being split: several real rows are arriving as one
+  line. Run `sql/probe_file.sql` — it reports the file's line endings, field separator
+  and encoding without depending on the load settings being right. Usually the fix is
+  `LINES TERMINATED BY '\n'` instead of `'\r\n'`.
 - Both tables have a primary key (`sold_to`, `sku`). Under `LOAD DATA LOCAL` a duplicate
   key is a **warning**, not an error, and the row is skipped silently — so check the row
   count and `SHOW WARNINGS` after every load.
