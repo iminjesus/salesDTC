@@ -40,11 +40,25 @@ SELECT char_length(line)                                        AS first_line_le
 FROM   raw_probe
 LIMIT  3;
 
--- 4. Encoding. Look at the start of the header line:
---      "53 6F 6C 64..."        plain ASCII, fine
---      "EF BB BF ..."          UTF-8 with a BOM - load as utf8mb4
---      "FF FE" then 00 between every character  UTF-16: re-save it as CSV UTF-8,
---                                               MySQL cannot read UTF-16 here
+-- 4. What the file actually is. A .csv name does not make a file text: Excel will
+--    happily save a workbook in binary form under that extension, and loading one
+--    fills the table with what looks like random accented characters.
+SELECT CASE
+    WHEN hex(left(line, 2)) = '504B' THEN
+        'ZIP container - this is an .xlsx/.xlsb workbook, not a csv. '
+        'Open it in Excel and Save As "CSV UTF-8", then load with utf8mb4.'
+    WHEN hex(left(line, 2)) = 'C390C38F' THEN
+        'old .xls binary workbook, not a csv. '
+        'Open it in Excel and Save As "CSV UTF-8", then load with utf8mb4.'
+    WHEN hex(left(line, 2)) IN ('C3BFC3BE', 'C3BEC3BF') THEN
+        'UTF-16 - MySQL cannot read it. Re-save as "CSV UTF-8".'
+    WHEN hex(left(line, 3)) = 'C3AFC2BBC2BF' THEN
+        'UTF-8 with a byte order mark - load with CHARACTER SET utf8mb4.'
+    ELSE 'plain text - the line endings and separator above are what to go by.'
+  END AS file_type
+FROM   raw_probe
+LIMIT  1;
+
 SELECT hex(left(line, 24)) AS first_bytes, left(line, 100) AS first_line
 FROM   raw_probe
 LIMIT  2;

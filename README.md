@@ -39,6 +39,11 @@ Things worth knowing before the load:
 - `utf8mb4` matters for the product file: descriptions carry characters like the
   trademark sign in `Slim S-pen™ Case`.
 - `Range` is a reserved word in MySQL, so that column is `product_range`.
+- **Columns full of random accented characters** means the file is not text at all.
+  A `.csv` name does not make it one — renaming a workbook, or saving it in a binary
+  format under that extension, leaves it binary. Open it in Excel and use
+  **Save As → CSV UTF-8 (Comma delimited)**, then load with `utf8mb4`.
+  `sql/probe_file.sql` names the format outright.
 - **Warning 1265 `Data truncated` on every column, with far fewer rows than the file
   has**, means the rows are not being split: several real rows are arriving as one
   line. Run `sql/probe_file.sql` — it reports the file's line endings, field separator
