@@ -1,141 +1,62 @@
-# salesDTC — customer / product-group P&L
+# salesDTC
 
-Database schema and load scripts for the 251-column P&L sheet that used to live in Excel.
-Column order and meaning map 1:1 to the original header; the full mapping is in
-`docs/column_map.csv`.
+MySQL schema for the sales dashboard, plus a price crawler.
 
-## Quick start (MySQL)
+## Tables
 
-Run **`sql/mysql/00_setup.sql`** in MySQL Workbench and hit Execute All. It creates the
-`sales_2526` database, the cleanup functions, the table, loads the CSV and prints the
-reconciliation counters. Two things to check before running:
+Both are loaded from the CSVs in `rawdata/` with `LOAD DATA LOCAL INFILE`. Each table's
+columns are exactly the columns of its file, in the same order, so the load needs no
+column list, and every column carries its original header as a comment.
 
-- the file path in the `LOAD DATA` statement — use forward slashes, since a backslash is
-  an escape character
-- Workbench connection → Advanced → Others must contain `OPT_LOCAL_INFILE=1`, otherwise
-  the load fails with error 3948
-
-For a tab-separated file, change the `FIELDS` line to `FIELDS TERMINATED BY '\t' ESCAPED BY ''`.
-
-Excel's plain **CSV (Comma delimited)** is written in the Windows ANSI code page, not
-UTF-8, and loading it as `utf8mb4` fails with **error 1300**. Either change the
-`CHARACTER SET` line in the load statement to `euckr` (Korean Windows ANSI), or re-save
-the file from Excel as **CSV UTF-8** and leave the script alone.
-
-## Table
-
-`sales_2526.pnl_fact` — one row per **year x period x customer (`sold_to`) x material
-group x profit center x division x distribution channel x currency**.
-
-| Block | Columns | Examples |
+| File | Table | Source |
 |---|---|---|
-| Header / aggregation keys | 1–9 | `cus_group`, `record_type`, `division2`, `prod_group`, `fiscal_year`, `sold_to`, `forex_rate`, `sales_usd`, `op_profit_usd` |
-| SAP dimensions | 10–17 | `customer`, `material_group`, `nielsen_id`, `profit_center`, `sap_division`, `distribution_channel`, `period`, `doc_currency` |
-| Quantity | 18–20 | `qty_gross`, `qty_return`, `qty_net` |
-| P&L lines | 21–251 | `s_*` sales, `sc_*` COGS, `sa_*` selling, `rd_*` R&D, `ga_*` G&A, `op_*`/`oe_*` non-operating, `eg_*`/`el_*` equity, `fp_*`/`fe_*` financial |
+| `sql/customer.sql` | `customer` | `rawdata/customer_2608.csv`, keyed by SAP Sold-To |
+| `sql/product.sql` | `product` | `rawdata/product_2608.csv`, keyed by SKU |
 
-Two naming rules cover everything:
-
-- the 51 subtotal lines marked `*` in the sheet take a `tot_` prefix
-  (`*Net Sales` → `tot_net_sales`). They are sums of the detail lines below them, so
-  adding `sum(tot_*)` and `sum(detail)` together double counts.
-- account prefixes `S.` `SC.` `SA.` `RD.` `GA.` … stay as lowercase prefixes
-  (`SC.Mfg Repair&Maint` → `sc_mfg_repair_and_maint`).
-
-Three easily confused columns are spelled out. They are different axes:
-
-| Excel header | Example | Column | Meaning |
-|---|---|---|---|
-| Division 2 | `DA` | `division2` | business division |
-| Prod_group | `REF`, `MWO` | `prod_group` | product group |
-| Division | `E2`, `E5` | `sap_division` | SAP division |
-| Currency | `AUD` | `doc_currency` | document currency (`sales_usd` is it translated at `forex_rate`) |
-
-## Files
-
-| File | Contents |
-|---|---|
-| `sql/mysql/00_setup.sql` | **one-file setup** — database + functions + table + CSV load + checks |
-| `sql/mysql/01_pnl_fact.sql` | table only |
-| `sql/mysql/02_v_pnl_excel.sql` | view exposing the original Excel headers |
-| `sql/mysql/03_staging.sql` | cleanup functions + all-text staging table |
-| `sql/mysql/04_load_from_staging.sql` | staging → fact |
-| `sql/mysql/05_checks.sql` | reconciliation (zero rows means clean) |
-| `sql/mysql/06_load_direct.sql` | file → fact, no staging table |
-| `sql/mysql/07_load_infile_columns.sql` | explicit column list — for files with extra or reordered columns |
-| `sql/postgres/01_pnl_fact.sql` ~ `05_checks.sql` | PostgreSQL set |
-| `sql/sqlserver/01_pnl_fact.sql` | SQL Server table |
-| `docs/column_map.csv` | Excel header ↔ column name ↔ type, 251 rows |
-| `docs/excel_header.txt` | the original header line (generator input) |
-| `tools/generate_ddl.py` | regenerates every SQL file from that header |
-| `crawler/jbhifi/` | JB Hi-Fi Samsung price crawler -> CSV (see its own README) |
-
-## Loading notes
-
-The values arrive as `1,268.93` (thousands separator), blank, `#N/A` and `(12.50)`
-(accounting negative), so they cannot go straight into a `decimal` column —
-`to_num()` / `to_txt()` handle all four. Two ways to apply them:
-
-- **direct** (`06_load_direct.sql`, and what `00_setup.sql` does): each field is read
-  into a `@variable` and converted in the `SET` clause. One step fewer.
-- **via staging** (`03` → `07` → `04`): the raw file is kept as text first, which is
-  handy when you want to inspect what actually arrived.
-
-If the file carries columns the table does not, or in a different order, drop the
-matching `@variable` from the `SET` clause (direct) or replace those names with
-`@skip1, @skip2 …` (staging).
-
-If a load fails or the reconciliation counters come back non-zero or NULL, run
-`sql/mysql/08_probe_file.sql`. It reads the file as whole lines without splitting
-anything, so the result tells you the real line ending (`lines_read = 1` means the
-line ending is wrong), the real delimiter (`comma_fields` vs `tab_fields`) and whether
-the character set is right (garbled text in `head`).
-
-`to_num()` / `to_txt()` turn anything unparseable into NULL rather than raising — text
-in a numeric column, values too wide for `decimal(18,4)`, stray bytes — so a misaligned
-file cannot abort the load halfway through — the reconciliation counters
-are what tell you it was misaligned (NULL counters mean nothing parsed at all).
-
-Under `LOAD DATA LOCAL`, a duplicate natural key is **warning 1062** rather than an
-error and the row is skipped silently. Re-running is safe, but always check the row
-count and `SHOW WARNINGS`.
-
-MySQL 8 refuses the all-text staging table because of the InnoDB row size limit
-(8126 bytes, error 1118); `03_staging.sql` turns `innodb_strict_mode` off just for the
-create. MariaDB does not hit this.
-
-PostgreSQL uses a `sales` schema instead of a database, and `\copy` instead of
-`LOAD DATA`; see the header comments in each file.
-
-## Regenerating
-
-Replace `docs/excel_header.txt` and re-run:
-
-```sh
-python3 tools/generate_ddl.py
+```sql
+-- in MySQL Workbench
+sql/customer.sql
+sql/product.sql
 ```
 
-Every setting in the generator is keyed by the Excel header string, so columns can be
-dropped, added or reordered in the sheet. Name overrides (typo fixes, disambiguation)
-live in the `NAME` dict.
+Then load each file. A commented example sits at the bottom of each script:
 
-## Verified
+```sql
+LOAD DATA LOCAL INFILE 'C:/work/sales_dashboard/salesDTC/rawdata/customer_2608.csv'
+    INTO TABLE customer
+    CHARACTER SET utf8mb4
+    FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY ''
+    LINES TERMINATED BY '\r\n'
+    IGNORE 1 LINES;
 
-Run against PostgreSQL 16, MySQL 8.0.46 and MariaDB 10.11: 254 columns
-(251 + `pnl_id` + load metadata) created, the two sample rows loaded from an
-Excel-style comma CSV (including quoted `"1,268.93"`) in both UTF-8 and Windows ANSI
-(CP949, loaded with `CHARACTER SET euckr`), values matching the source,
-duplicate reload blocked, original headers restored through `v_pnl_excel`, and all
-reconciliation checks passing. The SQL Server file is syntax-only — it has not been run.
+SELECT count(*) FROM customer;
+SHOW WARNINGS;
+```
 
-## Open questions
+Things worth knowing before the load:
 
-- **Natural key** — `ux_pnl_fact_natural` treats `fiscal_year, period, sold_to,
-  material_group, profit_center, sap_division, distribution_channel, doc_currency` as
-  unique. The older sheet had a `Ver` column that is gone, so loading the same period
-  under two versions now collides. To keep versions side by side, bring `Ver` back into
-  the sheet (the generator picks it up automatically) or delete the period before reloading.
-- **`*Profit Before Tax`** is not in the reconciliation checks: the sign convention for
-  the non-operating, equity and financial blocks cannot be pinned down from the sample
-  rows alone.
-- Amounts are `decimal(18,2)`, quantities `decimal(18,3)`, the FX rate `decimal(18,9)`.
+- `LOAD DATA LOCAL INFILE` needs `local_infile` on both sides: `SET GLOBAL local_infile = 1`
+  on the server, and `OPT_LOCAL_INFILE=1` in the Workbench connection under
+  Advanced → Others.
+- **Error 1300** means the file is not UTF-8. Excel's plain "CSV (Comma delimited)" is
+  written in the Windows code page — either change `CHARACTER SET` to `euckr`, or
+  re-save the file from Excel as "CSV UTF-8".
+- `utf8mb4` matters for the product file: descriptions carry characters like the
+  trademark sign in `Slim S-pen™ Case`.
+- `Range` is a reserved word in MySQL, so that column is `product_range`.
+- Both tables have a primary key (`sold_to`, `sku`). Under `LOAD DATA LOCAL` a duplicate
+  key is a **warning**, not an error, and the row is skipped silently — so check the row
+  count and `SHOW WARNINGS` after every load.
+
+## Crawler
+
+`crawler/retail/` pulls competitor prices for a brand into a CSV — on-sale flag, product
+name, original price, sale price, % off — from JB Hi-Fi and Harvey Norman. See its own
+README.
+
+## History
+
+The 251-column P&L schema (`sales_2526.pnl_fact`) that used to live in `sql/` was
+removed on request; the table itself is untouched in the database. It is still in git
+history, and `python3 tools/generate_ddl.py` regenerates every one of those files from
+`docs/excel_header.txt`. `docs/column_map.csv` remains as the header-to-column mapping.
