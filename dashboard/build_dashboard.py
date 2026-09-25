@@ -117,6 +117,10 @@ MEASURES = {
 MEASURE_KEYS = ('qty', 'net', 'p_sub', 'p_alloc')
 
 # Dimension columns taken off the profit file itself.
+# Payers the customer master does not know. Named rather than left blank so
+# their amounts are visible instead of pooled with the offline rows.
+NO_MATCH = '(no customer match)'
+
 PROFIT_DIMS = {
     'sold_to':        ('Payer', 'sold To', 'Sold-To', 'sold_to', 'Customer'),
     'sku':            ('Material', 'SKU', 'Material Code'),
@@ -140,6 +144,10 @@ def main() -> int:
     ap.add_argument('--cdn', action='store_true',
                     help='link Chart.js from jsDelivr instead of embedding it: a much '
                          'smaller file, but it then needs an internet connection')
+    ap.add_argument('--explain', metavar='NAME',
+                    help='print the raw profit rows behind one customer name '
+                         '(any level), so an empty bar can be read back to the '
+                         'file. e.g. --explain EPP')
     ap.add_argument('--open', action='store_true', help='open the result')
     args = ap.parse_args()
 
@@ -246,6 +254,9 @@ def main() -> int:
     buckets: dict[tuple, list[float]] = {}
     parse_tally = {m: {'ok': 0, 'blank': 0, 'bad': 0, 'samples': []}
                    for m in MEASURE_KEYS}
+    explain = (args.explain or '').strip().upper()
+    explain_rows: list[tuple] = []
+    explain_total = 0
     matched_cust = matched_prod = 0
     miss_cust: dict[str, int] = {}
     miss_prod: dict[str, int] = {}
@@ -265,11 +276,15 @@ def main() -> int:
         # Account Name (E-STORE / OFF-LINE ...) is the top of the customer tree;
         # Type and Portal Group sit under it and are empty for the offline rows,
         # which is expected rather than a join failure.
+        # A payer that is not in the customer master is its own story: it has
+        # real amounts but no hierarchy, so it gets its own name rather than
+        # sharing '(blank)' with accounts whose Type is genuinely empty.
+        unknown = NO_MATCH if sold_to and not c else '(blank)'
         key = (
-            c.get('account') or cell(r, d_idx['division2']) or '(blank)',
-            c.get('cust_type') or '(blank)',
-            c.get('cust_type2') or '(blank)',
-            c.get('account_desc') or sold_to or '(blank)',
+            c.get('account') or unknown,
+            c.get('cust_type') or unknown,
+            c.get('cust_type2') or unknown,
+            c.get('account_desc') or sold_to or unknown,
             c.get('portal') or '',          # carried through, not a level
             c.get('neilson') or '',
             p.get('division') or cell(r, d_idx['division2']) or '(blank)',
@@ -277,6 +292,11 @@ def main() -> int:
             p.get('range') or cell(r, d_idx['material_group']) or '(blank)',
             p.get('prod_desc') or sku or cell(r, d_idx['material_group']) or '(blank)',
         )
+        if explain and any(str(n).strip().upper() == explain for n in key[:4]):
+            explain_total += 1
+            if len(explain_rows) < 25:
+                explain_rows.append(
+                    (sold_to, sku, [cell(r, m_idx[m]) for m in MEASURE_KEYS]))
         vals = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0, 0.0])
         vals[4] += 1                                   # rows behind this bucket
         for j, m in enumerate(MEASURE_KEYS):
@@ -343,6 +363,22 @@ def main() -> int:
         name = (indent + str(key[-1])[:34]).ljust(36)
         print(f'{name} {n:>7,.0f} | {net:>15,.0f} | '
               f'{prof:>13,.0f} | {qty:>10,.0f}{flag}')
+
+    if explain:
+        print(f'\nexplain {args.explain!r}: {explain_total:,} profit row(s) '
+              f'sit under that name')
+        if explain_rows:
+            head = ' '.join(f'{m:>15}' for m in MEASURE_KEYS)
+            print(f"  {'Payer':12} {'Material':20} {head}   (exactly as the file "
+                  f"spells them)")
+            for st, sk, raws in explain_rows:
+                cells = ' '.join(f'{(rw or "(blank)")[:15]:>15}' for rw in raws)
+                print(f'  {st[:12]:12} {sk[:20]:20} {cells}')
+            if explain_total > len(explain_rows):
+                print(f'  ... and {explain_total - len(explain_rows):,} more')
+        else:
+            print('  no profit row carries that name - check the spelling against '
+                  'the breakdown above')
 
     # Open on the online business, since that is what gets looked at day to day.
     # The offline rows stay in the file: Back from here shows both side by side.

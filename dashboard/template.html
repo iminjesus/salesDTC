@@ -130,6 +130,9 @@ const state = { dim: 'customer', depth: START.length, path: START.slice(),
                 top: 0, table: false,
                 basis: DATA.has.ps ? 'ps' : 'pa',   // which operating profit column
                 metric: 'amount' };                 // amount | qty
+/* Payers the customer master does not list. They have amounts but no
+   hierarchy, so they are kept apart from accounts whose Type is simply empty. */
+const NO_MATCH = '(no customer match)';
 const fmt = n => Math.round(n).toLocaleString();
 const pct = n => (n >= 0 ? '' : '') + n.toFixed(1) + '%';
 
@@ -218,13 +221,15 @@ function render() {
   }), { q: 0, n: 0, ps: 0, pa: 0 });
   const margin = tot.n !== 0 ? (tot[state.basis] / tot.n) * 100 : 0;
   const basisName = state.basis === 'ps' ? 'Subsidiary' : 'Allocated';
+  /* Only show a measure the export actually carries: a column that is not in
+     the file reads as a real zero otherwise. */
   document.getElementById('kpis').innerHTML = [
-    ['Net Sales Qty', fmt(tot.q), ''],
-    ['Net Sales', fmt(tot.n), ''],
-    ['Op Profit (Subsidiary)', fmt(tot.ps), tot.ps < 0 ? 'neg' : ''],
-    ['Op Profit (Allocated)', fmt(tot.pa), tot.pa < 0 ? 'neg' : ''],
+    DATA.has.q  && ['Net Sales Qty', fmt(tot.q), ''],
+    DATA.has.n  && ['Net Sales', fmt(tot.n), ''],
+    DATA.has.ps && ['Op Profit (Subsidiary)', fmt(tot.ps), tot.ps < 0 ? 'neg' : ''],
+    DATA.has.pa && ['Op Profit (Allocated)', fmt(tot.pa), tot.pa < 0 ? 'neg' : ''],
     [`Profit % (${basisName})`, pct(margin), margin < 0 ? 'neg' : ''],
-  ].map(([k, v, cls]) =>
+  ].filter(Boolean).map(([k, v, cls]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
   ).join('');
 
@@ -316,8 +321,9 @@ function render() {
               const r = rows[items[0].dataIndex];
               return qtyMode ? '' :
                 [`Qty: ${fmt(r.q)}`,
-                 `Op Profit (Subsidiary): ${fmt(r.ps)}`,
-                 `Op Profit (Allocated): ${fmt(r.pa)}`].join('\n');
+                 DATA.has.ps ? `Op Profit (Subsidiary): ${fmt(r.ps)}` : '',
+                 DATA.has.pa ? `Op Profit (Allocated): ${fmt(r.pa)}` : '']
+                .filter(Boolean).join('\n');
             }
           }
         }
@@ -330,10 +336,15 @@ function render() {
   // Judge emptiness by what this view actually charts, not by every column -
   // a member can have quantity and still no amounts.
   const empties = rows.filter(r => qtyMode ? !r.q : (!r.n && !r.ps && !r.pa))
+                      .filter(r => r.name !== NO_MATCH)
                       .map(r => r.name);
   document.getElementById('chartHint').innerHTML =
     'Click a bar to drill into the next level. Bars are sorted by '
     + (qtyMode ? 'quantity.' : 'operating profit.')
+    + (rows.some(r => r.name === NO_MATCH)
+        ? ` <b>${NO_MATCH}</b> holds payers that are not in customer_2608, so they `
+          + 'have amounts but no Account/Type. '
+        : '')
     + (empties.length
         ? ` <b>${empties.length} item(s) have no ${qtyMode ? 'quantity' : 'amounts'} in this file</b> (${
             empties.slice(0, 4).join(', ')}${empties.length > 4 ? ', …' : ''}) — `
@@ -350,19 +361,19 @@ function render() {
                    && DATA.carry && DATA.carry.customer) ? DATA.carry.customer : [];
     box.innerHTML = `<table><thead><tr>
         <th>${levels[state.depth]}</th>${carry.map(c => `<th style="text-align:left">${c}</th>`).join('')}<th>Qty</th><th>Net Sales</th>
-        <th>Op Profit (Sub)</th><th>Op Profit (Alloc)</th>
+        <th>Op Profit (Sub)</th>${DATA.has.pa ? '<th>Op Profit (Alloc)</th>' : ''}
         <th>Profit % (${basisName})</th></tr></thead>
       <tbody>${rows.map((r, i) => `<tr>
         <td title="${r.name}">${r.name}</td>${
           carry.map((_, ci) => `<td style="text-align:left">${(r.cx && r.cx[ci]) || ''}</td>`).join('')
         }<td>${fmt(r.q)}</td><td>${fmt(r.n)}</td>
-        <td class="${r.ps < 0 ? 'neg' : ''}">${fmt(r.ps)}</td>
-        <td class="${r.pa < 0 ? 'neg' : ''}">${fmt(r.pa)}</td>
+        <td class="${r.ps < 0 ? 'neg' : ''}">${fmt(r.ps)}</td>${
+          DATA.has.pa ? `<td class="${r.pa < 0 ? 'neg' : ''}">${fmt(r.pa)}</td>` : ''}
         <td class="${profitPct[i] < 0 ? 'neg' : ''}">${pct(profitPct[i])}</td>
       </tr>`).join('')}</tbody>
       <tfoot><tr><td>Total</td>${carry.map(() => '<td></td>').join('')}<td>${fmt(tot.q)}</td><td>${fmt(tot.n)}</td>
-        <td class="${tot.ps < 0 ? 'neg' : ''}">${fmt(tot.ps)}</td>
-        <td class="${tot.pa < 0 ? 'neg' : ''}">${fmt(tot.pa)}</td>
+        <td class="${tot.ps < 0 ? 'neg' : ''}">${fmt(tot.ps)}</td>${
+          DATA.has.pa ? `<td class="${tot.pa < 0 ? 'neg' : ''}">${fmt(tot.pa)}</td>` : ''}
         <td class="${margin < 0 ? 'neg' : ''}">${pct(margin)}</td></tr></tfoot></table>`;
   }
 }
