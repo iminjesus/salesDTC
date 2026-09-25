@@ -107,6 +107,10 @@ def main() -> int:
     ap.add_argument('--out', default=str(HERE / 'profit_2608.html'))
     ap.add_argument('--title', default='August 2026 Profit')
     ap.add_argument('--period', help='keep only this period/month, e.g. 202608')
+    ap.add_argument('--start-customer', metavar='NAME',
+                    help='account name the page opens on (default: the online one '
+                         'if there is one). Everything else stays in the file - '
+                         'Back steps up to compare. Pass "" to open at the top.')
     ap.add_argument('--cdn', action='store_true',
                     help='link Chart.js from jsDelivr instead of embedding it: a much '
                          'smaller file, but it then needs an internet connection')
@@ -235,8 +239,25 @@ def main() -> int:
                 'ps': round(v[2], 2), 'pa': round(v[3], 2)}
                for k, v in buckets.items()]
 
+    # Open on the online business, since that is what gets looked at day to day.
+    # The offline rows stay in the file: Back from here shows both side by side.
+    account_names = {r['c'][0] for r in records}
+    if args.start_customer is None:
+        start = next((n for n in ('E-STORE', 'ESTORE', 'E STORE', 'ONLINE')
+                      if n in account_names), None)
+    else:
+        start = args.start_customer or None
+        if start and start not in account_names:
+            print(f'\n--start-customer {start!r} is not an account name in the data; '
+                  f'opening at the top. Seen: {", ".join(sorted(account_names)[:8])}')
+            start = None
+    if start:
+        print(f'\nopens on: {start}  '
+              f'(Back steps up to all of {", ".join(sorted(account_names))})')
+
     payload = {
         'title': args.title,
+        'start': {'customer': [start]} if start else {},
         'levels': {
             'customer': ['Account Name', 'Type', 'Portal Group', 'Account'],
             'product': ['Division', 'Category', 'Range', 'Product'],

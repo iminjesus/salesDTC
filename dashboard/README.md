@@ -45,17 +45,23 @@ sets the heading.
 | **Metric: Amount / Qty** | Net Sales and Op Profit, or Net Sales Qty on its own (a percentage of units means nothing, so the line and right axis come off) |
 | **Level** | jump straight to a level — Account Name → Type → Portal Group → Account, or Division → Category → Range → Product |
 | **click a bar** | drill into that member and move to the next level |
-| **Back / Reset** | undo one drill, or return to the top |
+| **Back / Reset** | step out one level, or return to the view the page opens on |
+| **Customer (all)** in the breadcrumb | jump to the very top — every account name side by side |
 | **Top 10 / 20 / All** | trim to the biggest members by operating profit |
 | **Table** | the same numbers as a table, with totals |
 
 The KPI row above the chart always reflects the current slice, and the bars are
 sorted by operating profit.
 
-`Account Name` separates E-STORE from OFF-LINE, so the online business is one click
-away at the top level. The offline rows carry no Type or Portal Group — those levels
-collapse to a single `(blank)` bar there and the drill continues to the account
-underneath, which is expected rather than a join failure.
+**The page opens on the online account name** (E-STORE), since that is the day-to-day
+view. The offline rows are still in the file: `Back`, or the **Customer (all)** button
+in the breadcrumb, shows E-STORE and OFF-LINE side by side for comparison, and `Reset`
+returns to the online view. `--start-customer NAME` picks a different starting account,
+and `--start-customer ""` opens at the top instead.
+
+The offline rows carry no Type or Portal Group — those levels collapse to a single
+`(blank)` bar there and the drill continues to the account underneath, which is
+expected rather than a join failure.
 
 ## Columns it looks for
 

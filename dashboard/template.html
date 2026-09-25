@@ -78,7 +78,7 @@
   <div id="levelBtns" style="display:flex; gap:4px"></div>
   <div class="filter-sep"></div>
   <button id="backBtn" class="btn" title="Undo the last drill-down">&#8592; Back</button>
-  <button id="resetBtn" class="btn">Reset</button>
+  <button id="resetBtn" class="btn" title="Back to the view this page opens on">Reset</button>
   <div class="filter-sep"></div>
   <label>Profit:</label>
   <div id="basisBtns" style="display:flex; gap:4px">
@@ -122,7 +122,12 @@ Chart.register(ChartDataLabels);
 const C = { net:'#93c5fd', profit:'#fbbf24', profitNeg:'#f87171',
             pct:'#10b981', neg:'#ef4444', qty:'#a5b4fc' };
 
-const state = { dim: 'customer', depth: 0, path: [], top: 0, table: false,
+/* The page opens on the account name the build picked - the online one - with the
+   rest still in the file. Back steps out of it, the breadcrumb root jumps to the
+   very top, and Reset comes back here. */
+const START = (DATA.start && DATA.start.customer) || [];
+const state = { dim: 'customer', depth: START.length, path: START.slice(),
+                top: 0, table: false,
                 basis: DATA.has.ps ? 'ps' : 'pa',   // which operating profit column
                 metric: 'amount' };                 // amount | qty
 const fmt = n => Math.round(n).toLocaleString();
@@ -174,7 +179,11 @@ function render() {
     lv.appendChild(b);
   });
   document.getElementById('backBtn').disabled = !state.path.length;
-  document.getElementById('resetBtn').disabled = !state.path.length && !state.depth;
+  const atStart = state.dim === 'customer'
+    && state.path.join('\u0000') === START.join('\u0000')
+    && state.depth === START.length;
+  document.getElementById('resetBtn').disabled = atStart
+    || (state.dim !== 'customer' && !state.path.length && !state.depth);
   document.querySelectorAll('#topBtns .btn').forEach(b =>
     b.classList.toggle('active', +b.dataset.top === state.top));
   document.querySelectorAll('#basisBtns .btn').forEach(b => {
@@ -190,13 +199,18 @@ function render() {
 
   /* ── breadcrumb ── */
   const crumb = document.getElementById('crumb');
-  crumb.innerHTML = '<b>' + (state.dim === 'customer' ? 'Customer' : 'Product') + '</b>';
+  crumb.innerHTML = `<button class="btn sub" id="rootBtn" title="Show every ${
+      state.dim === 'customer' ? 'account name' : 'division'} together">${
+      state.dim === 'customer' ? 'Customer' : 'Product'} (all)</button>`;
   state.path.forEach((v, i) => {
     crumb.insertAdjacentHTML('beforeend',
       ` &rsaquo; <span class="chip" title="${levels[i]}">${v}</span>`);
   });
   crumb.insertAdjacentHTML('beforeend',
     ` &rsaquo; by <b>${levels[state.depth]}</b> &middot; ${rows.length} item(s)`);
+  document.getElementById('rootBtn').onclick = () => {
+    state.path = []; state.depth = 0; render();
+  };
 
   /* ── KPIs ── */
   const tot = rows.reduce((a, r) => ({
@@ -333,7 +347,10 @@ function render() {
 }
 
 document.querySelectorAll('#dimBtns .btn').forEach(b => b.onclick = () => {
-  state.dim = b.dataset.dim; state.depth = 0; state.path = []; render();
+  state.dim = b.dataset.dim;
+  state.path = state.dim === 'customer' ? START.slice() : [];
+  state.depth = state.path.length;
+  render();
 });
 document.querySelectorAll('#topBtns .btn').forEach(b => b.onclick = () => {
   state.top = +b.dataset.top; render();
@@ -342,7 +359,9 @@ document.getElementById('backBtn').onclick = () => {
   if (state.path.length) { state.path.pop(); state.depth = state.path.length; render(); }
 };
 document.getElementById('resetBtn').onclick = () => {
-  state.path = []; state.depth = 0; render();
+  state.path = state.dim === 'customer' ? START.slice() : [];
+  state.depth = state.path.length;
+  render();
 };
 document.querySelectorAll('#basisBtns .btn').forEach(b => b.onclick = () => {
   state.basis = b.dataset.basis; render();
