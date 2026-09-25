@@ -53,6 +53,33 @@ Things worth knowing before the load:
   key is a **warning**, not an error, and the row is skipped silently — so check the row
   count and `SHOW WARNINGS` after every load.
 
+## No database? Read the files directly
+
+If `LOAD DATA` is not available — company policy, no server, no `local_infile` —
+`tools/rawdata.py` reads the files in `rawdata/` without any of it. Python only, and
+only the standard library:
+
+```powershell
+py tools\rawdata.py                 # what is in rawdata\: format, encoding, columns, rows
+py tools\rawdata.py --sqlite        # load it all into rawdata\sales.db
+py tools\rawdata.py --clean-csv     # write tidy UTF-8 csvs to rawdata\clean\
+```
+
+It identifies each file by its bytes rather than its name, so the encoding and
+separator problems above do not arise: UTF-8 with or without a BOM, UTF-16, Windows
+ANSI and Korean ANSI, comma/tab/semicolon/pipe, CRLF/LF/CR, and `.xlsx` workbooks —
+including one saved under a `.csv` name — are all read correctly. `.xlsb` needs
+`py -m pip install pyxlsb`, and the script says so.
+
+`--sqlite` gives a single file you can query with ordinary SQL, no server:
+
+```powershell
+py -c "import sqlite3;c=sqlite3.connect(r'rawdata\sales.db');print(c.execute('select portal_group, count(*) from customer_2608 group by 1').fetchall())"
+```
+
+DB Browser for SQLite opens the same file if you would rather click around. The
+`--clean-csv` output is also what to feed MySQL later, if the policy changes.
+
 ## Crawler
 
 `crawler/retail/` pulls competitor prices for a brand into a CSV — on-sale flag, product
