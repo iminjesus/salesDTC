@@ -42,6 +42,21 @@ def find(headers: list[str], *candidates: str) -> int | None:
     return None
 
 
+def key_norm(v: str) -> str:
+    """Match keys across exports that disagree about padding and case.
+
+    SAP writes the same customer as 2234755 in one extract and 0002234755 in the
+    next, and a spreadsheet round-trip can leave 2234755.0 behind. All three have
+    to land on the same customer.
+    """
+    t = str(v or '').strip().upper()
+    if t.endswith('.0') and t[:-2].isdigit():
+        t = t[:-2]
+    if t.isdigit():
+        t = t.lstrip('0') or '0'
+    return t
+
+
 def to_num(v: str) -> float:
     t = str(v or '').strip().replace(',', '').replace('$', '')
     if not t or t in ('-', '#N/A', 'N/A'):
@@ -174,7 +189,7 @@ def main() -> int:
             'neilson':  ('Neilson Type', 'neilson_type'),
         }.items()}
         for r in c_rows:
-            key = (r[c_key] if c_key < len(r) else '').strip()
+            key = key_norm(r[c_key] if c_key < len(r) else '')
             if key:
                 cust[key] = {k: (r[i].strip() if i is not None and i < len(r) else '')
                              for k, i in cols.items()}
@@ -190,7 +205,7 @@ def main() -> int:
             'prod_desc': ('Description', 'description'),
         }.items()}
         for r in d_rows:
-            key = (r[d_key] if d_key < len(r) else '').strip()
+            key = key_norm(r[d_key] if d_key < len(r) else '')
             if key:
                 prod[key] = {k: (r[i].strip() if i is not None and i < len(r) else '')
                              for k, i in cols.items()}
@@ -201,13 +216,19 @@ def main() -> int:
 
     buckets: dict[tuple, list[float]] = {}
     matched_cust = matched_prod = 0
+    miss_cust: dict[str, int] = {}
+    miss_prod: dict[str, int] = {}
     for r in p_rows:
         sold_to = cell(r, d_idx['sold_to'])
         sku = cell(r, d_idx['sku'])
-        c = cust.get(sold_to)
-        p = prod.get(sku)
+        c = cust.get(key_norm(sold_to))
+        p = prod.get(key_norm(sku))
         matched_cust += bool(c)
         matched_prod += bool(p)
+        if not c and sold_to:
+            miss_cust[sold_to] = miss_cust.get(sold_to, 0) + 1
+        if not p and sku:
+            miss_prod[sku] = miss_prod.get(sku, 0) + 1
         c = c or {}
         p = p or {}
         # Account Name (E-STORE / OFF-LINE ...) is the top of the customer tree;
@@ -231,8 +252,20 @@ def main() -> int:
 
     print(f'\njoined: {matched_cust:,} of {len(p_rows):,} rows matched a customer, '
           f'{matched_prod:,} matched a product')
-    if not matched_cust and cust:
-        print('  (no customer matched - check that the profit file carries Sold-To)')
+
+    def report_misses(what: str, misses: dict, master: dict, master_name: str) -> None:
+        if not misses:
+            return
+        worst = sorted(misses.items(), key=lambda kv: -kv[1])[:6]
+        print(f'  {len(misses):,} {what} key(s) had no match, '
+              f'{sum(misses.values()):,} rows. Most rows:')
+        for k, n in worst:
+            print(f'    {k!r} ({n:,} rows)')
+        print(f'    {master_name} has e.g. '
+              f'{", ".join(repr(k) for k in list(master)[:4])}')
+
+    report_misses('customer', miss_cust, cust, 'customer_2608')
+    report_misses('product', miss_prod, prod, 'product_2608')
 
     records = [{'c': list(k[:4]), 'p': list(k[4:]),
                 'q': round(v[0], 2), 'n': round(v[1], 2),
