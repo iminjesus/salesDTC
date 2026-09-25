@@ -206,14 +206,18 @@ def main() -> int:
         matched_prod += bool(p)
         c = c or {}
         p = p or {}
+        # Account Name (E-STORE / OFF-LINE ...) is the top of the customer tree;
+        # Type and Portal Group sit under it and are empty for the offline rows,
+        # which is expected rather than a join failure.
         key = (
-            c.get('cust_type') or cell(r, d_idx['division2']) or 'Unknown',
-            c.get('portal') or 'Unknown',
-            c.get('account_desc') or c.get('account') or sold_to or 'Unknown',
-            p.get('division') or cell(r, d_idx['division2']) or 'Unknown',
-            p.get('category') or cell(r, d_idx['prod_group']) or 'Unknown',
-            p.get('range') or cell(r, d_idx['material_group']) or 'Unknown',
-            p.get('prod_desc') or sku or cell(r, d_idx['material_group']) or 'Unknown',
+            c.get('account') or cell(r, d_idx['division2']) or '(blank)',
+            c.get('cust_type') or '(blank)',
+            c.get('portal') or '(blank)',
+            c.get('account_desc') or sold_to or '(blank)',
+            p.get('division') or cell(r, d_idx['division2']) or '(blank)',
+            p.get('category') or cell(r, d_idx['prod_group']) or '(blank)',
+            p.get('range') or cell(r, d_idx['material_group']) or '(blank)',
+            p.get('prod_desc') or sku or cell(r, d_idx['material_group']) or '(blank)',
         )
         vals = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0])
         for j, m in enumerate(MEASURE_KEYS):
@@ -226,7 +230,7 @@ def main() -> int:
     if not matched_cust and cust:
         print('  (no customer matched - check that the profit file carries Sold-To)')
 
-    records = [{'c': list(k[:3]), 'p': list(k[3:]),
+    records = [{'c': list(k[:4]), 'p': list(k[4:]),
                 'q': round(v[0], 2), 'n': round(v[1], 2),
                 'ps': round(v[2], 2), 'pa': round(v[3], 2)}
                for k, v in buckets.items()]
@@ -234,7 +238,7 @@ def main() -> int:
     payload = {
         'title': args.title,
         'levels': {
-            'customer': ['Type', 'Portal Group', 'Account'],
+            'customer': ['Account Name', 'Type', 'Portal Group', 'Account'],
             'product': ['Division', 'Category', 'Range', 'Product'],
         },
         # Keyed the way the records are: q / n / ps / pa.

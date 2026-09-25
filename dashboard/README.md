@@ -43,7 +43,7 @@ sets the heading.
 | **Customer / Product** | which hierarchy the bars break down by |
 | **Profit: Subsidiary / Allocated** | which operating profit column drives the profit bar, the line and the sort |
 | **Metric: Amount / Qty** | Net Sales and Op Profit, or Net Sales Qty on its own (a percentage of units means nothing, so the line and right axis come off) |
-| **Level** | jump straight to a level — Type → Portal Group → Account, or Division → Category → Range → Product |
+| **Level** | jump straight to a level — Account Name → Type → Portal Group → Account, or Division → Category → Range → Product |
 | **click a bar** | drill into that member and move to the next level |
 | **Back / Reset** | undo one drill, or return to the top |
 | **Top 10 / 20 / All** | trim to the biggest members by operating profit |
@@ -51,6 +51,11 @@ sets the heading.
 
 The KPI row above the chart always reflects the current slice, and the bars are
 sorted by operating profit.
+
+`Account Name` separates E-STORE from OFF-LINE, so the online business is one click
+away at the top level. The offline rows carry no Type or Portal Group — those levels
+collapse to a single `(blank)` bar there and the drill continues to the account
+underneath, which is expected rather than a join failure.
 
 ## Columns it looks for
 

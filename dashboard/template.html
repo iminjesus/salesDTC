@@ -141,7 +141,7 @@ function aggregate() {
   const depth = Math.min(state.depth, DATA.levels[state.dim].length - 1);
   const out = new Map();
   for (const r of slice()) {
-    const name = r[key][depth] || 'Unknown';
+    const name = r[key][depth] || '(blank)';
     const a = out.get(name) || { name, q: 0, n: 0, ps: 0, pa: 0 };
     a.q += r.q; a.n += r.n; a.ps += r.ps; a.pa += r.pa;
     out.set(name, a);
