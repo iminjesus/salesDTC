@@ -79,17 +79,21 @@ def pick_file(folder: Path, *stems: str) -> Path:
 
 # ── the measures the chart needs, and the headers they may arrive under ─────
 MEASURES = {
-    'gross':  ('*S.Gross Sales', 'S.Gross Sales AMT', 'Gross Sales', 'Gross'),
-    'sd':     ('*Sales Deduction', 'Sales Deduction', 'S.Sales Deduction'),
-    'cogs':   ('*Cost of Goods Sold', 'Cost of Goods Sold', 'COGS'),
-    'opex':   ('*Operating Expense', 'Operating Expense', 'Op Cost', 'OPEX'),
-    'profit': ('*Operating Profit', 'Operating Profit', 'Op Profit U$', 'Profit'),
+    'qty':    ('Net Sales Qty', 'Qty', 'Quantity', 'Quantity(Net)'),
+    'net':    ('Net Sales', '*Net Sales', 'Net Sales Amt'),
+    'p_sub':  ('Subsidiary Op.Profit', 'Subsidiary Op Profit', 'Subsidiary Op.Prof'),
+    'p_alloc': ('Allocate Op.Prof', 'Allocate Op.Profit', 'Allocated Op.Profit',
+                'Allocate Op Profit'),
+    # Older P&L style exports, kept so the same script reads both shapes.
+    'gross':  ('*S.Gross Sales', 'S.Gross Sales AMT', 'Gross Sales'),
+    'profit': ('*Operating Profit', 'Operating Profit', 'Op Profit U$'),
 }
+MEASURE_KEYS = ('qty', 'net', 'p_sub', 'p_alloc')
 
 # Dimension columns taken off the profit file itself.
 PROFIT_DIMS = {
-    'sold_to':        ('sold To', 'Sold-To', 'sold_to', 'Customer'),
-    'sku':            ('SKU', 'Material', 'Material Code'),
+    'sold_to':        ('Payer', 'sold To', 'Sold-To', 'sold_to', 'Customer'),
+    'sku':            ('Material', 'SKU', 'Material Code'),
     'material_group': ('Material Group', 'material_group'),
     'division2':      ('Division 2', 'division2'),
     'prod_group':     ('Prod_group', 'Prod Group', 'prod_group'),
@@ -118,12 +122,17 @@ def main() -> int:
 
     # ── locate the measures ────────────────────────────────────────────────
     m_idx = {k: find(p_head, *names) for k, names in MEASURES.items()}
+    # An older export has gross sales and one operating profit instead.
+    if m_idx['net'] is None and m_idx['gross'] is not None:
+        m_idx['net'] = m_idx['gross']
+    if m_idx['p_sub'] is None and m_idx['profit'] is not None:
+        m_idx['p_sub'] = m_idx['profit']
     print('\nmeasures:')
-    for k, i in m_idx.items():
-        print(f'  {k:7} {p_head[i] if i is not None else "-- not found --"}')
-    if m_idx['gross'] is None and m_idx['profit'] is None:
-        print('\nNeither a gross sales nor an operating profit column was found.',
-              file=sys.stderr)
+    for k in MEASURE_KEYS:
+        i = m_idx[k]
+        print(f'  {k:8} {p_head[i] if i is not None else "-- not found --"}')
+    if m_idx['net'] is None and m_idx['p_sub'] is None and m_idx['p_alloc'] is None:
+        print('\nNo net sales or operating profit column was found.', file=sys.stderr)
         print('Headers seen:', ', '.join(p_head[:40]), file=sys.stderr)
         return 1
 
@@ -131,7 +140,7 @@ def main() -> int:
 
     # The file is named for one month, but say so out loud if it holds several -
     # otherwise a mixed export would quietly be reported as August.
-    per_i = find(p_head, 'Period', 'Month', 'Fiscal Period')
+    per_i = find(p_head, 'YYYYMM', 'Period', 'Month', 'Fiscal Period')
     if per_i is not None:
         periods = sorted({(r[per_i].strip() if per_i < len(r) else '') for r in p_rows} - {''})
         if args.period:
@@ -203,8 +212,8 @@ def main() -> int:
             p.get('range') or cell(r, d_idx['material_group']) or 'Unknown',
             p.get('prod_desc') or sku or cell(r, d_idx['material_group']) or 'Unknown',
         )
-        vals = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0, 0.0])
-        for j, m in enumerate(('gross', 'sd', 'cogs', 'opex', 'profit')):
+        vals = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0])
+        for j, m in enumerate(MEASURE_KEYS):
             i = m_idx[m]
             if i is not None:
                 vals[j] += to_num(cell(r, i))
@@ -215,13 +224,9 @@ def main() -> int:
         print('  (no customer matched - check that the profit file carries Sold-To)')
 
     records = [{'c': list(k[:3]), 'p': list(k[3:]),
-                'g': round(v[0], 2), 's': round(v[1], 2), 'o': round(v[2], 2),
-                'x': round(v[3], 2), 'f': round(v[4], 2)}
+                'q': round(v[0], 2), 'n': round(v[1], 2),
+                'ps': round(v[2], 2), 'pa': round(v[3], 2)}
                for k, v in buckets.items()]
-    # If the file has no operating-profit column, derive it.
-    if m_idx['profit'] is None:
-        for rec in records:
-            rec['f'] = round(rec['g'] - rec['s'] - rec['o'] - rec['x'], 2)
 
     payload = {
         'title': args.title,
@@ -229,6 +234,11 @@ def main() -> int:
             'customer': ['Type', 'Portal Group', 'Account'],
             'product': ['Division', 'Category', 'Range', 'Product'],
         },
+        # Keyed the way the records are: q / n / ps / pa.
+        'has': {short: m_idx[k] is not None
+                for k, short in zip(MEASURE_KEYS, ('q', 'n', 'ps', 'pa'))},
+        'labels': {short: (p_head[m_idx[k]] if m_idx[k] is not None else '')
+                   for k, short in zip(MEASURE_KEYS, ('q', 'n', 'ps', 'pa'))},
         'records': records,
     }
     template = (HERE / 'template.html').read_text(encoding='utf-8')
@@ -236,8 +246,10 @@ def main() -> int:
                             json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
     out = Path(args.out)
     out.write_text(html, encoding='utf-8')
-    total = sum(r['f'] for r in records)
-    print(f'\n{len(records):,} aggregated rows, operating profit {total:,.0f}')
+    net = sum(r['n'] for r in records)
+    sub = sum(r['ps'] for r in records)
+    print(f'\n{len(records):,} aggregated rows, net sales {net:,.0f}, '
+          f'operating profit {sub:,.0f}')
     print(f'-> {out.resolve()}')
     if args.open:
         webbrowser.open(out.resolve().as_uri())

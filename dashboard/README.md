@@ -1,8 +1,8 @@
 # August profit dashboard
 
-A single self-contained HTML page: the profit chart from the Sales Dashboard
-(`new-sales2`, branch `claude/crawl-product-pricing-Hafp4`) — Gross beside stacked
-costs, Profit % on a line — driven by hierarchical buttons.
+A single self-contained HTML page in the shape of the Sales Dashboard's profit chart
+(`new-sales2`, branch `claude/crawl-product-pricing-Hafp4`): bars beside each other
+with Profit % on a line, driven by hierarchical buttons.
 
 ## Build
 
@@ -25,6 +25,8 @@ sets the heading.
 | Control | What it does |
 |---|---|
 | **Customer / Product** | which hierarchy the bars break down by |
+| **Profit: Subsidiary / Allocated** | which operating profit column drives the profit bar, the line and the sort |
+| **Metric: Amount / Qty** | Net Sales and Op Profit, or Net Sales Qty on its own (a percentage of units means nothing, so the line and right axis come off) |
 | **Level** | jump straight to a level — Type → Portal Group → Account, or Division → Category → Range → Product |
 | **click a bar** | drill into that member and move to the next level |
 | **Back / Reset** | undo one drill, or return to the top |
@@ -40,13 +42,15 @@ Found by header name, not position, and the script prints what it matched:
 
 | Measure | Headers accepted |
 |---|---|
-| Gross | `*S.Gross Sales`, `S.Gross Sales AMT`, `Gross Sales`, `Gross` |
-| Sales Deduction | `*Sales Deduction`, `Sales Deduction` |
-| COGS | `*Cost of Goods Sold`, `COGS` |
-| Operating Expense | `*Operating Expense`, `Op Cost`, `OPEX` |
-| Operating Profit | `*Operating Profit`, `Op Profit U$` — derived from the others if absent |
+| Qty | `Net Sales Qty`, `Qty`, `Quantity` |
+| Net Sales | `Net Sales`, `*S.Gross Sales` (older P&L export) |
+| Op Profit (Subsidiary) | `Subsidiary Op.Profit`, `*Operating Profit` (older export) |
+| Op Profit (Allocated) | `Allocate Op.Prof`, `Allocate Op.Profit` |
 
-Joins are `sold To` → `customer_2608.Sold-To` and `SKU` → `product_2608.SKU`. The
+Profit % is the selected operating profit over net sales.
+
+Joins are `Payer` (or `sold To`) → `customer_2608.Sold-To` and `Material` (or `SKU`)
+→ `product_2608.SKU`; the period column is `YYYYMM` or `Period`. The
 build prints how many rows matched each; a zero there means the profit export does
 not carry that key, and the hierarchy falls back to whatever the profit file itself
 has (`Division 2`, `Prod_group`, `Material Group`).

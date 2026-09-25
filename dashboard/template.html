@@ -80,6 +80,18 @@
   <button id="backBtn" class="btn" title="Undo the last drill-down">&#8592; Back</button>
   <button id="resetBtn" class="btn">Reset</button>
   <div class="filter-sep"></div>
+  <label>Profit:</label>
+  <div id="basisBtns" style="display:flex; gap:4px">
+    <button class="btn sub" data-basis="ps">Subsidiary</button>
+    <button class="btn sub" data-basis="pa">Allocated</button>
+  </div>
+  <div class="filter-sep"></div>
+  <label>Metric:</label>
+  <div id="metricBtns" style="display:flex; gap:4px">
+    <button class="btn sub active" data-metric="amount">Amount</button>
+    <button class="btn sub" data-metric="qty">Qty</button>
+  </div>
+  <div class="filter-sep"></div>
   <label>Show:</label>
   <div id="topBtns" style="display:flex; gap:4px">
     <button class="btn sub" data-top="10">Top 10</button>
@@ -107,10 +119,12 @@ Chart.register(ChartDataLabels);
 
 /* Chart.js does not resolve CSS variables, so the series colours live here.
    They match the Sales Dashboard's profit chart. */
-const C = { gross:'#93c5fd', cogs:'#f87171', opex:'#fbbf24', sd:'#d55fc3',
-            pct:'#10b981', neg:'#ef4444' };
+const C = { net:'#93c5fd', profit:'#fbbf24', profitNeg:'#f87171',
+            pct:'#10b981', neg:'#ef4444', qty:'#a5b4fc' };
 
-const state = { dim: 'customer', depth: 0, path: [], top: 0, table: false };
+const state = { dim: 'customer', depth: 0, path: [], top: 0, table: false,
+                basis: DATA.has.ps ? 'ps' : 'pa',   // which operating profit column
+                metric: 'amount' };                 // amount | qty
 const fmt = n => Math.round(n).toLocaleString();
 const pct = n => (n >= 0 ? '' : '') + n.toFixed(1) + '%';
 
@@ -128,11 +142,12 @@ function aggregate() {
   const out = new Map();
   for (const r of slice()) {
     const name = r[key][depth] || 'Unknown';
-    const a = out.get(name) || { name, g: 0, s: 0, o: 0, x: 0, f: 0 };
-    a.g += r.g; a.s += r.s; a.o += r.o; a.x += r.x; a.f += r.f;
+    const a = out.get(name) || { name, q: 0, n: 0, ps: 0, pa: 0 };
+    a.q += r.q; a.n += r.n; a.ps += r.ps; a.pa += r.pa;
     out.set(name, a);
   }
-  let rows = [...out.values()].sort((a, b) => b.f - a.f);
+  const sortKey = state.metric === 'qty' ? 'q' : state.basis;
+  let rows = [...out.values()].sort((a, b) => b[sortKey] - a[sortKey]);
   if (state.top) rows = rows.slice(0, state.top);
   return rows;
 }
@@ -162,6 +177,15 @@ function render() {
   document.getElementById('resetBtn').disabled = !state.path.length && !state.depth;
   document.querySelectorAll('#topBtns .btn').forEach(b =>
     b.classList.toggle('active', +b.dataset.top === state.top));
+  document.querySelectorAll('#basisBtns .btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.basis === state.basis);
+    b.disabled = !DATA.has[b.dataset.basis] || state.metric === 'qty';
+    if (DATA.labels[b.dataset.basis]) b.title = DATA.labels[b.dataset.basis];
+  });
+  document.querySelectorAll('#metricBtns .btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.metric === state.metric);
+    b.disabled = b.dataset.metric === 'qty' && !DATA.has.q;
+  });
   document.getElementById('tableBtn').classList.toggle('active', state.table);
 
   /* ── breadcrumb ── */
@@ -176,44 +200,42 @@ function render() {
 
   /* ── KPIs ── */
   const tot = rows.reduce((a, r) => ({
-    g: a.g + r.g, s: a.s + r.s, o: a.o + r.o, x: a.x + r.x, f: a.f + r.f
-  }), { g: 0, s: 0, o: 0, x: 0, f: 0 });
-  const margin = tot.g > 0 ? (tot.f / tot.g) * 100 : 0;
+    q: a.q + r.q, n: a.n + r.n, ps: a.ps + r.ps, pa: a.pa + r.pa
+  }), { q: 0, n: 0, ps: 0, pa: 0 });
+  const margin = tot.n !== 0 ? (tot[state.basis] / tot.n) * 100 : 0;
+  const basisName = state.basis === 'ps' ? 'Subsidiary' : 'Allocated';
   document.getElementById('kpis').innerHTML = [
-    ['Gross Sales', fmt(tot.g), ''],
-    ['Sales Deduction', fmt(tot.s), ''],
-    ['COGS', fmt(tot.o), ''],
-    ['Operating Expense', fmt(tot.x), ''],
-    ['Operating Profit', fmt(tot.f), tot.f < 0 ? 'neg' : ''],
-    ['Profit %', pct(margin), margin < 0 ? 'neg' : ''],
+    ['Net Sales Qty', fmt(tot.q), ''],
+    ['Net Sales', fmt(tot.n), ''],
+    ['Op Profit (Subsidiary)', fmt(tot.ps), tot.ps < 0 ? 'neg' : ''],
+    ['Op Profit (Allocated)', fmt(tot.pa), tot.pa < 0 ? 'neg' : ''],
+    [`Profit % (${basisName})`, pct(margin), margin < 0 ? 'neg' : ''],
   ].map(([k, v, cls]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
   ).join('');
 
-  document.getElementById('chartTitle').textContent =
-    `${DATA.title} by ${levels[state.depth]}`;
+  document.getElementById('chartTitle').textContent = state.metric === 'qty'
+    ? `${DATA.title} — Net Sales Qty by ${levels[state.depth]}`
+    : `${DATA.title} — Net Sales and Op Profit (${basisName}) by ${levels[state.depth]}`;
 
   /* ── chart ── */
   const labels = rows.map(r => r.name);
-  const profitPct = rows.map(r => (r.g > 0 ? (r.f / r.g) * 100 : 0));
-  if (chart) chart.destroy();
-  chart = new Chart(document.getElementById('profitComboChart'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { type: 'bar', label: 'Gross', data: rows.map(r => r.g), yAxisID: 'y',
-          stack: 'G', backgroundColor: C.gross, borderRadius: 4,
-          borderWidth: 0 },
-        { type: 'bar', label: 'COGS', data: rows.map(r => r.o), yAxisID: 'y',
-          stack: 'C', backgroundColor: C.cogs,
-          borderColor: '#fff', borderWidth: { top: 2 } },
-        { type: 'bar', label: 'Op Cost', data: rows.map(r => r.x), yAxisID: 'y',
-          stack: 'C', backgroundColor: C.opex,
-          borderColor: '#fff', borderWidth: { top: 2 } },
-        { type: 'bar', label: 'Sales Deduction', data: rows.map(r => r.s),
-          yAxisID: 'y', stack: 'C', backgroundColor: C.sd,
-          borderColor: '#fff', borderWidth: { top: 2 }, borderRadius: 4 },
+  const profitVals = rows.map(r => r[state.basis]);
+  const profitPct = rows.map(r => (r.n !== 0 ? (r[state.basis] / r.n) * 100 : 0));
+  const qtyMode = state.metric === 'qty';
+
+  // Amount view: Net Sales beside Op Profit on the selected basis, with Profit %
+  // on the line. Qty view: the quantity alone - a percentage of units means
+  // nothing, so the second axis and the line come off.
+  const datasets = qtyMode
+    ? [{ type: 'bar', label: 'Net Sales Qty', data: rows.map(r => r.q),
+         yAxisID: 'y', backgroundColor: C.qty, borderRadius: 4 }]
+    : [
+        { type: 'bar', label: 'Net Sales', data: rows.map(r => r.n), yAxisID: 'y',
+          stack: 'N', backgroundColor: C.net, borderRadius: 4 },
+        { type: 'bar', label: `Op Profit (${basisName})`, data: profitVals,
+          yAxisID: 'y', stack: 'P', borderRadius: 4,
+          backgroundColor: profitVals.map(v => v >= 0 ? C.profit : C.profitNeg) },
         { type: 'line', label: 'Profit %', data: profitPct, yAxisID: 'y1',
           tension: .25, borderWidth: 2, pointRadius: 4, pointHoverRadius: 7,
           fill: false, borderColor: C.pct,
@@ -227,8 +249,12 @@ function render() {
             backgroundColor: 'rgba(255,255,255,.75)', borderRadius: 3,
             padding: { top: 1, bottom: 1, left: 3, right: 3 }
           } }
-      ]
-    },
+      ];
+
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('profitComboChart'), {
+    type: 'bar',
+    data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
@@ -253,10 +279,12 @@ function render() {
                         return s.length > 22 ? s.slice(0, 21) + '…' : s;
                       } },
              grid: { display: false } },
-        y: { beginAtZero: true, title: { display: true, text: 'Amount' },
+        y: { beginAtZero: true,
+             title: { display: true, text: qtyMode ? 'Quantity' : 'Amount' },
              ticks: { callback: v => Number(v).toLocaleString() },
              grid: { color: '#eef2f7' } },
-        y1: { position: 'right', suggestedMin: -10, suggestedMax: 10,
+        y1: { display: !qtyMode, position: 'right',
+              suggestedMin: -10, suggestedMax: 10,
               title: { display: true, text: 'Profit %' },
               grid: { drawOnChartArea: false },
               ticks: { callback: v => `${v}%` } }
@@ -271,8 +299,11 @@ function render() {
               ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`
               : `${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toLocaleString()}`,
             footer: items => {
-              const i = items[0].dataIndex;
-              return `Operating Profit: ${fmt(rows[i].f)}`;
+              const r = rows[items[0].dataIndex];
+              return qtyMode ? '' :
+                [`Qty: ${fmt(r.q)}`,
+                 `Op Profit (Subsidiary): ${fmt(r.ps)}`,
+                 `Op Profit (Allocated): ${fmt(r.pa)}`].join('\n');
             }
           }
         }
@@ -285,17 +316,18 @@ function render() {
   box.hidden = !state.table;
   if (state.table) {
     box.innerHTML = `<table><thead><tr>
-        <th>${levels[state.depth]}</th><th>Gross</th><th>Sales Ded.</th>
-        <th>COGS</th><th>Op Exp</th><th>Op Profit</th><th>Profit %</th></tr></thead>
+        <th>${levels[state.depth]}</th><th>Qty</th><th>Net Sales</th>
+        <th>Op Profit (Sub)</th><th>Op Profit (Alloc)</th>
+        <th>Profit % (${basisName})</th></tr></thead>
       <tbody>${rows.map((r, i) => `<tr>
-        <td title="${r.name}">${r.name}</td><td>${fmt(r.g)}</td><td>${fmt(r.s)}</td>
-        <td>${fmt(r.o)}</td><td>${fmt(r.x)}</td>
-        <td class="${r.f < 0 ? 'neg' : ''}">${fmt(r.f)}</td>
+        <td title="${r.name}">${r.name}</td><td>${fmt(r.q)}</td><td>${fmt(r.n)}</td>
+        <td class="${r.ps < 0 ? 'neg' : ''}">${fmt(r.ps)}</td>
+        <td class="${r.pa < 0 ? 'neg' : ''}">${fmt(r.pa)}</td>
         <td class="${profitPct[i] < 0 ? 'neg' : ''}">${pct(profitPct[i])}</td>
       </tr>`).join('')}</tbody>
-      <tfoot><tr><td>Total</td><td>${fmt(tot.g)}</td><td>${fmt(tot.s)}</td>
-        <td>${fmt(tot.o)}</td><td>${fmt(tot.x)}</td>
-        <td class="${tot.f < 0 ? 'neg' : ''}">${fmt(tot.f)}</td>
+      <tfoot><tr><td>Total</td><td>${fmt(tot.q)}</td><td>${fmt(tot.n)}</td>
+        <td class="${tot.ps < 0 ? 'neg' : ''}">${fmt(tot.ps)}</td>
+        <td class="${tot.pa < 0 ? 'neg' : ''}">${fmt(tot.pa)}</td>
         <td class="${margin < 0 ? 'neg' : ''}">${pct(margin)}</td></tr></tfoot></table>`;
   }
 }
@@ -312,6 +344,12 @@ document.getElementById('backBtn').onclick = () => {
 document.getElementById('resetBtn').onclick = () => {
   state.path = []; state.depth = 0; render();
 };
+document.querySelectorAll('#basisBtns .btn').forEach(b => b.onclick = () => {
+  state.basis = b.dataset.basis; render();
+});
+document.querySelectorAll('#metricBtns .btn').forEach(b => b.onclick = () => {
+  state.metric = b.dataset.metric; render();
+});
 document.getElementById('tableBtn').onclick = () => { state.table = !state.table; render(); };
 
 render();

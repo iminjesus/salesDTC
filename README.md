@@ -83,7 +83,7 @@ DB Browser for SQLite opens the same file if you would rather click around. The
 ## Dashboard
 
 `dashboard/build_dashboard.py` builds a self-contained HTML page from the rawdata
-files: the Sales Dashboard's profit chart (Gross beside stacked costs, Profit % on a
+files: the Sales Dashboard's profit chart (Net Sales beside Op Profit, Profit % on a
 line) with hierarchical buttons — Customer as Type → Portal Group → Account, Product
 as Division → Category → Range → Product — where clicking a bar drills in. See
 `dashboard/README.md`.
