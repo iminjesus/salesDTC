@@ -106,7 +106,10 @@ def main() -> int:
     ap.add_argument('--dir', default='rawdata', help='folder holding the files')
     ap.add_argument('--out', default=str(HERE / 'profit_2608.html'))
     ap.add_argument('--title', default='August 2026 Profit')
-    ap.add_argument('--period', help='keep only this period/month, e.g. 2026.008 or Aug')
+    ap.add_argument('--period', help='keep only this period/month, e.g. 202608')
+    ap.add_argument('--cdn', action='store_true',
+                    help='link Chart.js from jsDelivr instead of embedding it: a much '
+                         'smaller file, but it then needs an internet connection')
     ap.add_argument('--open', action='store_true', help='open the result')
     args = ap.parse_args()
 
@@ -244,13 +247,34 @@ def main() -> int:
     template = (HERE / 'template.html').read_text(encoding='utf-8')
     html = template.replace('/*__DATA__*/null',
                             json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
+
+    # Inline the charting libraries so the page works with no connection - the
+    # point of a single file is that it still runs on someone else's machine.
+    if not args.cdn:
+        vendor = HERE / 'vendor'
+        libs = [('https://cdn.jsdelivr.net/npm/chart.js@4', 'chart.umd.js'),
+                ('https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2',
+                 'chartjs-plugin-datalabels.min.js')]
+        missing = [n for _, n in libs if not (vendor / n).is_file()]
+        if missing:
+            print(f'\nvendor/{", ".join(missing)} missing - linking the CDN instead; '
+                  'the page will need a connection.')
+        else:
+            for url, name in libs:
+                code = (vendor / name).read_text(encoding='utf-8')
+                # </script> inside library source would close the tag early.
+                code = code.replace('</script>', '<\\/script>')
+                html = html.replace(f'<script src="{url}"></script>',
+                                    f'<script>/* {name} */\n{code}\n</script>')
     out = Path(args.out)
     out.write_text(html, encoding='utf-8')
     net = sum(r['n'] for r in records)
     sub = sum(r['ps'] for r in records)
     print(f'\n{len(records):,} aggregated rows, net sales {net:,.0f}, '
           f'operating profit {sub:,.0f}')
-    print(f'-> {out.resolve()}')
+    kb = len(html.encode('utf-8')) / 1024
+    print(f'-> {out.resolve()}  ({kb:,.0f} KB'
+          f'{", needs an internet connection" if args.cdn else ", works offline"})')
     if args.open:
         webbrowser.open(out.resolve().as_uri())
     return 0

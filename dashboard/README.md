@@ -16,6 +16,22 @@ in whatever format they are (the readers from `tools/rawdata.py`), joins the two
 masters onto the profit rows, and embeds the rolled-up numbers in the page. No
 server, no database, and nothing leaves the machine.
 
+## Sending it to someone
+
+The result is one file that opens by double-clicking, in any modern browser, with
+nothing installed — Chart.js is embedded, so it works with no internet connection
+too (about 240 KB). `--cdn` links jsDelivr instead: a 24 KB file, but then the
+recipient needs a connection, and on a network that blocks CDNs the chart simply
+does not draw.
+
+Two things to keep in mind before sending it on:
+
+- **The numbers travel with the file.** Every row behind the chart — account names,
+  net sales, both profit columns — is embedded in the HTML and readable by anyone
+  who opens it, or who opens it in a text editor. Treat sending the page as sending
+  the underlying data.
+- It is a snapshot. Re-run the build to refresh it; the file does not update itself.
+
 Useful options: `--period 2026.008` keeps one month when the file holds several
 (it warns if it does), `--dir` points somewhere other than `rawdata`, `--title`
 sets the heading.
