@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profit Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+<style>
+  :root{
+    --ink:#111827; --ink2:#374151; --muted:#6b7280; --line:#e5e7eb;
+    --surface:#ffffff; --page:#f3f4f6;
+    --gross:#93c5fd; --cogs:#f87171; --opex:#fbbf24; --sd:#d55fc3; --pct:#10b981;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; padding:12px; background:var(--page); color:var(--ink);
+       font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  h2{margin:2px 0 10px; font-size:18px; font-weight:700; letter-spacing:-.01em}
+  h3{margin:0 0 6px; font-size:14px; font-weight:600; color:var(--ink2)}
+
+  .filter-bar{background:var(--surface); border-radius:10px; padding:8px 14px;
+              box-shadow:0 1px 4px rgba(0,0,0,.08); display:flex; align-items:center;
+              gap:8px; flex-wrap:wrap; margin-bottom:6px}
+  .filter-sep{width:1px; height:20px; background:var(--line); margin:0 2px}
+  label{font-size:12px; color:var(--muted)}
+
+  .btn{padding:5px 11px; border:1.5px solid #d1d5db; background:#f9fafb;
+       border-radius:7px; cursor:pointer; font-size:12px; font-weight:500;
+       color:var(--ink2); line-height:1.4; white-space:nowrap; user-select:none;
+       transition:background .12s,border-color .12s,color .12s,box-shadow .12s,transform .08s}
+  .btn:hover:not(.active):not(:disabled){background:#f3f4f6; border-color:#9ca3af}
+  .btn:active:not(:disabled){transform:scale(.94); box-shadow:inset 0 1px 3px rgba(0,0,0,.12)}
+  .btn.active{background:#2563eb; color:#fff; border-color:#2563eb;
+              box-shadow:0 1px 4px rgba(37,99,235,.30)}
+  .btn:disabled{opacity:.55; cursor:not-allowed}
+  .btn.sub{padding:3px 8px; font-size:11px; border-color:var(--line);
+           background:#f8fafc; color:#475569}
+  .btn.sub.active{background:#2563eb; color:#fff; border-color:#2563eb}
+
+  .crumb{display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+         font-size:12px; color:var(--muted); margin:2px 0 6px; padding:0 4px}
+  .crumb b{color:var(--ink); font-weight:600}
+  .crumb .chip{background:#e0e7ff; color:#3730a3; border-radius:999px;
+               padding:2px 9px; font-weight:600}
+
+  .box{background:var(--surface); border-radius:10px; padding:10px 12px 12px;
+       box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .kpis{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px}
+  .kpi{background:var(--surface); border-radius:10px; padding:8px 14px; min-width:132px;
+       box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .kpi .k{font-size:11px; color:var(--muted)}
+  .kpi .v{font-size:19px; font-weight:700; letter-spacing:-.02em}
+  .kpi .v.neg{color:#b91c1c}
+
+  .chart-wrap{position:relative; width:100%; height:440px}
+  .hint{font-size:11px; color:var(--muted); margin-top:6px}
+
+  table{width:100%; border-collapse:collapse; font-size:12px; margin-top:8px}
+  th,td{padding:4px 8px; border-bottom:1px solid var(--line); text-align:right;
+        white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted); font-weight:600; border-bottom:1.5px solid #d1d5db}
+  td.neg{color:#b91c1c}
+  tfoot td{font-weight:700; border-top:1.5px solid #d1d5db}
+</style>
+</head>
+<body>
+
+<h2 id="pageTitle">Profit</h2>
+
+<div class="filter-bar">
+  <div id="dimBtns" style="display:flex; gap:5px">
+    <button class="btn active" data-dim="customer">Customer</button>
+    <button class="btn" data-dim="product">Product</button>
+  </div>
+  <div class="filter-sep"></div>
+  <label>Level:</label>
+  <div id="levelBtns" style="display:flex; gap:4px"></div>
+  <div class="filter-sep"></div>
+  <button id="backBtn" class="btn" title="Undo the last drill-down">&#8592; Back</button>
+  <button id="resetBtn" class="btn">Reset</button>
+  <div class="filter-sep"></div>
+  <label>Show:</label>
+  <div id="topBtns" style="display:flex; gap:4px">
+    <button class="btn sub" data-top="10">Top 10</button>
+    <button class="btn sub" data-top="20">Top 20</button>
+    <button class="btn sub active" data-top="0">All</button>
+  </div>
+  <div class="filter-sep"></div>
+  <button id="tableBtn" class="btn sub">Table</button>
+</div>
+
+<div class="crumb" id="crumb"></div>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="box">
+  <h3 id="chartTitle">Profit</h3>
+  <div class="chart-wrap"><canvas id="profitComboChart"></canvas></div>
+  <div class="hint">Click a bar to drill into the next level. Bars are sorted by operating profit.</div>
+  <div id="tableBox" hidden></div>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+Chart.register(ChartDataLabels);
+
+/* Chart.js does not resolve CSS variables, so the series colours live here.
+   They match the Sales Dashboard's profit chart. */
+const C = { gross:'#93c5fd', cogs:'#f87171', opex:'#fbbf24', sd:'#d55fc3',
+            pct:'#10b981', neg:'#ef4444' };
+
+const state = { dim: 'customer', depth: 0, path: [], top: 0, table: false };
+const fmt = n => Math.round(n).toLocaleString();
+const pct = n => (n >= 0 ? '' : '') + n.toFixed(1) + '%';
+
+document.getElementById('pageTitle').textContent = DATA.title;
+
+/* Rows kept by the current drill path: path[i] must equal the row's level-i key. */
+function slice() {
+  const key = state.dim === 'customer' ? 'c' : 'p';
+  return DATA.records.filter(r => state.path.every((v, i) => r[key][i] === v));
+}
+
+function aggregate() {
+  const key = state.dim === 'customer' ? 'c' : 'p';
+  const depth = Math.min(state.depth, DATA.levels[state.dim].length - 1);
+  const out = new Map();
+  for (const r of slice()) {
+    const name = r[key][depth] || 'Unknown';
+    const a = out.get(name) || { name, g: 0, s: 0, o: 0, x: 0, f: 0 };
+    a.g += r.g; a.s += r.s; a.o += r.o; a.x += r.x; a.f += r.f;
+    out.set(name, a);
+  }
+  let rows = [...out.values()].sort((a, b) => b.f - a.f);
+  if (state.top) rows = rows.slice(0, state.top);
+  return rows;
+}
+
+let chart = null;
+function render() {
+  const levels = DATA.levels[state.dim];
+  state.depth = Math.min(state.depth, levels.length - 1);
+  const rows = aggregate();
+
+  /* ── buttons ── */
+  document.querySelectorAll('#dimBtns .btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.dim === state.dim));
+  const lv = document.getElementById('levelBtns');
+  lv.innerHTML = '';
+  levels.forEach((name, i) => {
+    const b = document.createElement('button');
+    b.className = 'btn sub' + (i === state.depth ? ' active' : '');
+    b.textContent = name;
+    // A level below the current drill path would show a single bar, so it is
+    // only reachable by clicking through - keep it visible but disabled.
+    b.disabled = i < state.path.length;
+    b.onclick = () => { state.depth = i; render(); };
+    lv.appendChild(b);
+  });
+  document.getElementById('backBtn').disabled = !state.path.length;
+  document.getElementById('resetBtn').disabled = !state.path.length && !state.depth;
+  document.querySelectorAll('#topBtns .btn').forEach(b =>
+    b.classList.toggle('active', +b.dataset.top === state.top));
+  document.getElementById('tableBtn').classList.toggle('active', state.table);
+
+  /* ── breadcrumb ── */
+  const crumb = document.getElementById('crumb');
+  crumb.innerHTML = '<b>' + (state.dim === 'customer' ? 'Customer' : 'Product') + '</b>';
+  state.path.forEach((v, i) => {
+    crumb.insertAdjacentHTML('beforeend',
+      ` &rsaquo; <span class="chip" title="${levels[i]}">${v}</span>`);
+  });
+  crumb.insertAdjacentHTML('beforeend',
+    ` &rsaquo; by <b>${levels[state.depth]}</b> &middot; ${rows.length} item(s)`);
+
+  /* ── KPIs ── */
+  const tot = rows.reduce((a, r) => ({
+    g: a.g + r.g, s: a.s + r.s, o: a.o + r.o, x: a.x + r.x, f: a.f + r.f
+  }), { g: 0, s: 0, o: 0, x: 0, f: 0 });
+  const margin = tot.g > 0 ? (tot.f / tot.g) * 100 : 0;
+  document.getElementById('kpis').innerHTML = [
+    ['Gross Sales', fmt(tot.g), ''],
+    ['Sales Deduction', fmt(tot.s), ''],
+    ['COGS', fmt(tot.o), ''],
+    ['Operating Expense', fmt(tot.x), ''],
+    ['Operating Profit', fmt(tot.f), tot.f < 0 ? 'neg' : ''],
+    ['Profit %', pct(margin), margin < 0 ? 'neg' : ''],
+  ].map(([k, v, cls]) =>
+    `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
+  ).join('');
+
+  document.getElementById('chartTitle').textContent =
+    `${DATA.title} by ${levels[state.depth]}`;
+
+  /* ── chart ── */
+  const labels = rows.map(r => r.name);
+  const profitPct = rows.map(r => (r.g > 0 ? (r.f / r.g) * 100 : 0));
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('profitComboChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'Gross', data: rows.map(r => r.g), yAxisID: 'y',
+          stack: 'G', backgroundColor: C.gross, borderRadius: 4,
+          borderWidth: 0 },
+        { type: 'bar', label: 'COGS', data: rows.map(r => r.o), yAxisID: 'y',
+          stack: 'C', backgroundColor: C.cogs,
+          borderColor: '#fff', borderWidth: { top: 2 } },
+        { type: 'bar', label: 'Op Cost', data: rows.map(r => r.x), yAxisID: 'y',
+          stack: 'C', backgroundColor: C.opex,
+          borderColor: '#fff', borderWidth: { top: 2 } },
+        { type: 'bar', label: 'Sales Deduction', data: rows.map(r => r.s),
+          yAxisID: 'y', stack: 'C', backgroundColor: C.sd,
+          borderColor: '#fff', borderWidth: { top: 2 }, borderRadius: 4 },
+        { type: 'line', label: 'Profit %', data: profitPct, yAxisID: 'y1',
+          tension: .25, borderWidth: 2, pointRadius: 4, pointHoverRadius: 7,
+          fill: false, borderColor: C.pct,
+          pointBackgroundColor: profitPct.map(v => v >= 0 ? C.pct : C.neg),
+          pointBorderColor: '#fff', pointBorderWidth: 2, order: -1,
+          datalabels: {
+            align: 'top', anchor: 'end', offset: 4,
+            formatter: v => v == null ? '' : v.toFixed(1) + '%',
+            font: { weight: 'bold', size: 10 },
+            color: ctx => profitPct[ctx.dataIndex] >= 0 ? '#065f46' : '#991b1b',
+            backgroundColor: 'rgba(255,255,255,.75)', borderRadius: 3,
+            padding: { top: 1, bottom: 1, left: 3, right: 3 }
+          } }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      // Cap the width so a two-category view does not render slab-wide bars.
+      datasets: { bar: { categoryPercentage: .85, barPercentage: .95,
+                         maxBarThickness: 90 } },
+      onClick: (_e, els) => {
+        if (!els.length) return;
+        const name = labels[els[0].index];
+        if (state.depth < levels.length - 1 && state.depth === state.path.length) {
+          state.path.push(name);
+          state.depth += 1;
+          render();
+        }
+      },
+      onHover: (e, els) => { e.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+      scales: {
+        x: { stacked: true, offset: true,
+             ticks: { autoSkip: false, maxRotation: 60, minRotation: 0,
+                      callback(v) {
+                        const s = this.getLabelForValue(v);
+                        return s.length > 22 ? s.slice(0, 21) + '…' : s;
+                      } },
+             grid: { display: false } },
+        y: { beginAtZero: true, title: { display: true, text: 'Amount' },
+             ticks: { callback: v => Number(v).toLocaleString() },
+             grid: { color: '#eef2f7' } },
+        y1: { position: 'right', suggestedMin: -10, suggestedMax: 10,
+              title: { display: true, text: 'Profit %' },
+              grid: { drawOnChartArea: false },
+              ticks: { callback: v => `${v}%` } }
+      },
+      plugins: {
+        datalabels: { display: ctx => ctx.dataset.type === 'line' },
+        legend: { display: true, labels: { boxWidth: 12, boxHeight: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            title: items => items.length ? labels[items[0].dataIndex] : '',
+            label: ctx => ctx.dataset.yAxisID === 'y1'
+              ? `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`
+              : `${ctx.dataset.label}: ${Number(ctx.parsed.y || 0).toLocaleString()}`,
+            footer: items => {
+              const i = items[0].dataIndex;
+              return `Operating Profit: ${fmt(rows[i].f)}`;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  /* ── table view (same numbers, for reading and copying) ── */
+  const box = document.getElementById('tableBox');
+  box.hidden = !state.table;
+  if (state.table) {
+    box.innerHTML = `<table><thead><tr>
+        <th>${levels[state.depth]}</th><th>Gross</th><th>Sales Ded.</th>
+        <th>COGS</th><th>Op Exp</th><th>Op Profit</th><th>Profit %</th></tr></thead>
+      <tbody>${rows.map((r, i) => `<tr>
+        <td title="${r.name}">${r.name}</td><td>${fmt(r.g)}</td><td>${fmt(r.s)}</td>
+        <td>${fmt(r.o)}</td><td>${fmt(r.x)}</td>
+        <td class="${r.f < 0 ? 'neg' : ''}">${fmt(r.f)}</td>
+        <td class="${profitPct[i] < 0 ? 'neg' : ''}">${pct(profitPct[i])}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr><td>Total</td><td>${fmt(tot.g)}</td><td>${fmt(tot.s)}</td>
+        <td>${fmt(tot.o)}</td><td>${fmt(tot.x)}</td>
+        <td class="${tot.f < 0 ? 'neg' : ''}">${fmt(tot.f)}</td>
+        <td class="${margin < 0 ? 'neg' : ''}">${pct(margin)}</td></tr></tfoot></table>`;
+  }
+}
+
+document.querySelectorAll('#dimBtns .btn').forEach(b => b.onclick = () => {
+  state.dim = b.dataset.dim; state.depth = 0; state.path = []; render();
+});
+document.querySelectorAll('#topBtns .btn').forEach(b => b.onclick = () => {
+  state.top = +b.dataset.top; render();
+});
+document.getElementById('backBtn').onclick = () => {
+  if (state.path.length) { state.path.pop(); state.depth = state.path.length; render(); }
+};
+document.getElementById('resetBtn').onclick = () => {
+  state.path = []; state.depth = 0; render();
+};
+document.getElementById('tableBtn').onclick = () => { state.table = !state.table; render(); };
+
+render();
+</script>
+</body>
+</html>

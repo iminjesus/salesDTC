@@ -80,6 +80,14 @@ py -c "import sqlite3;c=sqlite3.connect(r'rawdata\sales.db');print(c.execute('se
 DB Browser for SQLite opens the same file if you would rather click around. The
 `--clean-csv` output is also what to feed MySQL later, if the policy changes.
 
+## Dashboard
+
+`dashboard/build_dashboard.py` builds a self-contained HTML page from the rawdata
+files: the Sales Dashboard's profit chart (Gross beside stacked costs, Profit % on a
+line) with hierarchical buttons — Customer as Type → Portal Group → Account, Product
+as Division → Category → Range → Product — where clicking a bar drills in. See
+`dashboard/README.md`.
+
 ## Crawler
 
 `crawler/retail/` pulls competitor prices for a brand into a CSV — on-sale flag, product
