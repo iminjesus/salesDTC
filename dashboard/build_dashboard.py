@@ -57,16 +57,27 @@ def key_norm(v: str) -> str:
     return t
 
 
-def to_num(v: str) -> float:
-    t = str(v or '').strip().replace(',', '').replace('$', '')
-    if not t or t in ('-', '#N/A', 'N/A'):
-        return 0.0
+def to_num(v: str) -> tuple:
+    """Return (value, status) where status is 'ok', 'blank' or 'bad'.
+
+    Amounts arrive in several shapes: 1,234.56 with separators, (1,234.56) in
+    accounting form, and 1234.56- with the sign trailing, which is how SAP writes
+    negatives. Anything unrecognised is reported rather than silently counted as
+    zero - a whole column reading zero is otherwise invisible.
+    """
+    t = str(v or '').strip().replace(',', '').replace('$', '').replace(' ', '')
+    if not t or t in ('-', '#N/A', 'N/A', 'NULL'):
+        return 0.0, 'blank'
     if t.startswith('(') and t.endswith(')'):
         t = '-' + t[1:-1]
+    elif t.endswith('-'):                      # SAP trailing sign: 1234.56-
+        t = '-' + t[:-1]
+    elif t.endswith('+'):
+        t = t[:-1]
     try:
-        return float(t)
+        return float(t), 'ok'
     except ValueError:
-        return 0.0
+        return 0.0, 'bad'
 
 
 def load(path: Path) -> tuple[list[str], list[list[str]]]:
@@ -233,6 +244,8 @@ def main() -> int:
         return (r[i].strip() if i is not None and i < len(r) else '')
 
     buckets: dict[tuple, list[float]] = {}
+    parse_tally = {m: {'ok': 0, 'blank': 0, 'bad': 0, 'samples': []}
+                   for m in MEASURE_KEYS}
     matched_cust = matched_prod = 0
     miss_cust: dict[str, int] = {}
     miss_prod: dict[str, int] = {}
@@ -267,8 +280,15 @@ def main() -> int:
         vals = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0])
         for j, m in enumerate(MEASURE_KEYS):
             i = m_idx[m]
-            if i is not None:
-                vals[j] += to_num(cell(r, i))
+            if i is None:
+                continue
+            raw = cell(r, i)
+            val, status = to_num(raw)
+            vals[j] += val
+            tally = parse_tally[m]
+            tally[status] += 1
+            if status == 'bad' and len(tally['samples']) < 5 and raw not in tally['samples']:
+                tally['samples'].append(raw)
 
     print(f'\njoined: {matched_cust:,} of {len(p_rows):,} rows matched a customer, '
           f'{matched_prod:,} matched a product')
@@ -286,6 +306,20 @@ def main() -> int:
 
     report_misses('customer', miss_cust, cust, 'customer_2608')
     report_misses('product', miss_prod, prod, 'product_2608')
+
+    print('\nmeasure values:')
+    for m in MEASURE_KEYS:
+        t = parse_tally[m]
+        if m_idx[m] is None:
+            print(f'  {m:8} column not in the file')
+            continue
+        note = ''
+        if t['bad']:
+            note = '  <- not numbers: ' + ', '.join(repr(x) for x in t['samples'])
+        elif t['ok'] == 0:
+            note = '  <- every value blank, so this measure sums to zero'
+        print(f"  {m:8} {t['ok']:,} numbers, {t['blank']:,} blank, "
+              f"{t['bad']:,} unreadable{note}")
 
     records = [{'c': list(k[:4]), 'cx': list(k[4:6]), 'p': list(k[6:]),
                 'q': round(v[0], 2), 'n': round(v[1], 2),

@@ -109,7 +109,7 @@
 <div class="box">
   <h3 id="chartTitle">Profit</h3>
   <div class="chart-wrap"><canvas id="profitComboChart"></canvas></div>
-  <div class="hint">Click a bar to drill into the next level. Bars are sorted by operating profit.</div>
+  <div class="hint" id="chartHint"></div>
   <div id="tableBox" hidden></div>
 </div>
 
@@ -324,6 +324,21 @@ function render() {
       }
     }
   });
+
+  /* A member with nothing in the file draws no bar at all, which reads as
+     "missing" rather than "zero" - say which ones those are. */
+  // Judge emptiness by what this view actually charts, not by every column -
+  // a member can have quantity and still no amounts.
+  const empties = rows.filter(r => qtyMode ? !r.q : (!r.n && !r.ps && !r.pa))
+                      .map(r => r.name);
+  document.getElementById('chartHint').innerHTML =
+    'Click a bar to drill into the next level. Bars are sorted by '
+    + (qtyMode ? 'quantity.' : 'operating profit.')
+    + (empties.length
+        ? ` <b>${empties.length} item(s) have no ${qtyMode ? 'quantity' : 'amounts'} in this file</b> (${
+            empties.slice(0, 4).join(', ')}${empties.length > 4 ? ', …' : ''}) — `
+          + 'they are matched, their figures are zero. Open Table to see them.'
+        : '');
 
   /* ── table view (same numbers, for reading and copying) ── */
   const box = document.getElementById('tableBox');
