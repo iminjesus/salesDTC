@@ -178,16 +178,34 @@ def main() -> int:
             print(f'\nperiod: {periods[0]}')
 
     # ── masters ────────────────────────────────────────────────────────────
+    # The customer drill-down, top level first. Reordering this list reorders the
+    # buttons; 'carry' columns are kept on the row and shown in the table at the
+    # deepest level, but are not levels of their own.
+    CUST_LEVELS = [
+        ('Account Name', 'account',      ('Account Name', 'account_name')),
+        ('Type',         'cust_type',    ('Type', 'customer_type')),
+        ('Type2',        'cust_type2',   ('Type2', 'Type 2', 'Type_2', 'Sub Type')),
+        ('Account',      'account_desc', ('Description', 'description')),
+    ]
+    CUST_CARRY = [
+        ('Portal Group', 'portal',  ('Portal Group', 'portal_group')),
+        ('Neilson Type', 'neilson', ('Neilson Type', 'neilson_type')),
+    ]
+
     c_key = find(c_head, 'Sold-To', 'sold To', 'sold_to')
     cust = {}
     if c_key is not None:
-        cols = {k: find(c_head, *v) for k, v in {
-            'account':  ('Account Name', 'account_name'),
-            'account_desc': ('Description', 'description'),
-            'cust_type': ('Type', 'customer_type'),
-            'portal':   ('Portal Group', 'portal_group'),
-            'neilson':  ('Neilson Type', 'neilson_type'),
-        }.items()}
+        cols = {slot: find(c_head, *names)
+                for _, slot, names in CUST_LEVELS + CUST_CARRY}
+        print('\ncustomer columns:')
+        for label, slot, _ in CUST_LEVELS:
+            i = cols[slot]
+            print(f'  {label:13} {c_head[i] if i is not None else "-- not found --"}'
+                  f'{"" if i is not None else "  (level will be blank)"}')
+        for label, slot, _ in CUST_CARRY:
+            i = cols[slot]
+            print(f'  {label:13} {c_head[i] if i is not None else "-- not found --"}'
+                  f'   (carried, not a level)')
         for r in c_rows:
             key = key_norm(r[c_key] if c_key < len(r) else '')
             if key:
@@ -237,8 +255,10 @@ def main() -> int:
         key = (
             c.get('account') or cell(r, d_idx['division2']) or '(blank)',
             c.get('cust_type') or '(blank)',
-            c.get('portal') or '(blank)',
+            c.get('cust_type2') or '(blank)',
             c.get('account_desc') or sold_to or '(blank)',
+            c.get('portal') or '',          # carried through, not a level
+            c.get('neilson') or '',
             p.get('division') or cell(r, d_idx['division2']) or '(blank)',
             p.get('category') or cell(r, d_idx['prod_group']) or '(blank)',
             p.get('range') or cell(r, d_idx['material_group']) or '(blank)',
@@ -267,7 +287,7 @@ def main() -> int:
     report_misses('customer', miss_cust, cust, 'customer_2608')
     report_misses('product', miss_prod, prod, 'product_2608')
 
-    records = [{'c': list(k[:4]), 'p': list(k[4:]),
+    records = [{'c': list(k[:4]), 'cx': list(k[4:6]), 'p': list(k[6:]),
                 'q': round(v[0], 2), 'n': round(v[1], 2),
                 'ps': round(v[2], 2), 'pa': round(v[3], 2)}
                for k, v in buckets.items()]
@@ -292,10 +312,11 @@ def main() -> int:
         'title': args.title,
         'start': {'customer': [start]} if start else {},
         'levels': {
-            'customer': ['Account Name', 'Type', 'Portal Group', 'Account'],
+            'customer': [lbl for lbl, _, _ in CUST_LEVELS],
             'product': ['Division', 'Category', 'Range', 'Product'],
         },
         # Keyed the way the records are: q / n / ps / pa.
+        'carry': {'customer': [lbl for lbl, _, _ in CUST_CARRY]},
         'has': {short: m_idx[k] is not None
                 for k, short in zip(MEASURE_KEYS, ('q', 'n', 'ps', 'pa'))},
         'labels': {short: (p_head[m_idx[k]] if m_idx[k] is not None else '')

@@ -147,7 +147,7 @@ function aggregate() {
   const out = new Map();
   for (const r of slice()) {
     const name = r[key][depth] || '(blank)';
-    const a = out.get(name) || { name, q: 0, n: 0, ps: 0, pa: 0 };
+    const a = out.get(name) || { name, q: 0, n: 0, ps: 0, pa: 0, cx: r.cx || [] };
     a.q += r.q; a.n += r.n; a.ps += r.ps; a.pa += r.pa;
     out.set(name, a);
   }
@@ -329,17 +329,23 @@ function render() {
   const box = document.getElementById('tableBox');
   box.hidden = !state.table;
   if (state.table) {
+    // The carried attributes are properties of one account, so they only make
+    // sense once the drill is at the deepest customer level.
+    const carry = (state.dim === 'customer' && state.depth === levels.length - 1
+                   && DATA.carry && DATA.carry.customer) ? DATA.carry.customer : [];
     box.innerHTML = `<table><thead><tr>
-        <th>${levels[state.depth]}</th><th>Qty</th><th>Net Sales</th>
+        <th>${levels[state.depth]}</th>${carry.map(c => `<th style="text-align:left">${c}</th>`).join('')}<th>Qty</th><th>Net Sales</th>
         <th>Op Profit (Sub)</th><th>Op Profit (Alloc)</th>
         <th>Profit % (${basisName})</th></tr></thead>
       <tbody>${rows.map((r, i) => `<tr>
-        <td title="${r.name}">${r.name}</td><td>${fmt(r.q)}</td><td>${fmt(r.n)}</td>
+        <td title="${r.name}">${r.name}</td>${
+          carry.map((_, ci) => `<td style="text-align:left">${(r.cx && r.cx[ci]) || ''}</td>`).join('')
+        }<td>${fmt(r.q)}</td><td>${fmt(r.n)}</td>
         <td class="${r.ps < 0 ? 'neg' : ''}">${fmt(r.ps)}</td>
         <td class="${r.pa < 0 ? 'neg' : ''}">${fmt(r.pa)}</td>
         <td class="${profitPct[i] < 0 ? 'neg' : ''}">${pct(profitPct[i])}</td>
       </tr>`).join('')}</tbody>
-      <tfoot><tr><td>Total</td><td>${fmt(tot.q)}</td><td>${fmt(tot.n)}</td>
+      <tfoot><tr><td>Total</td>${carry.map(() => '<td></td>').join('')}<td>${fmt(tot.q)}</td><td>${fmt(tot.n)}</td>
         <td class="${tot.ps < 0 ? 'neg' : ''}">${fmt(tot.ps)}</td>
         <td class="${tot.pa < 0 ? 'neg' : ''}">${fmt(tot.pa)}</td>
         <td class="${margin < 0 ? 'neg' : ''}">${pct(margin)}</td></tr></tfoot></table>`;

@@ -43,7 +43,7 @@ sets the heading.
 | **Customer / Product** | which hierarchy the bars break down by |
 | **Profit: Subsidiary / Allocated** | which operating profit column drives the profit bar, the line and the sort |
 | **Metric: Amount / Qty** | Net Sales and Op Profit, or Net Sales Qty on its own (a percentage of units means nothing, so the line and right axis come off) |
-| **Level** | jump straight to a level — Account Name → Type → Portal Group → Account, or Division → Category → Range → Product |
+| **Level** | jump straight to a level — Account Name → Type → Type2 → Account, or Division → Category → Range → Product |
 | **click a bar** | drill into that member and move to the next level |
 | **Back / Reset** | step out one level, or return to the view the page opens on |
 | **Customer (all)** in the breadcrumb | jump to the very top — every account name side by side |
@@ -59,9 +59,15 @@ in the breadcrumb, shows E-STORE and OFF-LINE side by side for comparison, and `
 returns to the online view. `--start-customer NAME` picks a different starting account,
 and `--start-customer ""` opens at the top instead.
 
-The offline rows carry no Type or Portal Group — those levels collapse to a single
+The offline rows carry no Type or Type2 — those levels collapse to a single
 `(blank)` bar there and the drill continues to the account underneath, which is
 expected rather than a join failure.
+
+**Portal Group and Neilson Type are carried, not drilled.** They stay on every row
+and appear as columns in the table once the drill reaches the account, but they are
+not levels. To make one a level, move it from `CUST_CARRY` to `CUST_LEVELS` in
+`build_dashboard.py` — that list is the drill order, top first, and the build prints
+which column it found for each.
 
 ## Columns it looks for
 
