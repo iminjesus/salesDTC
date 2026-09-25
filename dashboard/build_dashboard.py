@@ -277,7 +277,8 @@ def main() -> int:
             p.get('range') or cell(r, d_idx['material_group']) or '(blank)',
             p.get('prod_desc') or sku or cell(r, d_idx['material_group']) or '(blank)',
         )
-        vals = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0])
+        vals = buckets.setdefault(key, [0.0, 0.0, 0.0, 0.0, 0.0])
+        vals[4] += 1                                   # rows behind this bucket
         for j, m in enumerate(MEASURE_KEYS):
             i = m_idx[m]
             if i is None:
@@ -325,6 +326,23 @@ def main() -> int:
                 'q': round(v[0], 2), 'n': round(v[1], 2),
                 'ps': round(v[2], 2), 'pa': round(v[3], 2)}
                for k, v in buckets.items()]
+
+    # The first two customer levels, printed here so a level that charts as an
+    # empty bar can be told apart from one that did not join without opening the
+    # page: a name that appears at all did match the customer master.
+    print('\ncustomer breakdown (rows | net sales | op profit sub | qty):')
+    top: dict[tuple, list[float]] = {}
+    for k, v in buckets.items():
+        for depth in (1, 2):
+            agg = top.setdefault(k[:depth], [0.0, 0.0, 0.0, 0.0])
+            agg[0] += v[4]; agg[1] += v[1]; agg[2] += v[2]; agg[3] += v[0]
+    for key in sorted(top, key=lambda k: (k[0], len(k), -top[k][1])):
+        n, net, prof, qty = top[key]
+        indent = '  ' * len(key)
+        flag = '   <- no amounts' if not net and not prof else ''
+        name = (indent + str(key[-1])[:34]).ljust(36)
+        print(f'{name} {n:>7,.0f} | {net:>15,.0f} | '
+              f'{prof:>13,.0f} | {qty:>10,.0f}{flag}')
 
     # Open on the online business, since that is what gets looked at day to day.
     # The offline rows stay in the file: Back from here shows both side by side.
