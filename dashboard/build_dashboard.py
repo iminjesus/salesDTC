@@ -148,6 +148,10 @@ def main() -> int:
                     help='print the raw profit rows behind one customer name '
                          '(any level), so an empty bar can be read back to the '
                          'file. e.g. --explain EPP')
+    ap.add_argument('--find', metavar='VALUE',
+                    help='say where one code appears - which column of the profit '
+                         'file holds it, what the rows next to it say, and what the '
+                         'customer master has for it. e.g. --find 7074059')
     ap.add_argument('--open', action='store_true', help='open the result')
     args = ap.parse_args()
 
@@ -160,6 +164,19 @@ def main() -> int:
     p_head, p_rows = load(pick_file(folder, 'profit_2608_1', 'profit_2608'))
     c_head, c_rows = load(pick_file(folder, 'customer_2608'))
     d_head, d_rows = load(pick_file(folder, 'product_2608'))
+
+    def show_headers(name: str, head: list[str]) -> None:
+        print(f'\n{name} columns ({len(head)}):')
+        line = '  '
+        for i, h in enumerate(head):
+            piece = f'[{i}] {h}   '
+            if len(line) + len(piece) > 96:
+                print(line.rstrip()); line = '  '
+            line += piece
+        if line.strip():
+            print(line.rstrip())
+
+    show_headers('profit', p_head)
 
     # ── locate the measures ────────────────────────────────────────────────
     m_idx = {k: find(p_head, *names) for k, names in MEASURES.items()}
@@ -178,6 +195,11 @@ def main() -> int:
         return 1
 
     d_idx = {k: find(p_head, *names) for k, names in PROFIT_DIMS.items()}
+
+    all_p_rows = list(p_rows)          # kept unfiltered for --find
+
+    def cell(r, i):
+        return (r[i].strip() if i is not None and i < len(r) else '')
 
     # The file is named for one month, but say so out loud if it holds several -
     # otherwise a mixed export would quietly be reported as August.
@@ -225,11 +247,26 @@ def main() -> int:
             i = cols[slot]
             print(f'  {label:13} {c_head[i] if i is not None else "-- not found --"}'
                   f'   (carried, not a level)')
+        # One Sold-To listed twice used to mean "last row wins", which can move a
+        # whole account under the wrong Type without saying anything.
+        clashes: dict[str, set] = {}
         for r in c_rows:
             key = key_norm(r[c_key] if c_key < len(r) else '')
-            if key:
-                cust[key] = {k: (r[i].strip() if i is not None and i < len(r) else '')
-                             for k, i in cols.items()}
+            if not key:
+                continue
+            row = {k: (r[i].strip() if i is not None and i < len(r) else '')
+                   for k, i in cols.items()}
+            prev = cust.get(key)
+            if prev is not None and any(prev[k] != row[k] for _, k, _ in CUST_LEVELS):
+                clashes.setdefault(key, set()).add(
+                    ' / '.join(prev[k] or '-' for _, k, _ in CUST_LEVELS))
+                clashes[key].add(' / '.join(row[k] or '-' for _, k, _ in CUST_LEVELS))
+            cust[key] = row
+        if clashes:
+            print(f'\nWARNING: {len(clashes):,} Sold-To(s) appear more than once in '
+                  f'{c_head[c_key]} with different levels. The last row wins:')
+            for key, variants in list(sorted(clashes.items()))[:5]:
+                print(f'  {key}: ' + '  |  '.join(sorted(variants)))
 
     d_key = find(d_head, 'SKU', 'sku')
     prod = {}
@@ -247,10 +284,43 @@ def main() -> int:
                 prod[key] = {k: (r[i].strip() if i is not None and i < len(r) else '')
                              for k, i in cols.items()}
 
-    # ── roll up ────────────────────────────────────────────────────────────
-    def cell(r, i):
-        return (r[i].strip() if i is not None and i < len(r) else '')
+    # ── where does one code actually live? ─────────────────────────────────
+    # "This payer has sales, why is it zero" has three possible answers: the code
+    # is not in the profit file, it is in a column the join does not read, or it
+    # is there with no amounts. Looking at every column settles which.
+    if args.find:
+        needle = key_norm(args.find)
+        hits: dict[int, int] = {}
+        sample: list[list[str]] = []
+        for r in all_p_rows:
+            where = [i for i, v in enumerate(r) if key_norm(v) == needle]
+            if where:
+                for i in where:
+                    hits[i] = hits.get(i, 0) + 1
+                if len(sample) < 8:
+                    sample.append(r)
+        print(f'\nfind {args.find!r} in the profit file:')
+        if not hits:
+            print('  not in any column - these rows are not in this export at all')
+        else:
+            for i, n in sorted(hits.items(), key=lambda kv: -kv[1]):
+                used = ' <- the column the join reads' if i == d_idx['sold_to'] else ''
+                print(f'  column [{i}] {p_head[i]}: {n:,} row(s){used}')
+            show = [i for i in (per_i, d_idx['sold_to'], d_idx['sku']) if i is not None]
+            show += [m_idx[m] for m in MEASURE_KEYS if m_idx[m] is not None]
+            print('  ' + ' '.join(f'{p_head[i][:15]:>15}' for i in show))
+            for r in sample:
+                print('  ' + ' '.join(f'{(cell(r, i) or "(blank)")[:15]:>15}'
+                                      for i in show))
+            if sum(hits.values()) > len(sample):
+                print(f'  ... {len(sample)} of {max(hits.values()):,} shown')
+        c_hit = cust.get(needle)
+        print(f'find {args.find!r} in customer_2608: '
+              + (' / '.join(f'{lbl}={c_hit[slot] or "(blank)"}'
+                            for lbl, slot, _ in CUST_LEVELS) if c_hit
+                 else 'not in the customer master'))
 
+    # ── roll up ────────────────────────────────────────────────────────────
     buckets: dict[tuple, list[float]] = {}
     parse_tally = {m: {'ok': 0, 'blank': 0, 'bad': 0, 'samples': []}
                    for m in MEASURE_KEYS}
