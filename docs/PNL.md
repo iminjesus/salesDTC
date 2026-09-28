@@ -106,6 +106,12 @@ The build prints what it matched, and that is usually the answer:
 - `joined: N of M rows matched a customer` - a zero here means the export does
   not carry the key the master is on, and the filters fall back to the columns
   of the profit file itself.
+- `filter values:` - every value each select offers, where it came from, and
+  any value the master lists that **no row of this export carries**. A name
+  missing from a filter is one of two different things, and this separates them:
+  the master does not know it, or it knows it and nothing was sold under it this
+  month. `--find VALUE` asks the same question of one code: which column holds
+  it, how often, and what the masters have for it.
 - `N total(s) read straight off the layout, M column(s) left to place` - a large
   M means the export is not printed as totals-then-lines, and most of the work
   fell to the wider search.

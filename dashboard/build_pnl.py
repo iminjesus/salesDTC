@@ -85,6 +85,9 @@ def main() -> int:
     ap.add_argument('--cdn', action='store_true',
                     help='link Chart.js instead of embedding it: a smaller file '
                          'that then needs a connection')
+    ap.add_argument('--find', metavar='VALUE',
+                    help='say where one code appears - which column of the export '
+                         'holds it and what the masters have for it')
     ap.add_argument('--open', action='store_true')
     args = ap.parse_args()
 
@@ -148,19 +151,52 @@ def main() -> int:
     def cell(r, i):
         return (r[i].strip() if i is not None and i < len(r) else '')
 
+    if args.find:
+        needle = key_norm(args.find)
+        hits: dict[int, int] = {}
+        for r in body:
+            for i, v in enumerate(r):
+                if key_norm(v) == needle:
+                    hits[i] = hits.get(i, 0) + 1
+        print(f'\nfind {args.find!r} in {target.name}:')
+        if not hits:
+            print('  not in any column - no row of this export carries it')
+        for i, n in sorted(hits.items(), key=lambda kv: -kv[1]):
+            tag = (' <- the column joined to the customer master' if i == c_key else
+                   ' <- the column joined to the product master' if i == p_key else '')
+            print(f'  column [{i}] {head[i]}: {n:,} row(s){tag}')
+        for name, m in (('customer_2608', cust), ('product_2608', prod)):
+            row = m.get(needle)
+            print(f'  {name}: ' + (' / '.join(f'{k}={v or "(blank)"}'
+                                              for k, v in row.items())
+                                   if row else 'not listed'))
+
     # ── roll up: one row per combination of the four filter values ─────────
     slot_of = {pos: n for n, pos in enumerate(measures)}
     combos: dict[tuple, list[float]] = {}
     counts: dict[tuple, int] = {}
     matched_c = matched_p = 0
+    # Where each filter value came from. A value that quietly fell back to a
+    # column of the export itself is the reason a name from the master can go
+    # missing from the filter without anything looking wrong.
+    from_master = [0] * len(FILTERS)
+    from_export = [0] * len(FILTERS)
     for r in body:
         c = cust.get(key_norm(cell(r, c_key))) or {}
         p = prod.get(key_norm(cell(r, p_key))) or {}
         matched_c += bool(c)
         matched_p += bool(p)
         src = {**c, **p}
-        key = tuple((src.get(slot) or cell(r, fb) or '(blank)')
-                    for (_, slot, _), fb in zip(FILTERS, fallback))
+        key = []
+        for n, ((_, slot, _), fb) in enumerate(zip(FILTERS, fallback)):
+            v = src.get(slot)
+            if v:
+                from_master[n] += 1
+            else:
+                v = cell(r, fb)
+                from_export[n] += bool(v)
+            key.append(v or '(blank)')
+        key = tuple(key)
         vals = combos.get(key)
         if vals is None:
             vals = combos[key] = [0.0] * len(measures)
@@ -172,6 +208,30 @@ def main() -> int:
     print(f'\njoined: {matched_c:,} of {len(body):,} rows matched a customer, '
           f'{matched_p:,} matched a product')
     print(f'{len(combos):,} filter combination(s)')
+
+    # ── what the filters ended up holding ──────────────────────────────────
+    # "Is EPP really not there?" is two different questions - whether the master
+    # knows the name, and whether any row in this export carries it - so both
+    # are answered here.
+    print('\nfilter values:')
+    for n, (label, slot, names) in enumerate(FILTERS):
+        seen = sorted({k[n] for k in combos})
+        known = {v for m in (cust, prod) for row in m.values()
+                 if (v := row.get(slot))}
+        missing = sorted(known - set(seen))
+        src = []
+        if from_master[n]:
+            src.append(f'{from_master[n]:,} row(s) from the master')
+        if from_export[n]:
+            src.append(f'{from_export[n]:,} from {head[fallback[n]]!r} in the export'
+                       if fallback[n] is not None else
+                       f'{from_export[n]:,} from the export')
+        print(f'  {label}: {len(seen)} value(s)  ({"; ".join(src) or "nothing"})')
+        print('    ' + ', '.join(seen[:14]) + (' ...' if len(seen) > 14 else ''))
+        if missing:
+            print(f'    not in this export, though the master lists them: '
+                  + ', '.join(missing[:10])
+                  + (' ...' if len(missing) > 10 else ''))
 
     # ── payload ────────────────────────────────────────────────────────────
     levels = []
