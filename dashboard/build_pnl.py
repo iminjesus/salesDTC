@@ -40,6 +40,10 @@ ROOT = HERE.parent
 PRODUCT_LEVELS = [
     ('Division', 'division', ('Division', 'Division 2')),
     ('Category', 'category', ('Prod_group', 'Product Group', 'Category')),
+    ('Range',    'range',    ('Range', 'product_range', 'Material Group')),
+    # The SKU itself, so per-unit prices can be read down to one model. Taken
+    # from the export rather than the master, so it works even unjoined.
+    ('SKU',      'sku',      ()),
 ]
 FILTERS = CUST.LEVELS + PRODUCT_LEVELS
 CUST_DEPTH = len(CUST.LEVELS)
@@ -62,6 +66,8 @@ SERIES = [
     # The denominator of the profit line, kept apart from the gross figure:
     # the line is profit over net sales, not over gross.
     ('net',       'Net Sales', ('*Net Sales', 'Net Sales', 'Net Sales Amt')),
+    # And the denominator of every per-unit figure, ASP among them.
+    ('qty',       'Qty', ('Quantity(Net)', 'Net Sales Qty', 'Qty', 'Quantity')),
 ]
 
 
@@ -243,11 +249,16 @@ def main() -> int:
         matched_c += bool(c)
         matched_p += bool(p)
         src = {**c, **p}
+        sku = cell(r, p_key)
         key = [CUST.channel_of(c.get('account') or cell(r, acct_fb), bool(c))]
         from_master[0] += bool(c)
         from_export[0] += not c and bool(cell(r, acct_fb))
         for n, ((_, slot, _), fb) in enumerate(zip(FILTERS, fallback)):
             if n == 0:
+                continue
+            if slot == 'sku':
+                from_export[n] += bool(sku)
+                key.append(sku or CUST.BLANK)
                 continue
             v = src.get(slot)
             if v:
@@ -284,7 +295,7 @@ def main() -> int:
               + (f'{head[i]!r} holds e.g. ' + ', '.join(repr(k) for k in theirs[:4])
                  if theirs else f'{head[i]!r} is empty on every row')
               + f'; {keyed}')
-    print(f'{len(combos):,} filter combination(s)')
+    print(f'{len(combos):,} filter combination(s) from {len(body):,} rows')
 
     # ── what the filters ended up holding ──────────────────────────────────
     levels = []
@@ -299,10 +310,12 @@ def main() -> int:
         if from_master[n]:
             src.append(f'{from_master[n]:,} row(s) from the master')
         if from_export[n]:
+            col = (head[fallback[n]] if fallback[n] is not None
+                   else head[acct_fb] if n == 0 and acct_fb is not None
+                   else head[p_key] if slot == 'sku' and p_key is not None
+                   else None)
             src.append(f'{from_export[n]:,} from '
-                       + (repr(head[fallback[n]]) if fallback[n] is not None
-                          else repr(head[acct_fb]) if n == 0 and acct_fb is not None
-                          else 'the export') + ' in the export')
+                       + (f'{col!r} in the export' if col else 'the export'))
         print(f'  {label}: {len(seen)} value(s)  ({"; ".join(src) or "nothing"})')
         print('    ' + ', '.join(seen[:14]) + (' ...' if len(seen) > 14 else ''))
         if missing:

@@ -120,9 +120,30 @@ Type's values, and a level with nothing left to choose greys out.
 | **click a bar** | open that member, and move the bars to the next level |
 | the breadcrumb | go back to any step of the path; **All** returns to the top |
 | **← Back** | step out one level |
-| the six selects | Channel, Type, Portal Group, Type2, Division, Category |
+| the selects | Channel, Type, Portal Group, Type2, Division, Category, Range, SKU |
 | **Bars by** | which of those is on the x axis |
-| **Table** | every figure behind the bars, with the margin |
+| **Amounts / Per unit** | money, or every figure divided by the units behind it |
+| **Table** | every figure behind the bars, with quantity, ASP and the margin |
+
+### Per unit, and ASP
+
+**Per unit** divides every bar by the quantity behind it. The gross bar becomes
+the **average selling price** and the stack becomes what a unit costs, so the
+gap between them is profit per unit. The profit line does not move - a
+percentage is the same figure either way - which is what lets price and profit
+be read off one chart.
+
+ASP is the weighted price: the totals divided, never the average of the rows'
+own prices. It sits in the KPI row and in the table as `ASP`, always on net
+sales over net quantity, whichever mode the chart is in. The drill runs down to
+the **SKU**, so a category price can be opened until the model behind it shows.
+
+A group with no net quantity - returns cancelling its sales - has no price, so
+its bar is left empty and the hint counts them. A blank is the honest answer
+where a zero would read as "free".
+
+`tools\asp.py` computes the same figures as csvs, for a spreadsheet rather
+than a page; `docs\ASP.md` covers it.
 
 Clicking a bar and changing a select are the same act: narrowing to one value
 moves the bars down to the next level, and widening back to *All* brings them

@@ -54,6 +54,10 @@ select:disabled { opacity: .5; }
 .btn:hover { border-color: var(--accent); }
 .btn.active { background: var(--accent); border-color: var(--accent);
   color: var(--accent-ink); }
+.seg { display: inline-flex; }
+.seg .btn { border-radius: 0; margin-left: -1px; }
+.seg .btn:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
+.seg .btn:last-child { border-radius: 0 7px 7px 0; }
 .scope { font-size: 12px; color: var(--ink-3); margin: 10px 0 0; }
 .crumb { display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
   font-size: 13px; margin-bottom: 12px; }
@@ -110,6 +114,8 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="row" style="margin-bottom:12px">
       <label class="f"><span>Bars by</span><select id="dimPick"></select></label>
       <button class="btn" id="backBtn">&larr; Back</button>
+      <span class="seg"><button class="btn" id="unitAmt">Amounts</button
+        ><button class="btn" id="unitPer">Per unit</button></span>
       <button class="btn" id="tableBtn">Table</button>
     </div>
     <div class="kpis" id="kpis"></div>
@@ -138,6 +144,16 @@ function readColours() {
 }
 
 const fmt = n => Math.round(n).toLocaleString();
+/* A per-unit figure is a price, so it keeps its cents. */
+const unitFmt = n => n.toLocaleString(undefined, { minimumFractionDigits: 2,
+                                                   maximumFractionDigits: 2 });
+/* One figure of a group, as an amount or divided by the units behind it.
+   Without a quantity there is no price, so it comes back blank rather than
+   as a zero that would read as "free". */
+function each(r, key) {
+  if (state.unit !== 'per') return r[key];
+  return r.qty ? r[key] / r.qty : null;
+}
 const has = {};
 DATA.series.forEach((s, i) => { has[s.key] = i; });
 const label = k => (has[k] === undefined ? k : DATA.series[has[k]].label);
@@ -149,6 +165,10 @@ const state = {
   filter: DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1)),
   // Bars start on the level below the channel, since the channel is filtered.
   dim: DATA.levels.length > 1 ? 1 : 0,
+  // 'amount' charts the money; 'per' divides every figure by quantity, which
+  // turns the gross bar into the average selling price and the stack into what
+  // each unit costs. The profit line is a percentage either way.
+  unit: 'amount',
   table: false,
 };
 
@@ -171,9 +191,14 @@ function totals(extra) {
   const at = k => (has[k] === undefined ? 0 : v[has[k]]);
   const profit = at('profit');
   const net = has.net !== undefined ? at('net') : at('gross');
+  const qty = Math.abs(at('qty'));
   return { rows, gross: at('gross'), deduction: Math.abs(at('deduction')),
            cogs: Math.abs(at('cogs')), opex: Math.abs(at('opex')),
-           profit, net, margin: net ? (profit / net) * 100 : null };
+           profit, net, qty,
+           // ASP is the weighted price: the totals divided, never the average
+           // of each row's own price.
+           asp: qty ? net / qty : null,
+           margin: net ? (profit / net) * 100 : null };
 }
 
 /* Which values a level can still offer, given the levels above it in the same
@@ -299,14 +324,26 @@ function render() {
     `<option value="${i}">${lv.name}</option>`).join('');
   dimSel.value = state.dim;
   document.getElementById('tableBtn').classList.toggle('active', state.table);
+  const canUnit = has.qty !== undefined;
+  if (!canUnit) state.unit = 'amount';
+  document.getElementById('unitAmt').classList.toggle('active', state.unit === 'amount');
+  document.getElementById('unitPer').classList.toggle('active', state.unit === 'per');
+  document.getElementById('unitPer').disabled = !canUnit;
 
   const all = totals();
+  const per = state.unit === 'per';
+  const money = v => (v == null ? '-' : per ? unitFmt(v) : fmt(v));
   document.getElementById('kpis').innerHTML = [
-    [label('gross'), fmt(all.gross), ''],
-    ...COSTS.map(k => [label(k), fmt(all[k]), '']),
-    [label('profit'), fmt(all.profit), all.profit < 0 ? 'neg' : ''],
+    [label('gross') + (per ? ' / unit' : ''), money(each(all, 'gross')), ''],
+    ...COSTS.map(k => [label(k) + (per ? ' / unit' : ''), money(each(all, k)), '']),
+    [label('profit') + (per ? ' / unit' : ''), money(each(all, 'profit')),
+     all.profit < 0 ? 'neg' : ''],
     ['Profit %', all.margin == null ? '-' : all.margin.toFixed(1) + '%',
      all.margin < 0 ? 'neg' : ''],
+    ...(has.qty === undefined ? [] : [
+      ['Qty (net)', fmt(all.qty), ''],
+      ['ASP', all.asp == null ? '-' : unitFmt(all.asp), ''],
+    ]),
   ].map(([k, v, cls]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
   ).join('');
@@ -356,7 +393,8 @@ function draw() {
   const canDrill = state.dim + 1 < DATA.levels.length;
 
   const bar = (key, colour, stack) => ({
-    type: 'bar', label: label(key), stack, data: top.map(r => r[key]),
+    type: 'bar', label: label(key) + (state.unit === 'per' ? ' / unit' : ''),
+    stack, data: top.map(r => each(r, key)),
     backgroundColor: colour, borderRadius: 4, borderSkipped: false,
     // A 2px gap in the surface colour keeps stacked segments from bleeding into
     // each other, and the two grouped bars apart.
@@ -408,7 +446,8 @@ function draw() {
                         return t.length > 18 ? t.slice(0, 17) + '…' : t; } } },
         y: { beginAtZero: true, grid: { color: C.grid },
              border: { display: false },
-             title: { display: true, text: 'Amount', color: C.ink3 },
+             title: { display: true, color: C.ink3,
+                      text: state.unit === 'per' ? 'Per unit' : 'Amount' },
              ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
         y1: { position: 'right', grid: { drawOnChartArea: false },
               border: { display: false }, suggestedMin: -10, suggestedMax: 10,
@@ -424,11 +463,18 @@ function draw() {
             label: ctx => ctx.dataset.yAxisID === 'y1'
               ? `${ctx.dataset.label}: ` + (ctx.parsed.y == null
                   ? 'no net sales' : ctx.parsed.y.toFixed(1) + '%')
-              : `${ctx.dataset.label}: ` + Number(ctx.parsed.y || 0).toLocaleString(),
+              : `${ctx.dataset.label}: ` + (ctx.parsed.y == null ? 'no units'
+                  : state.unit === 'per' ? unitFmt(ctx.parsed.y)
+                  : Number(ctx.parsed.y).toLocaleString()),
             footer(items) {
               const r = top[items[0].dataIndex];
-              return [`Costs: ${fmt(COSTS.reduce((a, k) => a + r[k], 0))}`,
-                      `${label('profit')}: ${fmt(r.profit)}`];
+              const out = COSTS.reduce((a, k) => a + r[k], 0);
+              return [`Costs: ${state.unit === 'per'
+                        ? (r.qty ? unitFmt(out / r.qty) : 'no units') : fmt(out)}`,
+                      `${label('profit')}: ${fmt(r.profit)}`,
+                      ...(has.qty === undefined ? [] : [
+                        `Qty: ${fmt(r.qty)}`,
+                        `ASP: ${r.asp == null ? '-' : unitFmt(r.asp)}`])];
             }
           }
         }
@@ -436,36 +482,55 @@ function draw() {
     }
   });
 
+  const blanks = top.filter(r => !r.qty).length;
   document.getElementById('hint').textContent =
     `${label('gross')} beside what it went out on, by ${lv.name}`
     + (rows.length > top.length ? ` (top ${top.length} of ${rows.length})` : '')
-    + `. Costs are drawn as amounts; the line is ${label('profit')} over `
-    + `${denom}, on the right-hand scale.`
+    + (state.unit === 'per'
+        ? `, divided by the units behind it - so the ${label('gross')} bar is `
+          + 'the average selling price and the stack is what a unit costs.'
+          + (blanks ? ` ${blanks} of them have no units, so no price.` : '')
+        : `. Costs are drawn as amounts;`)
+    + ` The line is ${label('profit')} over ${denom}, on the right-hand scale.`
     + (canDrill
         ? ` Click a bar to open it by ${DATA.levels[state.dim + 1].name}.`
         : ' This is the last level; Back steps out.');
 
-  renderTable(top, lv.name);
+  renderTable(top, lv.name, rows.length);
 }
 
-function renderTable(rows, dimName) {
+function renderTable(rows, dimName, ofTotal) {
   document.getElementById('tableCard').hidden = !state.table;
   if (!state.table) return;
+  const per = state.unit === 'per';
   const sum = k => rows.reduce((a, r) => a + r[k], 0);
-  const tot = { name: 'Total', gross: sum('gross'), profit: sum('profit'),
-                net: sum('net') };
+  // The table mirrors the chart, so its total covers the rows charted - say
+  // so when that is not all of them, rather than let it read as the whole file.
+  const tot = { name: ofTotal > rows.length ? `Total of these ${rows.length}`
+                                            : 'Total',
+                gross: sum('gross'), profit: sum('profit'),
+                net: sum('net'), qty: sum('qty') };
   COSTS.forEach(k => { tot[k] = sum(k); });
-  const head = [dimName, label('gross'), ...COSTS.map(label), 'Costs',
-                label('profit'), 'Profit %'];
+  tot.asp = tot.qty ? tot.net / tot.qty : null;
+  const suffix = per ? ' / unit' : '';
+  const head = [dimName, label('gross') + suffix,
+                ...COSTS.map(k => label(k) + suffix), 'Costs' + suffix,
+                label('profit') + suffix, 'Profit %',
+                ...(has.qty === undefined ? [] : ['Qty (net)', 'ASP'])];
+  const cell = v => (v == null ? '-' : per ? unitFmt(v) : fmt(v));
   const line = r => {
     const costs = COSTS.reduce((a, k) => a + r[k], 0);
     const m = r.net ? (r.profit / r.net) * 100 : null;
-    return [`<td>${r.name}</td>`, `<td>${fmt(r.gross)}</td>`,
-            ...COSTS.map(k => `<td>${fmt(r[k])}</td>`),
-            `<td>${fmt(costs)}</td>`,
-            `<td class="${r.profit < 0 ? 'neg' : ''}">${fmt(r.profit)}</td>`,
+    const p = r.profit;
+    return [`<td>${r.name}</td>`, `<td>${cell(each(r, 'gross'))}</td>`,
+            ...COSTS.map(k => `<td>${cell(each(r, k))}</td>`),
+            `<td>${cell(per ? (r.qty ? costs / r.qty : null) : costs)}</td>`,
+            `<td class="${p < 0 ? 'neg' : ''}">${cell(each(r, 'profit'))}</td>`,
             `<td class="${m < 0 ? 'neg' : ''}">${
-              m == null ? '-' : m.toFixed(1) + '%'}</td>`].join('');
+              m == null ? '-' : m.toFixed(1) + '%'}</td>`,
+            ...(has.qty === undefined ? [] : [
+              `<td>${fmt(r.qty)}</td>`,
+              `<td>${r.asp == null ? '-' : unitFmt(r.asp)}</td>`])].join('');
   };
   document.getElementById('tableBox').innerHTML = `<table>
     <thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead>
@@ -487,6 +552,10 @@ document.getElementById('backBtn').onclick = () => {
 };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
+document.getElementById('unitAmt').onclick = () => {
+  state.unit = 'amount'; render(); };
+document.getElementById('unitPer').onclick = () => {
+  state.unit = 'per'; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 
 render();
