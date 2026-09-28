@@ -55,6 +55,13 @@ select:disabled { opacity: .5; }
 .btn.active { background: var(--accent); border-color: var(--accent);
   color: var(--accent-ink); }
 .scope { font-size: 12px; color: var(--ink-3); margin: 10px 0 0; }
+.crumb { display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  font-size: 13px; margin-bottom: 12px; }
+.crumb button { background: none; border: 0; color: var(--accent);
+  cursor: pointer; font: inherit; padding: 2px 5px; border-radius: 5px; }
+.crumb button:hover { background: var(--grid); }
+.crumb .sep { color: var(--ink-3); }
+.crumb .now { font-weight: 600; padding: 2px 5px; }
 .scope b { color: var(--ink-2); font-weight: 600; }
 .kpis { display: flex; flex-wrap: wrap; gap: 10px; margin: 2px 0 14px; }
 .kpi { flex: 1 1 130px; background: var(--chip); border: 1px solid var(--line);
@@ -97,8 +104,10 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   </div>
 
   <div class="card">
+    <div class="crumb" id="crumb"></div>
     <div class="row" style="margin-bottom:12px">
       <label class="f"><span>Bars by</span><select id="dimPick"></select></label>
+      <button class="btn" id="backBtn">&larr; Back</button>
       <button class="btn" id="tableBtn">Table</button>
     </div>
     <div class="kpis" id="kpis"></div>
@@ -181,6 +190,16 @@ function optionsFor(level) {
   return seen;
 }
 
+/* Narrowing to a value moves the bars down to the next level; widening back to
+   All brings them up again. A click on a bar and a change of a select are the
+   same act, so they go through here. */
+function setFilter(i, v) {
+  state.filter[i] = v;
+  if (v >= 0 && state.dim === i && i + 1 < DATA.levels.length) state.dim = i + 1;
+  if (v < 0 && state.dim > i) state.dim = i;
+  render();
+}
+
 function buildFilters() {
   const box = document.getElementById('filters');
   box.innerHTML = '';
@@ -196,7 +215,7 @@ function buildFilters() {
           ? `<option value="${j}">${v}</option>` : '').join('');
     sel.value = String(state.filter[i]);
     sel.disabled = allowed.size <= 1 && state.filter[i] < 0;
-    sel.onchange = () => { state.filter[i] = +sel.value; render(); };
+    sel.onchange = () => setFilter(i, +sel.value);
     wrap.appendChild(sel);
     box.appendChild(wrap);
   });
@@ -226,6 +245,39 @@ function render() {
           ? ` — set ${DATA.levels[0].name} to All to step up and compare the rest.`
           : '')
     : 'Showing everything in the file.';
+
+  /* The path taken so far: every level narrowed to one value, then the level
+     the bars are on. Clicking a step goes back to it. */
+  const crumb = document.getElementById('crumb');
+  crumb.innerHTML = '';
+  const step = (text, onclick) => {
+    if (crumb.children.length) {
+      crumb.insertAdjacentHTML('beforeend', '<span class="sep">&rsaquo;</span>');
+    }
+    if (!onclick) {
+      crumb.insertAdjacentHTML('beforeend', `<span class="now">${text}</span>`);
+      return;
+    }
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.onclick = onclick;
+    crumb.appendChild(b);
+  };
+  step('All', () => {
+    state.filter = DATA.levels.map(() => -1);
+    state.dim = 0;
+    render();
+  });
+  DATA.levels.forEach((lv, i) => {
+    if (state.filter[i] < 0 || i >= state.dim) return;
+    step(lv.values[state.filter[i]], () => {
+      for (let j = i; j < state.filter.length; j++) state.filter[j] = -1;
+      state.dim = i;
+      render();
+    });
+  });
+  step(`by ${DATA.levels[state.dim].name}`, null);
+  document.getElementById('backBtn').disabled = state.dim === 0;
 
   const dimSel = document.getElementById('dimPick');
   dimSel.innerHTML = DATA.levels.map((lv, i) =>
@@ -286,6 +338,7 @@ function draw() {
   rows.sort((a, b) => Math.abs(b.gross) - Math.abs(a.gross));
   const top = rows.slice(0, 12);
   const labels = top.map(r => r.name);
+  const canDrill = state.dim + 1 < DATA.levels.length;
 
   const bar = (key, colour, stack) => ({
     type: 'bar', label: label(key), stack, data: top.map(r => r[key]),
@@ -322,6 +375,14 @@ function draw() {
       animation: { duration: 220 },
       interaction: { mode: 'index', intersect: false },
       datasets: { bar: { categoryPercentage: 0.8, barPercentage: 0.95 } },
+      onHover: (e, els) => {
+        e.native.target.style.cursor = (els.length && canDrill) ? 'pointer' : '';
+      },
+      onClick: (e, els) => {
+        if (!canDrill || !els.length) return;
+        const name = labels[els[0].index];
+        setFilter(state.dim, lv.values.indexOf(name));
+      },
       scales: {
         // stacked:true with two stack names puts the pair side by side and
         // centred on the tick; same-stack datasets pile up.
@@ -364,7 +425,10 @@ function draw() {
     `${label('gross')} beside what it went out on, by ${lv.name}`
     + (rows.length > top.length ? ` (top ${top.length} of ${rows.length})` : '')
     + `. Costs are drawn as amounts; the line is ${label('profit')} over `
-    + `${denom}, on the right-hand scale.`;
+    + `${denom}, on the right-hand scale.`
+    + (canDrill
+        ? ` Click a bar to open it by ${DATA.levels[state.dim + 1].name}.`
+        : ' This is the last level; Back steps out.');
 
   renderTable(top, lv.name);
 }
@@ -395,7 +459,17 @@ function renderTable(rows, dimName) {
 }
 
 document.getElementById('dimPick').onchange = e => {
-  state.dim = +e.target.value; render(); };
+  state.dim = +e.target.value;
+  // Moving the bars back up to a level undoes the narrowing done below it.
+  for (let j = state.dim; j < state.filter.length; j++) state.filter[j] = -1;
+  render();
+};
+document.getElementById('backBtn').onclick = () => {
+  if (state.dim === 0) return;
+  state.dim -= 1;
+  for (let j = state.dim; j < state.filter.length; j++) state.filter[j] = -1;
+  render();
+};
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);

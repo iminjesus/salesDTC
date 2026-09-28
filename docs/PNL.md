@@ -117,9 +117,18 @@ Type's values, and a level with nothing left to choose greys out.
 
 | Control | What it does |
 |---|---|
+| **click a bar** | open that member, and move the bars to the next level |
+| the breadcrumb | go back to any step of the path; **All** returns to the top |
+| **← Back** | step out one level |
 | the six selects | Channel, Type, Portal Group, Type2, Division, Category |
 | **Bars by** | which of those is on the x axis |
 | **Table** | every figure behind the bars, with the margin |
+
+Clicking a bar and changing a select are the same act: narrowing to one value
+moves the bars down to the next level, and widening back to *All* brings them
+up again. The drill runs the whole chain - Channel, Type, Portal Group, Type2,
+then Division and Category - so it carries on into the product side once the
+customer levels are used up.
 
 The line is a percentage and the bars are amounts, so the line carries its own
 scale on the right - the one place in these pages with two y axes, because the
