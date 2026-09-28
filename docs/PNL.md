@@ -99,7 +99,7 @@ else - `E-STORE`, `E-STORE_B2B` and the rest - becomes `E-STORE`. The detail
 comes from the levels underneath:
 
 ```
-Channel  ->  Type  ->  Type2  ->  Portal Group
+Channel  ->  Type  ->  Portal Group  ->  Type2
 ```
 
 `tools/customer.py` holds that rule, so this page and `build_dashboard.py`
@@ -110,14 +110,14 @@ setting Channel to *All* steps up and brings them back for comparison, which is
 also what puts `Channel` on the x axis as two bars side by side.
 `--start-channel ""` opens on everything instead.
 
-The selects cascade - picking a Type leaves Type2 listing only that Type's
-values, and a level with nothing left to choose greys out.
+The selects cascade - picking a Type leaves Portal Group listing only that
+Type's values, and a level with nothing left to choose greys out.
 
 ### The chart itself
 
 | Control | What it does |
 |---|---|
-| the six selects | Channel, Type, Type2, Portal Group, Division, Category |
+| the six selects | Channel, Type, Portal Group, Type2, Division, Category |
 | **Bars by** | which of those is on the x axis |
 | **Table** | every figure behind the bars, with the margin |
 

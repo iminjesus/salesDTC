@@ -23,8 +23,8 @@ _OFFLINE = re.compile(r'off\W*line', re.I)
 LEVELS = [
     ('Channel',      'channel', ()),
     ('Type',         'type',    ('Type', 'customer_type')),
-    ('Type2',        'type2',   ('Type2', 'Type 2', 'Type_2', 'Sub Type')),
     ('Portal Group', 'portal',  ('Portal Group', 'portal_group')),
+    ('Type2',        'type2',   ('Type2', 'Type 2', 'Type_2', 'Sub Type')),
 ]
 ACCOUNT_NAMES = ('Account Name', 'account_name', 'Cus_group', 'Customer Group')
 
