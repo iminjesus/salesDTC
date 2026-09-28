@@ -504,17 +504,34 @@ def main() -> int:
         return 2
 
     print('reading:')
+    # Everything in the folder, not just the three files the chart needs - the
+    # point of the database is that whatever was dropped in can be queried.
     tables = {}
-    for stem in ('customer_2608', 'product_2608'):
-        p = pick_file(folder, stem)
-        if p and p != target:
+    others = sorted(p for p in folder.iterdir()
+                    if p.is_file() and p != target
+                    and p.suffix.lower() in ('.csv', '.txt', '.tsv', '.xlsx',
+                                             '.xlsb', ''))
+    for p in others:
+        try:
             rows, info = read_any(p)
-            if rows:
-                cols = column_profile(rows[0], rows[1:])
-                for c in cols:
-                    c['measure'] = False
-                tables[stem] = ([h.strip() for h in rows[0]], rows[1:], cols)
-                print(f'  {p.name}: {info["format"]}, {len(rows) - 1:,} rows')
+        except Exception as exc:
+            print(f'  {p.name}: cannot read ({exc})')
+            continue
+        if not rows:
+            print(f'  {p.name}: empty')
+            continue
+        cols = column_profile(rows[0], rows[1:])
+        n_rows = len(rows) - 1
+        for c in cols:
+            # A column of amounts becomes REAL so SQL can sum it; a code stays
+            # TEXT, because a customer number with a leading zero is not a
+            # number. The profit export's own columns are judged by the
+            # analysis below; these are judged here.
+            c['measure'] = is_measure(c, n_rows)
+        table = re.sub(r'[^0-9a-z]+', '_', p.stem.lower()).strip('_') or p.stem
+        tables[table] = ([h.strip() for h in rows[0]], rows[1:], cols)
+        print(f'  {p.name}: {info["format"]}, {info["encoding"]}, {n_rows:,} rows, '
+              f'{len(cols)} columns -> table {table!r}')
 
     rows, info = read_any(target)
     head = [h.strip() for h in rows[0]]
