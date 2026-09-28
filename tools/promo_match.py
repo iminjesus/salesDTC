@@ -55,6 +55,7 @@ NAMES = {
                 'Line Total', 'Revenue'),
     'group':   ('Portal Group', 'Site', 'Channel', 'Store'),
     'cancel':  ('Cancelled', 'Order Cancelled'),
+    'cat':     ('Product Category', 'Category', 'Product Division', 'Product'),
 }
 # Every column in the plan that can hold a price, tried nearest-first against
 # what the order actually paid. Which one wins is reported, because "matched
@@ -250,6 +251,11 @@ def main() -> int:
     ap.add_argument('--profile', action='store_true',
                     help='describe both files and stop')
     ap.add_argument('--out', default=str(ROOT / 'docs'))
+    ap.add_argument('--html', nargs='?', const='', metavar='PATH',
+                    help='also write a page to look at it in '
+                         '(default dashboard/promo_2608.html)')
+    ap.add_argument('--cdn', action='store_true',
+                    help='link Chart.js in the page instead of embedding it')
     ap.add_argument('--price-tolerance', type=float, default=3.0, metavar='PCT',
                     help='how far the price paid may sit from a plan price and '
                          'still count, as a percent of it (default 3)')
@@ -318,6 +324,7 @@ def main() -> int:
         'rule': choose(o_head, o_body, 'rule', args.order_rule),
         'voucher': choose(o_head, o_body, 'voucher', args.order_voucher),
         'group': choose(o_head, o_body, 'group', None),
+        'cat': choose(o_head, o_body, 'cat', None),
         'cancel': choose(o_head, o_body, 'cancel', None),
     }
     price_cols = [(c, find(p_head, c)) for c in PRICE_COLS]
@@ -388,7 +395,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
                         if dropped else ''))
 
     # ── the orders ──────────────────────────────────────────────────────────
-    out, gaps = [], []
+    out, gaps, page = [], [], []
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
     agree = {'same': 0, 'differ': 0, 'outside': 0}
     by_promo: dict[tuple, list[float]] = {}
@@ -444,6 +451,11 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         agg[0] += 1
         agg[1] += qty
         agg[2] += amount or 0.0
+        page.append((how, promo or '(no promotion found)',
+                     cell(r, O['group']) or '(blank)',
+                     cell(r, O['cat']) or '(blank)',
+                     order['date'].isoformat() if order['date'] else '',
+                     qty, amount or 0.0))
         out.append([
             cell(r, O['order']), cell(r, O['sku']), cell(r, O['group']),
             order['date'].isoformat() if order['date'] else '',
@@ -516,11 +528,73 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
             why = re.sub(r'\(.*?\)', '(...)', why)
             why = re.sub(r'[-+][\d,.]+', 'N', why)
             reasons[why] = reasons.get(why, 0) + 1
-    if reasons:
+    ranked = sorted(reasons.items(), key=lambda kv: -kv[1])
+    if ranked:
         print('\nwhy nothing fit:')
-        for why, count in sorted(reasons.items(), key=lambda kv: -kv[1])[:8]:
+        for why, count in ranked[:8]:
             print(f'  {count:>8,}  {why}')
+
+    if args.html is not None:
+        path = Path(args.html) if args.html else ROOT / 'dashboard' / 'promo_2608.html'
+        write_page(path, args, pp, op, page, ranked, cancelled)
     return 0
+
+
+def write_page(path: Path, args, pp, op, page: list, reasons: list,
+               cancelled: int) -> None:
+    """One self-contained page: what was attributed, to what, and what was not.
+
+    The rows are rolled up to one per source, promotion, portal group, category
+    and day. That is always fewer than the order lines and usually far fewer,
+    so the filters and the daily chart work off sums rather than off forty
+    thousand rows carried into the browser.
+    """
+    import json
+
+    sources, promos, groups, cats, days = {}, {}, {}, {}, set()
+    buckets: dict[tuple, list[float]] = {}
+    def idx(d, v):
+        return d.setdefault(v, len(d))
+    for how, promo, group, cat, day, qty, amt in page:
+        days.add(day)
+        key = (idx(sources, how), idx(promos, promo), idx(groups, group),
+               idx(cats, cat), day)
+        b = buckets.setdefault(key, [0.0, 0.0, 0.0])
+        b[0] += 1
+        b[1] += qty
+        b[2] += amt
+    order = sorted(days)
+    payload = {
+        'title': 'August 2026 Promotions',
+        'plan': pp.name, 'orders': op.name,
+        'lines': len(page), 'cancelled': cancelled,
+        'sources': list(sources), 'promos': list(promos),
+        'days': order,
+        'levels': [{'name': 'Portal group', 'values': list(groups)},
+                   {'name': 'Product category', 'values': list(cats)}],
+        'rows': [{'s': k[0], 'p': k[1], 'k': [k[2], k[3]], 'd': k[4],
+                  'n': int(v[0]), 'q': round(v[1], 2), 'a': round(v[2], 2)}
+                 for k, v in buckets.items()],
+        'reasons': [[w, n] for w, n in reasons[:12]],
+    }
+    here = Path(__file__).resolve().parent.parent / 'dashboard'
+    html = (here / 'promo_template.html').read_text(encoding='utf-8')
+    html = html.replace('/*__DATA__*/null',
+                        json.dumps(payload, ensure_ascii=False,
+                                   separators=(',', ':')))
+    if not args.cdn:
+        lib = here / 'vendor' / 'chart.umd.js'
+        if lib.is_file():
+            code = lib.read_text(encoding='utf-8').replace('</script>', '<\\/script>')
+            html = html.replace(
+                '<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>',
+                f'<script>/* chart.umd.js */\n{code}\n</script>')
+        else:
+            print('vendor/chart.umd.js missing - the page will need a connection')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(html, encoding='utf-8')
+    print(f'-> {path.resolve()}  ({len(html.encode("utf-8")) / 1024:,.0f} KB, '
+          f'{len(payload["rows"]):,} rolled-up row(s))')
 
 
 if __name__ == '__main__':

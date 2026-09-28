@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Promotions</title>
+<style>
+:root {
+  color-scheme: light;
+  --page:#f4f5f7; --surface:#fcfcfb; --line:#e3e4e8; --grid:#ecedf1;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#83827d;
+  --accent:#2a78d6; --accent-ink:#fff; --chip:#fff; --neg:#d14343;
+  --on-fill:#0b0b0b;
+  /* One hue per source of the answer, fixed. Grey is deliberate for "nothing
+     fits": an absence is not a fifth category. */
+  --s-rule:#2a78d6; --s-voucher:#eb6834; --s-plan:#1baf7a; --s-none:#a9a8a1;
+}
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) {
+  color-scheme: dark;
+  --page:#111110; --surface:#1a1a19; --line:#343431; --grid:#2a2a28;
+  --ink:#fff; --ink-2:#c3c2b7; --ink-3:#8f8e85;
+  --accent:#3987e5; --accent-ink:#0b0b0b; --chip:#232321; --neg:#f08a7a;
+  --s-rule:#3987e5; --s-voucher:#d95926; --s-plan:#199e70; --s-none:#6b6a64; } }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:#111110; --surface:#1a1a19; --line:#343431; --grid:#2a2a28;
+  --ink:#fff; --ink-2:#c3c2b7; --ink-3:#8f8e85;
+  --accent:#3987e5; --accent-ink:#0b0b0b; --chip:#232321; --neg:#f08a7a;
+  --s-rule:#3987e5; --s-voucher:#d95926; --s-plan:#199e70; --s-none:#6b6a64; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--page); color:var(--ink);
+  font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,"Malgun Gothic",sans-serif; }
+.wrap { max-width:1180px; margin:0 auto; padding:20px 16px 48px; }
+h1 { font-size:20px; margin:0 0 2px; }
+h2 { font-size:14px; margin:0 0 10px; font-weight:650; }
+.sub { color:var(--ink-3); font-size:12px; margin-bottom:16px; }
+.card { background:var(--surface); border:1px solid var(--line);
+  border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+.row { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:flex-end; }
+label.f { display:flex; flex-direction:column; gap:3px; font-size:11px;
+  color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em; }
+select,.btn { font:inherit; color:var(--ink); background:var(--chip);
+  border:1px solid var(--line); border-radius:7px; padding:6px 10px; }
+select { min-width:150px; max-width:240px; }
+.btn { cursor:pointer; } .btn:hover { border-color:var(--accent); }
+.btn.active { background:var(--accent); border-color:var(--accent);
+  color:var(--accent-ink); }
+.kpis { display:flex; flex-wrap:wrap; gap:10px; margin:2px 0 14px; }
+.kpi { flex:1 1 140px; background:var(--chip); border:1px solid var(--line);
+  border-radius:8px; padding:9px 12px; }
+.kpi .k { font-size:11px; color:var(--ink-3); text-transform:uppercase;
+  letter-spacing:.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kpi .v { font-size:19px; font-weight:650; font-variant-numeric:tabular-nums; }
+.kpi .n { font-size:11px; color:var(--ink-3); }
+.legend { display:flex; flex-wrap:wrap; gap:8px 16px; font-size:12px;
+  color:var(--ink-2); margin-bottom:8px; }
+.legend i { width:11px; height:11px; border-radius:3px; display:inline-block;
+  margin-right:6px; vertical-align:-1px; }
+.chart { position:relative; }
+.hint { font-size:12px; color:var(--ink-3); margin-top:10px; }
+table { border-collapse:collapse; width:100%; font-size:13px;
+  font-variant-numeric:tabular-nums; }
+th,td { padding:7px 10px; border-bottom:1px solid var(--grid); text-align:right;
+  white-space:nowrap; }
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left;
+  white-space:normal; }
+thead th { color:var(--ink-3); font-weight:600; font-size:11px;
+  text-transform:uppercase; letter-spacing:.04em; }
+tfoot td { font-weight:650; border-top:1px solid var(--line); border-bottom:0; }
+.tag { display:inline-block; padding:1px 7px; border-radius:99px; font-size:11px;
+  color:var(--on-fill); }
+@media (max-width:640px){ select{min-width:0;width:100%} label.f{flex:1 1 100%} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="pageTitle">Promotions</h1>
+  <div class="sub" id="pageSub"></div>
+
+  <div class="card"><div class="row" id="filters"></div></div>
+
+  <div class="card">
+    <h2>How each order line was attributed</h2>
+    <div class="kpis" id="kpis"></div>
+    <div class="legend" id="legend"></div>
+    <div class="chart" id="dayPlot" style="height:240px"><canvas id="dayChart"></canvas></div>
+    <div class="hint" id="dayHint"></div>
+  </div>
+
+  <div class="card">
+    <h2>Revenue by promotion</h2>
+    <div class="row" style="margin-bottom:10px">
+      <label class="f"><span>Show</span><select id="topPick">
+        <option value="15">Top 15</option><option value="30">Top 30</option>
+        <option value="0">All</option></select></label>
+      <button class="btn" id="hideNone">Hide "nothing fits"</button>
+    </div>
+    <div class="chart" id="promoPlot"><canvas id="promoChart"></canvas></div>
+    <div class="hint" id="promoHint"></div>
+  </div>
+
+  <div class="card"><h2>The same, as a table</h2><div id="tableBox"></div></div>
+
+  <div class="card" id="missCard">
+    <h2>Why nothing fit</h2>
+    <div id="missBox"></div>
+    <div class="hint">These are the lines no source could answer for. Each
+      reason wants something different done about it.</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+const DATA = /*__DATA__*/null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let C = {};
+function readColours() {
+  C = { ink:css('--ink'), ink2:css('--ink-2'), ink3:css('--ink-3'),
+        grid:css('--grid'), surface:css('--surface'), onFill:css('--on-fill'),
+        rule:css('--s-rule'), voucher:css('--s-voucher'), plan:css('--s-plan'),
+        none:css('--s-none') };
+}
+const SOURCES = [
+  ['rule',    "the store's own promotion rule"],
+  ['voucher', 'a voucher the plan lists'],
+  ['plan',    'inferred from the plan'],
+  ['none',    'nothing fits'],
+];
+const fmt = n => Math.round(n).toLocaleString();
+const pct = n => n.toFixed(1) + '%';
+
+const state = { filter: DATA.levels.map(() => -1), top: 15, hideNone: false };
+
+/* Every combination of source, promotion, the filter values and the day was
+   totalled at build time, so a filter change is a sum over those rather than a
+   pass over forty thousand order lines. */
+function rowsIn() {
+  return DATA.rows.filter(r =>
+    state.filter.every((want, i) => want < 0 || r.k[i] === want));
+}
+
+function render() {
+  readColours();
+  document.getElementById('pageTitle').textContent = DATA.title;
+  document.getElementById('pageSub').textContent =
+    `${DATA.orders} · ${DATA.lines.toLocaleString()} order lines`
+    + (DATA.cancelled ? ` (${DATA.cancelled.toLocaleString()} cancelled left out)` : '')
+    + ` · plan: ${DATA.plan}`;
+  buildFilters();
+
+  const rows = rowsIn();
+  const bySource = {}, byDay = {}, byPromo = new Map();
+  let lines = 0, amount = 0;
+  for (const r of rows) {
+    lines += r.n; amount += r.a;
+    const s = DATA.sources[r.s];
+    bySource[s] = bySource[s] || [0, 0];
+    bySource[s][0] += r.n; bySource[s][1] += r.a;
+    (byDay[r.d] = byDay[r.d] || {})[s] = (byDay[r.d][s] || 0) + r.a;
+    const key = r.s + '\u0000' + r.p;
+    const cur = byPromo.get(key) || { s: r.s, name: DATA.promos[r.p], n: 0, q: 0, a: 0 };
+    cur.n += r.n; cur.q += r.q; cur.a += r.a;
+    byPromo.set(key, cur);
+  }
+
+  const known = lines - (bySource.none ? bySource.none[0] : 0);
+  document.getElementById('kpis').innerHTML = [
+    ['Order lines', fmt(lines), ''],
+    ['Attributed', lines ? pct(known * 100 / lines) : '-', `${fmt(known)} lines`],
+    ...SOURCES.map(([s, label]) => [
+      s === 'none' ? 'Nothing fits' : `By ${s}`,
+      fmt(bySource[s] ? bySource[s][1] : 0),
+      `${fmt(bySource[s] ? bySource[s][0] : 0)} lines`]),
+    ['Revenue in view', fmt(amount), ''],
+  ].map(([k, v, n]) =>
+    `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div>` +
+    (n ? `<div class="n">${n}</div>` : '') + '</div>').join('');
+
+  document.getElementById('legend').innerHTML = SOURCES.map(([s, label]) =>
+    `<span><i style="background:${C[s]}"></i>${label}</span>`).join('');
+
+  drawDays(byDay);
+  drawPromos([...byPromo.values()], amount);
+}
+
+function buildFilters() {
+  const box = document.getElementById('filters');
+  box.innerHTML = '';
+  DATA.levels.forEach((lv, i) => {
+    const seen = new Set();
+    for (const r of DATA.rows) {
+      if (state.filter.every((w, j) => j === i || w < 0 || r.k[j] === w))
+        seen.add(r.k[i]);
+    }
+    const wrap = document.createElement('label');
+    wrap.className = 'f';
+    wrap.innerHTML = `<span>${lv.name}</span>`;
+    const sel = document.createElement('select');
+    sel.innerHTML = `<option value="-1">All (${seen.size})</option>`
+      + lv.values.map((v, j) => seen.has(j)
+          ? `<option value="${j}">${v}</option>` : '').join('');
+    sel.value = String(state.filter[i]);
+    sel.onchange = () => { state.filter[i] = +sel.value; render(); };
+    wrap.appendChild(sel);
+    box.appendChild(wrap);
+  });
+  const reset = document.createElement('button');
+  reset.className = 'btn'; reset.textContent = 'Reset';
+  reset.onclick = () => { state.filter = DATA.levels.map(() => -1); render(); };
+  box.appendChild(reset);
+}
+
+let dayChart = null, promoChart = null;
+function drawDays(byDay) {
+  const days = DATA.days;
+  const datasets = SOURCES.map(([s, label]) => ({
+    label, stack: 'a', data: days.map(d => (byDay[d] && byDay[d][s]) || 0),
+    backgroundColor: C[s], borderRadius: 3, borderSkipped: false,
+    borderWidth: 1, borderColor: C.surface, maxBarThickness: 26,
+  }));
+  if (dayChart) dayChart.destroy();
+  dayChart = new Chart(document.getElementById('dayChart'), {
+    type: 'bar', data: { labels: days.map(d => d.slice(5)), datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { stacked: true, grid: { display: false }, border: { display: false },
+             ticks: { color: C.ink3, maxRotation: 0, autoSkipPadding: 12 } },
+        y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
+             border: { display: false },
+             title: { display: true, text: 'Revenue', color: C.ink3 },
+             ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: C.surface, titleColor: C.ink,
+          bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
+          callbacks: { label: c => `${c.dataset.label}: ${fmt(c.parsed.y)}` } },
+      },
+    },
+  });
+  document.getElementById('dayHint').textContent =
+    'Revenue per day, split by what could answer for it. The grey band is what '
+    + 'no source explained - its shape over the month is the thing to look at.';
+}
+
+/* The value at the end of each bar, so the axis need not be read. */
+const endLabels = { id: 'endLabels', afterDatasetsDraw(c) {
+  const { ctx } = c, area = c.chartArea;
+  ctx.save();
+  ctx.font = '600 11px -apple-system,"Segoe UI",Roboto,sans-serif';
+  ctx.textBaseline = 'middle';
+  c.getDatasetMeta(0).data.forEach((bar, i) => {
+    const v = c.data.datasets[0].data[i];
+    const t = Math.round(v).toLocaleString();
+    const w = ctx.measureText(t).width;
+    if (bar.x + 6 + w <= area.right) {
+      ctx.fillStyle = C.ink2; ctx.textAlign = 'left';
+      ctx.fillText(t, bar.x + 6, bar.y);
+    } else if (Math.abs(bar.x - bar.base) > w + 16) {
+      ctx.fillStyle = C.onFill; ctx.textAlign = 'right';
+      ctx.fillText(t, bar.x - 8, bar.y);
+    }
+  });
+  ctx.restore();
+} };
+
+function drawPromos(all, totalAmount) {
+  let rows = all.slice();
+  if (state.hideNone) rows = rows.filter(r => DATA.sources[r.s] !== 'none');
+  rows.sort((a, b) => b.a - a.a);
+  const shown = state.top ? rows.slice(0, state.top) : rows;
+  document.getElementById('promoPlot').style.height =
+    Math.max(220, shown.length * 26 + 60) + 'px';
+  if (promoChart) promoChart.destroy();
+  promoChart = new Chart(document.getElementById('promoChart'), {
+    type: 'bar',
+    data: { labels: shown.map(r => r.name), datasets: [{
+      data: shown.map(r => r.a),
+      backgroundColor: shown.map(r => C[DATA.sources[r.s]]),
+      borderRadius: 4, borderSkipped: false, borderWidth: 2,
+      borderColor: C.surface, maxBarThickness: 22 }] },
+    plugins: [endLabels],
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      animation: { duration: 200 }, layout: { padding: { right: 84 } },
+      scales: {
+        x: { beginAtZero: true, grid: { color: C.grid }, border: { display: false },
+             ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
+        y: { grid: { display: false }, border: { display: false },
+             ticks: { color: C.ink2, autoSkip: false, callback(v) {
+               const t = this.getLabelForValue(v);
+               return t.length > 42 ? t.slice(0, 41) + '…' : t; } } },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: C.surface, titleColor: C.ink,
+          bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
+          displayColors: false, callbacks: {
+            label: c => {
+              const r = shown[c.dataIndex];
+              return [`${fmt(r.a)}  (${pct(totalAmount ? r.a * 100 / totalAmount : 0)})`,
+                      `${fmt(r.n)} line(s), ${fmt(r.q)} unit(s)`,
+                      `answered by: ${DATA.sources[r.s]}`];
+            } } },
+      },
+    },
+  });
+  document.getElementById('promoHint').textContent =
+    `${shown.length} of ${rows.length} promotion(s), biggest first. Bar colour is `
+    + 'which source answered - blue is the store’s own rule, so those need '
+    + 'no inference at all.';
+
+  const tot = rows.reduce((a, r) => ({ n: a.n + r.n, q: a.q + r.q, a: a.a + r.a }),
+                          { n: 0, q: 0, a: 0 });
+  document.getElementById('tableBox').innerHTML = `<table>
+    <thead><tr><th>Source</th><th>Promotion</th><th>Lines</th><th>Units</th>
+      <th>Revenue</th><th>Share</th></tr></thead>
+    <tbody>${shown.map(r => `<tr>
+      <td><span class="tag" style="background:${C[DATA.sources[r.s]]}">${
+        DATA.sources[r.s]}</span></td>
+      <td>${r.name}</td><td>${fmt(r.n)}</td><td>${fmt(r.q)}</td>
+      <td>${fmt(r.a)}</td>
+      <td>${pct(tot.a ? r.a * 100 / tot.a : 0)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td></td><td>${shown.length < rows.length
+      ? `Total of these ${shown.length}` : 'Total'}</td>
+      <td>${fmt(shown.reduce((a, r) => a + r.n, 0))}</td>
+      <td>${fmt(shown.reduce((a, r) => a + r.q, 0))}</td>
+      <td>${fmt(shown.reduce((a, r) => a + r.a, 0))}</td><td></td></tr></tfoot>
+  </table>`;
+}
+
+document.getElementById('topPick').onchange = e => {
+  state.top = +e.target.value; render(); };
+document.getElementById('hideNone').onclick = e => {
+  state.hideNone = !state.hideNone;
+  e.target.classList.toggle('active', state.hideNone); render(); };
+
+/* Why nothing fit - a fixed list from the build, not affected by the filters. */
+const miss = document.getElementById('missBox');
+if (DATA.reasons && DATA.reasons.length) {
+  const tot = DATA.reasons.reduce((a, r) => a + r[1], 0);
+  miss.innerHTML = `<table><thead><tr><th>Reason</th><th>Lines</th>
+    <th>Share of the misses</th></tr></thead><tbody>${
+    DATA.reasons.map(([why, n]) => `<tr><td>${why}</td><td>${fmt(n)}</td>
+      <td>${pct(n * 100 / tot)}</td></tr>`).join('')}</tbody></table>`;
+} else {
+  document.getElementById('missCard').hidden = true;
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+render();
+</script>
+</body>
+</html>

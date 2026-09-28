@@ -94,6 +94,29 @@ The plan's answer is kept **on every row even when a rule won**, in `Plan says`
 and `Plan matched by`. That is what makes the two comparable rather than one
 overwriting the other.
 
+## The page
+
+```powershell
+py tools\promo_match.py --html        # -> dashboard\promo_2608.html
+```
+
+One self-contained file, like the profit chart, with three things on it:
+
+- **How each line was attributed** - the KPI row and a daily stacked bar. The
+  grey band is what nothing could answer for, and *its shape over the month* is
+  the thing to look at: a flat grey band is a systematic gap, a spike is one
+  day's promotion missing from the plan.
+- **Revenue by promotion**, biggest first, coloured by which source answered.
+  Blue is the store's own rule and needs no inference at all, so the amount of
+  blue is how much of the answer came free.
+- **Why nothing fit**, as a table, since each reason wants something different
+  done about it.
+
+Filters narrow by portal group and product category. The rows are rolled up to
+one per source, promotion, portal group, category and day - always fewer than
+the order lines, usually far fewer - so the page stays small and the filters
+work off sums.
+
 ## When a guess is wrong
 
 `--profile` prints every column of both files and then the columns it chose.
