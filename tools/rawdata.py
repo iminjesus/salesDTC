@@ -173,6 +173,88 @@ def read_any(path: Path) -> tuple[list[list[str]], dict]:
     return read_text_table(path)
 
 
+def find(headers: list[str], *candidates: str) -> int | None:
+    """Index of the first header matching one of these names.
+
+    By name, not position, and ignoring case, spaces and punctuation - the same
+    column arrives as `Sold-To`, `sold To` and `Sold_To` in different exports.
+    """
+    lookup = {re.sub(r'[^a-z0-9]', '', h.lower()): i for i, h in enumerate(headers)}
+    for c in candidates:
+        key = re.sub(r'[^a-z0-9]', '', c.lower())
+        if key in lookup:
+            return lookup[key]
+    return None
+
+
+def key_norm(v) -> str:
+    """Match keys across exports that disagree about padding and case.
+
+    SAP writes the same customer as 2234755 in one extract and 0002234755 in
+    the next, and a spreadsheet round-trip can leave 2234755.0 behind. All
+    three have to land on the same customer.
+    """
+    t = str(v or '').strip().upper()
+    if t.endswith('.0') and t[:-2].isdigit():
+        t = t[:-2]
+    if t.isdigit():
+        t = t.lstrip('0') or '0'
+    return t
+
+
+MASTER_RAW: dict[str, tuple] = {}     # file name -> (header, rows), for diagnostics
+
+
+def master(path: Path, key_names: tuple, wanted: dict, say=print) -> dict:
+    """One row per key, built from the first row that fills each column.
+
+    The same Sold-To is listed more than once, and the repeats are often a stub
+    with the detail columns empty. Taking the last row wins meant a stub could
+    blank out a real account - which is how a whole Type2 disappears from a
+    filter while plainly sitting in the file. So each column is filled from the
+    first row that has anything in it, and a later row that disagrees is
+    reported rather than applied.
+    """
+    rows, _ = read_any(path)
+    head = [h.strip() for h in rows[0]]
+    MASTER_RAW[path.name] = (head, rows[1:])
+    k = find(head, *key_names)
+    if k is None:
+        return {}
+    cols = {slot: find(head, *names) for slot, names in wanted.items()}
+    out: dict[str, dict] = {}
+    repeats = 0
+    clashes: dict[str, set] = {}
+    for r in rows[1:]:
+        key = key_norm(r[k] if k < len(r) else '')
+        if not key:
+            continue
+        row = {s: (r[i].strip() if i is not None and i < len(r) else '')
+               for s, i in cols.items()}
+        prev = out.get(key)
+        if prev is None:
+            out[key] = row
+            continue
+        repeats += 1
+        for slot, v in row.items():
+            if not v:
+                continue
+            if not prev[slot]:
+                prev[slot] = v
+            elif prev[slot] != v:
+                clashes.setdefault(key, set()).add(f'{slot} {prev[slot]} / {v}')
+    if repeats:
+        say(f'  {repeats:,} repeated key(s) in {path.name}; each column is taken '
+            f'from the first row that fills it'
+            + (f', and {len(clashes):,} key(s) disagreed - the later value was '
+               'left:' if clashes else ''))
+        for key, variants in list(sorted(clashes.items()))[:5]:
+            say(f'    {key}: ' + '  |  '.join(sorted(variants)))
+        if len(clashes) > 5:
+            say(f'    ... and {len(clashes) - 5:,} more')
+    return out
+
+
 def norm_stem(s) -> str:
     return re.sub(r'[^a-z0-9]', '', str(s).lower())
 
