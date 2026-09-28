@@ -88,52 +88,63 @@ def mechanic_of(rules: list[dict]) -> tuple[str, str]:
 
 
 def portal_levels(path: Path, say=print) -> dict:
-    """The customer hierarchy, keyed by portal group rather than by account.
+    """The customer hierarchy, keyed by whatever the order calls its group.
 
-    The order export carries a portal group, not a payer, so the customer
-    master is folded down to one row per portal group. A group whose accounts
-    disagree takes the value most of them carry, and the disagreement is
-    reported - it is a judgement, not a lookup.
+    The order export carries a portal group, not a payer - and its vocabulary
+    is not the customer master's `Portal Group` column. `S.COM` and `EPP` are
+    spelled in the master's Type, `EDU` and `Partnership` in its Type2, and the
+    master's own Portal Group holds different words again (`EPP External`,
+    `3PD`). Matching one named column against another therefore misses almost
+    everything.
+
+    So every value of every level is indexed as a possible spelling, and a
+    lookup returns only what the accounts behind it agree on. Asking for `EPP`
+    settles the Type, because every account spelled that way carries it; it
+    leaves Type2 blank, because those accounts carry several. Blank here means
+    "the master does not say", which is worth more than a plausible guess.
     """
     rows, _ = read_any(path)
     head = [h.strip() for h in rows[0]]
-    k = find(head, 'Portal Group', 'portal_group')
-    if k is None:
-        say('  customer_2608 has no Portal Group column, so the order export '
-            'cannot be joined to it')
-        return {}
     cols = {slot: find(head, *names) for _, slot, names in CUST.LEVELS if names}
     cols['account'] = find(head, *CUST.ACCOUNT_NAMES)
-    counts: dict[str, dict] = {}
+    cols = {k: i for k, i in cols.items() if i is not None}
+    if not cols:
+        say('  customer_2608 carries none of the levels, so it cannot be joined')
+        return {}
+
+    tally: dict[str, dict[str, dict[str, int]]] = {}
+    where: dict[str, set] = {}
     for r in rows[1:]:
-        group = (r[k].strip() if k < len(r) else '')
-        if not group or group == '-':
-            continue
-        seen = counts.setdefault(group.upper(), {})
-        for slot, i in cols.items():
-            v = (r[i].strip() if i is not None and i < len(r) else '')
-            if v and v != '-':
-                seen.setdefault(slot, {})
-                seen[slot][v] = seen[slot].get(v, 0) + 1
-    out, mixed = {}, []
-    for group, seen in counts.items():
+        vals = {slot: (r[i].strip() if i < len(r) else '') for slot, i in cols.items()}
+        live = {s: v for s, v in vals.items() if v and v != '-'}
+        for slot, v in live.items():
+            for key in {v.upper(), code_norm(v)}:
+                if not key:
+                    continue
+                where.setdefault(key, set()).add(head[cols[slot]])
+                t = tally.setdefault(key, {})
+                for s2, v2 in live.items():
+                    t.setdefault(s2, {})
+                    t[s2][v2] = t[s2].get(v2, 0) + 1
+
+    out = {}
+    for key, t in tally.items():
         row = {}
-        for slot, tally in seen.items():
-            row[slot] = max(tally, key=tally.get)
-            if len(tally) > 1:
-                mixed.append(f'{group} {slot}: '
-                             + ', '.join(f'{v} x{n}' for v, n in
-                                         sorted(tally.items(), key=lambda t: -t[1])[:3]))
-        row['channel'] = CUST.channel_of(row.get('account'))
-        out[group] = row
-    say(f'  customer master folded to {len(out):,} portal group(s)'
-        + (f'; {len(mixed):,} of them hold accounts that disagree, and the '
-           'commonest value is used:' if mixed else ''))
-    for line in mixed[:5]:
-        say(f'    {line}')
-    if len(mixed) > 5:
-        say(f'    ... and {len(mixed) - 5:,} more')
+        for slot, counts in t.items():
+            total = sum(counts.values())
+            best = max(counts, key=counts.get)
+            # Only assert what the accounts behind this spelling agree on.
+            if counts[best] >= total * 0.8:
+                row[slot] = best
+        row['channel'] = (CUST.channel_of(row['account']) if row.get('account')
+                          else '')
+        row['_from'] = ', '.join(sorted(where[key]))
+        out[key] = row
+    say(f'  customer master indexed under {len(out):,} spelling(s) across '
+        + ', '.join(sorted({head[i] for i in cols.values()})))
     return out
+
+
 # Every column in the plan that can hold a price, tried nearest-first against
 # what the order actually paid. Which one wins is reported, because "matched
 # T2_Price" says which tier the customer was on.
@@ -480,6 +491,8 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
 
     # ── the orders ──────────────────────────────────────────────────────────
     out, gaps, page = [], [], []
+    portal_seen: dict[str, int] = {}
+    portal_hit: dict[str, int] = {}
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
     agree = {'same': 0, 'differ': 0, 'outside': 0}
     by_promo: dict[tuple, list[float]] = {}
@@ -547,10 +560,16 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         else:
             o_type = o_detail = '(nothing fits)'
         group = cell(r, O['group']) or '(blank)'
-        c = portals.get(group.upper(), {})
+        c = portals.get(group.upper()) or portals.get(code_norm(group)) or {}
+        portal_seen[group] = portal_seen.get(group, 0) + 1
+        if c:
+            portal_hit[group] = portal_hit.get(group, 0) + 1
+        # Where the group matched but the master would not commit to a level,
+        # say that rather than print a blank - the two mean different things.
+        unset = '(master does not say)' if c else CUST.NO_MATCH
         page.append((how,
-                     c.get('channel') or CUST.NO_MATCH,
-                     c.get('type') or '(blank)', c.get('type2') or '(blank)',
+                     c.get('channel') or unset,
+                     c.get('type') or unset, c.get('type2') or unset,
                      group, o_type, o_detail,
                      cell(r, O['cat']) or '(blank)',
                      order['date'].isoformat() if order['date'] else '',
@@ -566,6 +585,25 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
             guess['promo'], guess['how'], guess['priced'], guess['gap'],
             guess['alts'] or '',
         ])
+
+    if portal_seen:
+        hits = sum(portal_hit.values())
+        total = sum(portal_seen.values())
+        print(f'\nportal groups: {hits:,} of {total:,} line(s) found their group '
+              'in the customer master')
+        misses = sorted(((g, n) for g, n in portal_seen.items()
+                         if not portal_hit.get(g)), key=lambda t: -t[1])
+        for g, n in misses[:8]:
+            print(f'  {g[:26]:<26} {n:>8,} line(s)  - no account is spelled that way')
+        if misses:
+            print('  the master spells its groups e.g. '
+                  + ', '.join(sorted(portals)[:6]))
+        for g, n in sorted(portal_hit.items(), key=lambda t: -t[1])[:8]:
+            c = portals.get(g.upper()) or portals.get(code_norm(g)) or {}
+            says = ' / '.join(f'{k}={v}' for k, v in c.items()
+                              if k not in ('_from', 'account') and v) or 'nothing'
+            print(f'  {g[:26]:<26} {n:>8,} line(s)  <- {c.get("_from", "")}'
+                  f'; says {says}')
 
     if O['division'] is not None:
         divs: dict[str, int] = {}

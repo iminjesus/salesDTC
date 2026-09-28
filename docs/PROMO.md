@@ -122,9 +122,28 @@ selects, breadcrumb, **← Back** and **Bars by** - and three things on it:
 
 ### The customer half
 
-The order export carries a **portal group**, not a payer, so the customer
-master is folded down to one row per portal group and that gives the same
-hierarchy the profit chart drills:
+The order export carries a **portal group**, not a payer - and its vocabulary
+is not the customer master's `Portal Group` column. `S.COM` and `EPP` are
+spelled in the master's **Type**, `EDU` and `Partnership` in its **Type2**, and
+the master's own Portal Group holds different words again (`EPP External`,
+`3PD`). Matching one named column against another misses almost everything.
+
+So every value of every level is indexed as a possible spelling, and a lookup
+returns **only what the accounts behind it agree on**. Asking for `EPP` settles
+the Type, because every account spelled that way carries it; it leaves Type2 as
+`(master does not say)`, because those accounts carry several. That is worth
+more than a plausible guess, and it reads differently from
+`(no customer match)`, which means the group was not found at all.
+
+The build prints which column each group was found in and what it settled:
+
+```
+portal groups: 42,151 of 42,151 line(s) found their group in the customer master
+  EPP        11,953 line(s)  <- Type; says type=EPP / channel=E-STORE
+  EDU         8,952 line(s)  <- Type2; says type=EPP / portal=EPP External / type2=EDU
+```
+
+What comes back is the hierarchy the profit chart drills:
 
 ```
 Channel -> Type -> Type2 -> Portal Group -> Offer Type -> Offer Detail -> Product Category
