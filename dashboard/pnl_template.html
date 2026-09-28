@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P&amp;L</title>
+<style>
+:root {
+  color-scheme: light;
+  --page:        #f4f5f7;
+  --surface:     #fcfcfb;
+  --line:        #e3e4e8;
+  --grid:        #ecedf1;
+  --ink:         #0b0b0b;
+  --ink-2:       #52514e;
+  --ink-3:       #83827d;
+  --adds:        #2a78d6;
+  --subs:        #eb6834;
+  --accent:      #2a78d6;
+  --accent-ink:  #ffffff;
+  --chip:        #ffffff;
+  --on-fill:     #0b0b0b;   /* label sitting on a bar; dark reads on both hues */
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #111110; --surface: #1a1a19; --line: #343431; --grid: #2a2a28;
+    --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8e85;
+    --adds: #3987e5; --subs: #d95926; --accent: #3987e5; --accent-ink: #0b0b0b;
+    --chip: #232321;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #111110; --surface: #1a1a19; --line: #343431; --grid: #2a2a28;
+  --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8e85;
+  --adds: #3987e5; --subs: #d95926; --accent: #3987e5; --accent-ink: #0b0b0b;
+  --chip: #232321;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+        "Malgun Gothic", sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 20px; margin: 0 0 2px; }
+.sub { color: var(--ink-3); font-size: 12px; margin-bottom: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+label.f { display: flex; flex-direction: column; gap: 3px; font-size: 11px;
+  color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
+select, .btn { font: inherit; color: var(--ink); background: var(--chip);
+  border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; }
+select { min-width: 150px; max-width: 230px; }
+.btn { cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn.active { background: var(--accent); border-color: var(--accent);
+  color: var(--accent-ink); }
+.btn:disabled { opacity: .45; cursor: default; }
+.crumb { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  font-size: 13px; margin-bottom: 10px; }
+.crumb button { background: none; border: 0; color: var(--accent);
+  cursor: pointer; font: inherit; padding: 2px 4px; border-radius: 5px; }
+.crumb button:hover { text-decoration: underline; }
+.crumb .sep { color: var(--ink-3); }
+.crumb .now { font-weight: 600; }
+.hero { display: flex; flex-wrap: wrap; gap: 26px; align-items: flex-end;
+  margin: 4px 0 14px; }
+.hero .k { font-size: 11px; color: var(--ink-3); text-transform: uppercase;
+  letter-spacing: .04em; }
+.hero .v { font-size: 30px; font-weight: 650; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; }
+.hero .v.neg { color: var(--subs); }
+.hero .small .v { font-size: 18px; font-weight: 600; }
+.legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-2);
+  margin-bottom: 6px; }
+.legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block;
+  margin-right: 6px; vertical-align: -1px; }
+.chart { position: relative; height: 380px; }
+.hint { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px;
+  font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; border-bottom: 1px solid var(--grid);
+  text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; white-space: normal; }
+thead th { color: var(--ink-3); font-weight: 600; font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; }
+td.neg { color: var(--subs); }
+tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0; }
+tbody tr.link { cursor: pointer; }
+tbody tr.link:hover { background: var(--grid); }
+@media (max-width: 620px) { select { min-width: 0; width: 100%; }
+  label.f { flex: 1 1 100%; } .hero .v { font-size: 24px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="pageTitle">P&amp;L</h1>
+  <div class="sub" id="pageSub"></div>
+
+  <div class="card">
+    <div class="row" id="filters"></div>
+  </div>
+
+  <div class="card">
+    <div class="crumb" id="crumb"></div>
+    <div class="hero" id="hero"></div>
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn" id="viewComp">What it is made of</button>
+      <button class="btn" id="viewDim">Split by</button>
+      <select id="dimPick"></select>
+      <button class="btn" id="tableBtn">Table</button>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="chart" id="plot"><canvas id="bars"></canvas></div>
+    <div class="hint" id="hint"></div>
+  </div>
+
+  <div class="card" id="tableCard" hidden><div id="tableBox"></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+const DATA = /*__DATA__*/null;
+
+/* Colours come from the stylesheet so light and dark stay in one place;
+   Chart.js cannot resolve a custom property itself, so read them once. */
+const css = n => getComputedStyle(document.documentElement)
+                   .getPropertyValue(n).trim();
+let C = {};
+function readColours() {
+  C = { adds: css('--adds'), subs: css('--subs'), ink: css('--ink'),
+        ink2: css('--ink-2'), ink3: css('--ink-3'), grid: css('--grid'),
+        surface: css('--surface'), onFill: css('--on-fill') };
+}
+readColours();
+
+const fmt = n => Math.round(n).toLocaleString();
+const pct = n => (n * 100).toFixed(1) + '%';
+const nameOf = s => DATA.measures[s];
+const kidsOf = s => DATA.nodes[s] || null;
+
+const state = {
+  path: [DATA.roots[0]],           // the drill, deepest last
+  filter: DATA.levels.map(() => -1),   // -1 = every value
+  view: 'comp',
+  dim: 0,
+  table: false,
+};
+
+/* ── the numbers ──────────────────────────────────────────────────────────
+   Every combination of the filter values was totalled at build time, so a
+   filter change is a sum over the matching combinations rather than a pass
+   over the rows. */
+function totals(extra) {
+  const out = new Float64Array(DATA.measures.length);
+  let rows = 0;
+  for (const c of DATA.combos) {
+    let keep = true;
+    for (let i = 0; i < state.filter.length; i++) {
+      const want = extra && extra.level === i ? extra.value : state.filter[i];
+      if (want >= 0 && c.k[i] !== want) { keep = false; break; }
+    }
+    if (!keep) continue;
+    rows += c.n;
+    for (let m = 0; m < out.length; m++) out[m] += c.v[m];
+  }
+  return { v: out, rows };
+}
+
+function render() {
+  readColours();
+  document.getElementById('pageTitle').textContent = DATA.title;
+  document.getElementById('pageSub').textContent =
+    `${DATA.file} · ${DATA.rows.toLocaleString()} rows · ` +
+    `${DATA.measures.length} figures, ${Object.keys(DATA.nodes).length} of them totals`;
+
+  const here = state.path[state.path.length - 1];
+  const kids = kidsOf(here);
+  if (state.view === 'comp' && !kids) state.view = 'dim';
+  const sums = totals();
+  const value = sums.v[here];
+
+  /* ── breadcrumb ── */
+  const crumb = document.getElementById('crumb');
+  crumb.innerHTML = '';
+  state.path.forEach((s, i) => {
+    if (i) crumb.insertAdjacentHTML('beforeend', '<span class="sep">›</span>');
+    if (i === state.path.length - 1) {
+      crumb.insertAdjacentHTML('beforeend',
+        `<span class="now">${nameOf(s)}</span>`);
+    } else {
+      const b = document.createElement('button');
+      b.textContent = nameOf(s);
+      b.onclick = () => { state.path = state.path.slice(0, i + 1); render(); };
+      crumb.appendChild(b);
+    }
+  });
+  if (DATA.roots.length > 1 && state.path.length === 1) {
+    const sel = document.createElement('select');
+    DATA.roots.forEach(s => {
+      const o = document.createElement('option');
+      o.value = s; o.textContent = nameOf(s); o.selected = s === here;
+      sel.appendChild(o);
+    });
+    sel.onchange = () => { state.path = [+sel.value]; render(); };
+    crumb.innerHTML = ''; crumb.appendChild(sel);
+  }
+
+  /* ── headline ── */
+  const parent = state.path.length > 1 ? state.path[state.path.length - 2] : null;
+  // A share of a total that is itself negative reads as nonsense, so it is
+  // only offered where the figure above is positive.
+  const share = parent !== null && sums.v[parent] > 0 ? value / sums.v[parent] : null;
+  document.getElementById('hero').innerHTML = `
+    <div><div class="k">${nameOf(here)}</div>
+         <div class="v ${value < 0 ? 'neg' : ''}">${fmt(value)}</div></div>
+    ${share !== null ? `<div class="small"><div class="k">share of
+       ${nameOf(parent)}</div><div class="v">${pct(share)}</div></div>` : ''}
+    <div class="small"><div class="k">rows in view</div>
+         <div class="v">${sums.rows.toLocaleString()}</div></div>`;
+
+  document.getElementById('viewComp').classList.toggle('active', state.view === 'comp');
+  document.getElementById('viewComp').disabled = !kids;
+  document.getElementById('viewDim').classList.toggle('active', state.view === 'dim');
+  document.getElementById('tableBtn').classList.toggle('active', state.table);
+  document.getElementById('dimPick').value = state.dim;
+
+  /* ── the bars ── */
+  let labels, values, signs, drill;
+  if (state.view === 'comp') {
+    labels = kids.k.map(nameOf);
+    values = kids.k.map((s, i) => sums.v[s] * kids.s[i]);
+    signs = kids.s;
+    drill = kids.k;
+  } else {
+    const lv = DATA.levels[state.dim];
+    const rows = lv.values.map((name, i) => ({
+      name, value: totals({ level: state.dim, value: i }).v[here] }));
+    rows.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+    const top = rows.slice(0, 20);
+    labels = top.map(r => r.name);
+    values = top.map(r => r.value);
+    signs = top.map(() => 1);
+    drill = null;
+  }
+  draw(labels, values, signs, drill, value);
+  renderTable(labels, values, value, drill);
+}
+
+let chart = null;
+/* Values at the end of each bar: a horizontal bar chart has the room, and it
+   saves reading a number off an axis. */
+const endLabels = {
+  id: 'endLabels',
+  afterDatasetsDraw(c) {
+    const { ctx } = c;
+    const meta = c.getDatasetMeta(0);
+    ctx.save();
+    ctx.font = '600 11px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textBaseline = 'middle';
+    const area = c.chartArea;
+    meta.data.forEach((bar, i) => {
+      const v = c.data.datasets[0].data[i];
+      const text = Math.round(v).toLocaleString();
+      const w = ctx.measureText(text).width;
+      const pos = v >= 0;
+      // Outside the bar end where there is room; inside it where the label
+      // would otherwise run off the plot and under the category names.
+      if (pos ? bar.x + 6 + w <= area.right : bar.x - 6 - w >= area.left) {
+        ctx.fillStyle = C.ink2;
+        ctx.textAlign = pos ? 'left' : 'right';
+        ctx.fillText(text, bar.x + (pos ? 6 : -6), bar.y);
+      } else if (Math.abs(bar.x - bar.base) > w + 16) {
+        ctx.fillStyle = C.onFill;
+        ctx.textAlign = pos ? 'right' : 'left';
+        ctx.fillText(text, bar.x + (pos ? -8 : 8), bar.y);
+      }
+    });
+    ctx.restore();
+  }
+};
+
+function draw(labels, values, signs, drill, parentValue) {
+  const colours = values.map(v => (v < 0 ? C.subs : C.adds));
+  const [up, down] = state.view === 'comp'
+    ? ['adds to the total', 'takes away from it']
+    : ['positive', 'negative'];
+  document.getElementById('legend').innerHTML =
+    `<span><i style="background:${C.adds}"></i>${up}</span>` +
+    `<span><i style="background:${C.subs}"></i>${down}</span>`;
+  // The plot grows with the number of bars rather than squeezing them.
+  document.getElementById('plot').style.height =
+    Math.max(240, labels.length * 40 + 56) + 'px';
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('bars'), {
+    type: 'bar',
+    data: { labels, datasets: [{
+      label: 'Amount', data: values, backgroundColor: colours,
+      borderRadius: 4, borderSkipped: false,
+      borderWidth: 2, borderColor: C.surface,
+      barPercentage: 0.82, categoryPercentage: 0.86, maxBarThickness: 44 }] },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 220 },
+      layout: { padding: { right: 78, left: 8 } },
+      onClick: (e, els) => {
+        if (!drill || !els.length) return;
+        const s = drill[els[0].index];
+        if (kidsOf(s)) { state.path = state.path.concat([s]); render(); }
+      },
+      scales: {
+        x: { grid: { color: C.grid, drawBorder: false },
+             border: { display: false },
+             ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
+        y: { grid: { display: false }, border: { display: false },
+             ticks: { color: C.ink2, autoSkip: false,
+                      callback(v) { const t = this.getLabelForValue(v);
+                        return t.length > 30 ? t.slice(0, 29) + '…' : t; } } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: C.surface, titleColor: C.ink, bodyColor: C.ink2,
+          borderColor: C.grid, borderWidth: 1, padding: 10, displayColors: false,
+          callbacks: {
+            label(ctx) {
+              const v = ctx.parsed.x;
+              const lines = [Number(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')];
+              if (parentValue)
+                lines.push(`${pct(v / parentValue)} of `
+                           + nameOf(state.path[state.path.length - 1]));
+              if (drill && kidsOf(drill[ctx.dataIndex]))
+                lines.push('click to open its own lines');
+              return lines;
+            }
+          }
+        }
+      }
+    },
+    plugins: [endLabels]
+  });
+
+  const openable = drill ? drill.filter(s => kidsOf(s)).length : 0;
+  document.getElementById('hint').textContent = state.view === 'comp'
+    ? (openable ? `${openable} of these ${drill.length} are totals themselves - `
+                + 'click one to see what it is made of.'
+                : 'These are detail lines; none of them breaks down further.')
+    : `${nameOf(state.path[state.path.length - 1])} by `
+      + `${DATA.levels[state.dim].name}, largest first`
+      + (DATA.levels[state.dim].values.length > 20 ? ' (top 20)' : '') + '.';
+}
+
+function renderTable(labels, values, total, drill) {
+  document.getElementById('tableCard').hidden = !state.table;
+  if (!state.table) return;
+  document.getElementById('tableBox').innerHTML = `<table>
+    <thead><tr><th>${state.view === 'comp' ? 'Line' : DATA.levels[state.dim].name}</th>
+      <th>Amount</th><th>Share</th></tr></thead>
+    <tbody>${labels.map((l, i) => `<tr class="${
+        drill && kidsOf(drill[i]) ? 'link' : ''}" data-i="${i}">
+      <td>${l}</td><td class="${values[i] < 0 ? 'neg' : ''}">${fmt(values[i])}</td>
+      <td>${total ? pct(values[i] / total) : '-'}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>${nameOf(state.path[state.path.length - 1])}</td>
+      <td class="${total < 0 ? 'neg' : ''}">${fmt(total)}</td><td></td></tr></tfoot>
+  </table>`;
+  if (drill) document.querySelectorAll('#tableBox tr.link').forEach(tr => {
+    tr.onclick = () => { state.path = state.path.concat([drill[+tr.dataset.i]]);
+                         render(); };
+  });
+}
+
+/* ── filters ── */
+const fbox = document.getElementById('filters');
+DATA.levels.forEach((lv, i) => {
+  const wrap = document.createElement('label');
+  wrap.className = 'f';
+  wrap.innerHTML = `<span>${lv.name}</span>`;
+  const sel = document.createElement('select');
+  sel.innerHTML = `<option value="-1">All (${lv.values.length})</option>`
+    + lv.values.map((v, j) => `<option value="${j}">${v}</option>`).join('');
+  sel.onchange = () => { state.filter[i] = +sel.value; render(); };
+  wrap.appendChild(sel);
+  fbox.appendChild(wrap);
+});
+const reset = document.createElement('button');
+reset.className = 'btn';
+reset.textContent = 'Reset filters';
+reset.onclick = () => {
+  state.filter = DATA.levels.map(() => -1);
+  fbox.querySelectorAll('select').forEach(s => { s.value = '-1'; });
+  render();
+};
+fbox.appendChild(reset);
+
+const dimPick = document.getElementById('dimPick');
+dimPick.innerHTML = DATA.levels
+  .map((lv, i) => `<option value="${i}">${lv.name}</option>`).join('');
+dimPick.onchange = () => { state.dim = +dimPick.value; state.view = 'dim'; render(); };
+document.getElementById('viewComp').onclick = () => { state.view = 'comp'; render(); };
+document.getElementById('viewDim').onclick = () => { state.view = 'dim'; render(); };
+document.getElementById('tableBtn').onclick = () => {
+  state.table = !state.table; render(); };
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+
+render();
+</script>
+</body>
+</html>
