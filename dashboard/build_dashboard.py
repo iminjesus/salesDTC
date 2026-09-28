@@ -24,6 +24,7 @@ import webbrowser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
+import customer as CUST                                        # noqa: E402
 from rawdata import pick_file, pick_latest, read_any           # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -111,7 +112,7 @@ MEASURE_KEYS = ('qty', 'net', 'p_sub', 'p_alloc')
 # Dimension columns taken off the profit file itself.
 # Payers the customer master does not know. Named rather than left blank so
 # their amounts are visible instead of pooled with the offline rows.
-NO_MATCH = '(no customer match)'
+NO_MATCH = CUST.NO_MATCH
 
 PROFIT_DIMS = {
     'sold_to':        ('Payer', 'sold To', 'Sold-To', 'sold_to', 'Customer'),
@@ -216,15 +217,14 @@ def main() -> int:
     # The customer drill-down, top level first. Reordering this list reorders the
     # buttons; 'carry' columns are kept on the row and shown in the table at the
     # deepest level, but are not levels of their own.
-    CUST_LEVELS = [
-        ('Account Name', 'account',      ('Account Name', 'account_name')),
-        ('Type',         'cust_type',    ('Type', 'customer_type')),
-        ('Type2',        'cust_type2',   ('Type2', 'Type 2', 'Type_2', 'Sub Type')),
-        ('Account',      'account_desc', ('Description', 'description')),
-    ]
+    # The account name only says which side of the business a row is on; the
+    # detail below it comes from Type, Type2 and Portal Group. tools/customer.py
+    # holds that rule so this page and the profit chart divide customers alike.
+    CUST_LEVELS = list(CUST.LEVELS)
     CUST_CARRY = [
-        ('Portal Group', 'portal',  ('Portal Group', 'portal_group')),
-        ('Neilson Type', 'neilson', ('Neilson Type', 'neilson_type')),
+        ('Account Name', 'account',      CUST.ACCOUNT_NAMES),
+        ('Account',      'account_desc', ('Description', 'description')),
+        ('Neilson Type', 'neilson',      ('Neilson Type', 'neilson_type')),
     ]
 
     c_key = find(c_head, 'Sold-To', 'sold To', 'sold_to')
@@ -233,10 +233,14 @@ def main() -> int:
         cols = {slot: find(c_head, *names)
                 for _, slot, names in CUST_LEVELS + CUST_CARRY}
         print('\ncustomer columns:')
-        for label, slot, _ in CUST_LEVELS:
+        for label, slot, names in CUST_LEVELS:
             i = cols[slot]
-            print(f'  {label:13} {c_head[i] if i is not None else "-- not found --"}'
-                  f'{"" if i is not None else "  (level will be blank)"}')
+            print(f'  {label:13} '
+                  + ('worked out from '
+                     + (c_head[cols["account"]] if cols.get('account') is not None
+                        else 'the account name') if not names else
+                     c_head[i] if i is not None else
+                     '-- not found --  (level will be blank)'))
         for label, slot, _ in CUST_CARRY:
             i = cols[slot]
             print(f'  {label:13} {c_head[i] if i is not None else "-- not found --"}'
@@ -250,6 +254,7 @@ def main() -> int:
                 continue
             row = {k: (r[i].strip() if i is not None and i < len(r) else '')
                    for k, i in cols.items()}
+            row['channel'] = CUST.channel_of(row.get('account'))
             prev = cust.get(key)
             if prev is not None and any(prev[k] != row[k] for _, k, _ in CUST_LEVELS):
                 clashes.setdefault(key, set()).add(
@@ -345,11 +350,12 @@ def main() -> int:
         # sharing '(blank)' with accounts whose Type is genuinely empty.
         unknown = NO_MATCH if sold_to and not c else '(blank)'
         key = (
-            c.get('account') or unknown,
-            c.get('cust_type') or unknown,
-            c.get('cust_type2') or unknown,
-            c.get('account_desc') or sold_to or unknown,
-            c.get('portal') or '',          # carried through, not a level
+            c.get('channel') or unknown,
+            c.get('type') or unknown,
+            c.get('type2') or unknown,
+            c.get('portal') or unknown,
+            c.get('account') or '',         # carried through, not a level
+            c.get('account_desc') or sold_to or '',
             c.get('neilson') or '',
             p.get('division') or cell(r, d_idx['division2']) or '(blank)',
             p.get('category') or cell(r, d_idx['prod_group']) or '(blank)',
@@ -406,7 +412,7 @@ def main() -> int:
         print(f"  {m:8} {t['ok']:,} numbers, {t['blank']:,} blank, "
               f"{t['bad']:,} unreadable{note}")
 
-    records = [{'c': list(k[:4]), 'cx': list(k[4:6]), 'p': list(k[6:]),
+    records = [{'c': list(k[:4]), 'cx': list(k[4:7]), 'p': list(k[7:]),
                 'q': round(v[0], 2), 'n': round(v[1], 2),
                 'ps': round(v[2], 2), 'pa': round(v[3], 2)}
                for k, v in buckets.items()]
@@ -448,8 +454,7 @@ def main() -> int:
     # The offline rows stay in the file: Back from here shows both side by side.
     account_names = {r['c'][0] for r in records}
     if args.start_customer is None:
-        start = next((n for n in ('E-STORE', 'ESTORE', 'E STORE', 'ONLINE')
-                      if n in account_names), None)
+        start = CUST.ONLINE if CUST.ONLINE in account_names else None
     else:
         start = args.start_customer or None
         if start and start not in account_names:

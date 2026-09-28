@@ -83,32 +83,50 @@ On a 251-column, 11,573-row export the whole run takes about ten seconds.
 
 ## 3. The chart
 
-`dashboard\build_pnl.py` turns that into one self-contained page.
+`dashboard\build_pnl.py` turns that into one self-contained page: one bar for
+gross sales, a stack beside it for sales deduction, cost of goods sold and
+operating cost, and a line for operating profit over net sales. Same shape as
+the Sales Dashboard's profit chart (`new-sales2`, branch
+`claude/crawl-product-pricing-Hafp4`) - two stack names on a stacked x axis so
+the pair sits centred on each tick, the line last so it takes no column of its
+own - drawn across the members of a dimension rather than across months.
+
+### How customers are divided
+
+The account name only says which side of the business a row is on, so it is
+reduced to a **Channel**: anything marked off-line becomes `OFF-LINE`, anything
+else - `E-STORE`, `E-STORE_B2B` and the rest - becomes `E-STORE`. The detail
+comes from the levels underneath:
+
+```
+Channel  ->  Type  ->  Type2  ->  Portal Group
+```
+
+`tools/customer.py` holds that rule, so this page and `build_dashboard.py`
+divide customers the same way. Reordering `LEVELS` there reorders both.
+
+**The page opens on `E-STORE`.** The offline rows are still in the file:
+setting Channel to *All* steps up and brings them back for comparison, which is
+also what puts `Channel` on the x axis as two bars side by side.
+`--start-channel ""` opens on everything instead.
+
+The selects cascade - picking a Type leaves Type2 listing only that Type's
+values, and a level with nothing left to choose greys out.
+
+### The chart itself
 
 | Control | What it does |
 |---|---|
-| the four selects | narrow every figure to an Account Name, Type, Division or Category |
-| **What it is made of** | the lines the current figure is a total of, as bars |
-| **click a bar** | open that line's own lines |
-| the breadcrumb | step back up; the first step is a picker of the headline figures |
-| **Split by** | the current figure across the members of one dimension |
-| **Gross → profit** | where the gross figure went, in the Sales Dashboard's form |
-| **Table** | the same numbers with their share of the total |
-
-### Gross → profit
-
-One bar for what came in, a stack beside it for what it went out on - sales
-deduction, cost of goods sold, operating cost - and a line for operating profit
-as a percentage of net sales. Same shape as the Sales Dashboard's profit chart
-(`new-sales2`, branch `claude/crawl-product-pricing-Hafp4`), across the members
-of whichever dimension the picker is on rather than across months.
+| the six selects | Channel, Type, Type2, Portal Group, Division, Category |
+| **Bars by** | which of those is on the x axis |
+| **Table** | every figure behind the bars, with the margin |
 
 The line is a percentage and the bars are amounts, so the line carries its own
 scale on the right - the one place in these pages with two y axes, because the
 two cannot share one. Each point is labelled, so the right-hand scale rarely
-needs reading, and the table underneath carries every figure.
+needs reading.
 
-Costs are drawn as amounts whichever sign the export stores them with. The five
+Costs are drawn as amounts whichever sign the export stores them with. The six
 figures are found by header name and the build prints what it matched:
 
 | Series | Headers accepted |
@@ -120,17 +138,14 @@ figures are found by header name and the build prints what it matched:
 | Operating Profit | `*Operating Profit`, `Subsidiary Op.Profit` |
 | Net Sales (the line's denominator) | `*Net Sales`, `Net Sales Amt` |
 
-Without a gross figure and an operating profit there is nothing to draw, and the
-button stays off.
+The build also says whether operating profit is a total the analysis broke
+down. Where it is, the bars and the line come from one statement; where it is a
+column of its own, the bars are not guaranteed to account for it exactly.
 
-Blue adds to the total, orange takes away from it. Bars carry their value, so
-nothing has to be read off the axis, and a figure's share of the one above it
-sits beside the headline - left out where that figure is negative, since a share
-of a negative total reads as nonsense.
-
-The page needs no server and no connection: every number is embedded and
-Chart.js is inlined (`--cdn` links it instead, for a much smaller file that then
-needs the internet).
+Only those six figures are embedded, not all two hundred, so the page stays
+small however wide the export is. It needs no server and no connection
+(`--cdn` links Chart.js instead, for a smaller file that then needs the
+internet).
 
 **The numbers travel with the file.** Everything behind the chart is readable by
 anyone who opens it, in the browser or in a text editor. Sending the page is
@@ -140,8 +155,10 @@ sending the data.
 
 The build prints what it matched, and that is usually the answer:
 
-- `N amount column(s)` - if a figure you expected is missing from the chart, it
-  was read as a dimension. The name test in `is_measure` is the place to look.
+- `N amount column(s)` - if a figure you expected is missing, it was read as a
+  dimension. The name test in `is_measure` is the place to look.
+- `-- not found --` beside one of the six series - the export spells that
+  header differently. Add the spelling to `SERIES` in `build_pnl.py`.
 - `joined: N of M rows matched a customer` - a zero here means the export does
   not carry the key the master is on, and the filters fall back to the columns
   of the profit file itself.

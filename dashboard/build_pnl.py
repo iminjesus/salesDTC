@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Draw the P&L as a bar chart you can drill, from the structure analysis.
+"""Draw the profit chart: what came in, where it went, what was left.
 
     py dashboard\\build_pnl.py                 # -> dashboard/pnl_2608.html
     py dashboard\\build_pnl.py --open
 
-tools/analyze_structure.py works out which figures are sums of which. This turns
-that into one self-contained page: the bars are the lines a total is made of,
-clicking one opens its own lines, and the filter row narrows every figure to a
-slice of the business without recomputing anything.
+One bar for gross sales, a stack beside it for sales deduction, cost of goods
+sold and operating cost, and a line for operating profit over net sales - the
+shape of the Sales Dashboard's profit chart, across the members of whichever
+dimension is picked rather than across months.
 
-The numbers are embedded, so the file works with no server, no database and no
+Which column is which comes from tools/analyze_structure.py, which works the
+relations out from the numbers; this only draws them. Run that first, or let
+this recompute when the saved analysis does not match the export.
+
+The numbers are embedded, so the page works with no server, no database and no
 connection - it can be sent to someone and opened.
 """
 from __future__ import annotations
@@ -22,8 +26,9 @@ import webbrowser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
-from rawdata import parse_number, pick_file, pick_latest, read_any  # noqa: E402
 import analyze_structure as A                                  # noqa: E402
+import customer as CUST                                        # noqa: E402
+from rawdata import parse_number, pick_file, pick_latest, read_any  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -64,21 +69,19 @@ def master(path: Path, key_names: tuple, wanted: dict) -> dict:
     return out
 
 
-# The four things the filter row narrows by: two from the customer master, two
-# from the product master, each falling back to a column of the export itself.
-FILTERS = [
-    ('Account Name', 'account', ('Cus_group', 'Customer Group')),
-    ('Type',         'type',    ('Type', 'Record Type')),
-    ('Division',     'division', ('Division', 'Division 2')),
-    ('Category',     'category', ('Prod_group', 'Product Group', 'Category')),
+# The drill, top first: the account name only says online or offline, and the
+# detail comes from the levels underneath it. Product sits alongside.
+PRODUCT_LEVELS = [
+    ('Division', 'division', ('Division', 'Division 2')),
+    ('Category', 'category', ('Prod_group', 'Product Group', 'Category')),
 ]
+FILTERS = CUST.LEVELS + PRODUCT_LEVELS
+CUST_DEPTH = len(CUST.LEVELS)
 
-
-# The five figures the gross-to-profit chart is made of: one bar for what came
-# in, a stack of what it went out on, and a line for what was left. Each is
-# looked up by header with the spellings the export has used, and the build
+# The five figures the chart is made of, plus the denominator of the line. Each
+# is looked up by header with the spellings the export has used, and the build
 # prints what it matched.
-BRIDGE = [
+SERIES = [
     ('gross',     'Gross Sales', ('*S.Gross Sales', '*Gross Sales', 'Gross Sales',
                                   'S.Gross Sales AMT', '*Net Sales', 'Net Sales')),
     ('deduction', 'Sales Deduction', ('*Sales Deduction', 'Sales Deduction',
@@ -90,7 +93,7 @@ BRIDGE = [
                                      '*Other Expense')),
     ('profit',    'Operating Profit', ('*Operating Profit', 'Operating Profit',
                                        'Subsidiary Op.Profit')),
-    # The denominator of the profit line. Kept separate from the gross figure:
+    # The denominator of the profit line, kept apart from the gross figure:
     # the line is profit over net sales, not over gross.
     ('net',       'Net Sales', ('*Net Sales', 'Net Sales', 'Net Sales Amt')),
 ]
@@ -104,15 +107,18 @@ def main() -> int:
                     help='the export to draw (default: the highest-numbered '
                          'profit_* file in the folder)')
     ap.add_argument('--out', default=str(HERE / 'pnl_2608.html'))
-    ap.add_argument('--title', default='August 2026 P&L')
+    ap.add_argument('--title', default='August 2026 Profit')
     ap.add_argument('--structure', default=str(ROOT / 'docs' / 'structure.json'),
-                    help='the analysis to draw; recomputed if it does not match')
-    ap.add_argument('--cdn', action='store_true',
-                    help='link Chart.js instead of embedding it: a smaller file '
-                         'that then needs a connection')
+                    help='the analysis to read; recomputed if it does not match')
+    ap.add_argument('--start-channel', metavar='NAME', default=CUST.ONLINE,
+                    help=f'the channel the page opens on (default: {CUST.ONLINE}). '
+                         'Pass "" to open on all of them.')
     ap.add_argument('--find', metavar='VALUE',
                     help='say where one code appears - which column of the export '
                          'holds it and what the masters have for it')
+    ap.add_argument('--cdn', action='store_true',
+                    help='link Chart.js instead of embedding it: a smaller file '
+                         'that then needs a connection')
     ap.add_argument('--open', action='store_true')
     args = ap.parse_args()
 
@@ -136,7 +142,7 @@ def main() -> int:
     measures = [c['pos'] for c in cols if A.is_measure(c, len(body))]
     print(f'  {len(measures)} amount column(s)')
 
-    # ── the structure: reuse the analysis if it is the one for this file ────
+    # ── the structure, so the five figures are named rather than guessed ───
     saved = None
     sp = Path(args.structure)
     if sp.is_file():
@@ -155,23 +161,48 @@ def main() -> int:
             print(f'  {sp.name} was built from a different export - redoing it')
         nodes = A.analyse(cols, measures, len(body))
 
-    # ── dimensions ──────────────────────────────────────────────────────────
+    print('\nthe chart\'s figures:')
+    series, pos_of = [], {}
+    for key, label, names in SERIES:
+        i = find(head, *names)
+        print(f'  {label:17} {head[i] if i is not None else "-- not found --"}')
+        if i is not None:
+            pos_of[key] = i
+            series.append({'key': key, 'label': label})
+    if not {'gross', 'profit'} <= set(pos_of):
+        print('\nWithout a gross figure and an operating profit there is nothing '
+              'to draw.', file=sys.stderr)
+        print('Headers seen:', ', '.join(head[:40]), file=sys.stderr)
+        return 1
+
+    # Say out loud whether the four bars actually account for the profit line.
+    if {'deduction', 'cogs', 'opex'} <= set(pos_of):
+        derived = {n['pos'] for n in nodes}
+        print('  operating profit '
+              + ('is a total the analysis broke down, so the bars and the line '
+                 'come from one statement'
+                 if pos_of['profit'] in derived else
+                 'stands on its own in this export; the bars are not guaranteed '
+                 'to account for it exactly'))
+
+    # ── masters ────────────────────────────────────────────────────────────
     cust = prod = {}
     cp = pick_file(folder, 'customer_2608')
     if cp:
-        cust = master(cp, ('Sold-To', 'sold To', 'sold_to'),
-                      {'account': ('Account Name', 'account_name'),
-                       'type': ('Type', 'customer_type')})
-        print(f'  customer master: {len(cust):,} accounts')
+        want = {slot: names for _, slot, names in CUST.LEVELS if names}
+        want['account'] = CUST.ACCOUNT_NAMES
+        cust = master(cp, ('Sold-To', 'sold To', 'sold_to'), want)
+        print(f'\ncustomer master: {len(cust):,} accounts')
     pp = pick_file(folder, 'product_2608')
     if pp:
         prod = master(pp, ('SKU', 'sku', 'Material'),
-                      {'division': ('Division',), 'category': ('Category',)})
-        print(f'  product master: {len(prod):,} products')
+                      {slot: names for _, slot, names in PRODUCT_LEVELS})
+        print(f'product master: {len(prod):,} products')
 
     c_key = find(head, 'Payer', 'sold To', 'Sold-To', 'Customer')
     p_key = find(head, 'Material', 'SKU', 'Material Code')
-    fallback = [find(head, *names) for _, _, names in FILTERS]
+    acct_fb = find(head, *CUST.ACCOUNT_NAMES)
+    fallback = [find(head, *names) if names else None for _, _, names in FILTERS]
 
     def cell(r, i):
         return (r[i].strip() if i is not None and i < len(r) else '')
@@ -196,14 +227,11 @@ def main() -> int:
                                               for k, v in row.items())
                                    if row else 'not listed'))
 
-    # ── roll up: one row per combination of the four filter values ─────────
-    slot_of = {pos: n for n, pos in enumerate(measures)}
+    # ── roll up: one row per combination of the filter values ──────────────
+    keys = [k for k, _, _ in SERIES if k in pos_of]
     combos: dict[tuple, list[float]] = {}
     counts: dict[tuple, int] = {}
     matched_c = matched_p = 0
-    # Where each filter value came from. A value that quietly fell back to a
-    # column of the export itself is the reason a name from the master can go
-    # missing from the filter without anything looking wrong.
     from_master = [0] * len(FILTERS)
     from_export = [0] * len(FILTERS)
     for r in body:
@@ -212,109 +240,77 @@ def main() -> int:
         matched_c += bool(c)
         matched_p += bool(p)
         src = {**c, **p}
-        key = []
+        key = [CUST.channel_of(c.get('account') or cell(r, acct_fb), bool(c))]
+        from_master[0] += bool(c)
+        from_export[0] += not c and bool(cell(r, acct_fb))
         for n, ((_, slot, _), fb) in enumerate(zip(FILTERS, fallback)):
+            if n == 0:
+                continue
             v = src.get(slot)
             if v:
                 from_master[n] += 1
             else:
                 v = cell(r, fb)
                 from_export[n] += bool(v)
-            key.append(v or '(blank)')
+            key.append(v or CUST.BLANK)
         key = tuple(key)
         vals = combos.get(key)
         if vals is None:
-            vals = combos[key] = [0.0] * len(measures)
+            vals = combos[key] = [0.0] * len(keys)
         counts[key] = counts.get(key, 0) + 1
-        for pos in measures:
-            n = parse_number(cell(r, pos))
+        for j, k in enumerate(keys):
+            n = parse_number(cell(r, pos_of[k]))
             if n is not None:
-                vals[slot_of[pos]] += n
+                vals[j] += n
     print(f'\njoined: {matched_c:,} of {len(body):,} rows matched a customer, '
           f'{matched_p:,} matched a product')
     print(f'{len(combos):,} filter combination(s)')
 
     # ── what the filters ended up holding ──────────────────────────────────
-    # "Is EPP really not there?" is two different questions - whether the master
-    # knows the name, and whether any row in this export carries it - so both
-    # are answered here.
+    levels = []
     print('\nfilter values:')
     for n, (label, slot, names) in enumerate(FILTERS):
         seen = sorted({k[n] for k in combos})
+        levels.append({'name': label, 'values': seen})
         known = {v for m in (cust, prod) for row in m.values()
-                 if (v := row.get(slot))}
+                 if (v := row.get(slot))} if n else set()
         missing = sorted(known - set(seen))
         src = []
         if from_master[n]:
             src.append(f'{from_master[n]:,} row(s) from the master')
         if from_export[n]:
-            src.append(f'{from_export[n]:,} from {head[fallback[n]]!r} in the export'
-                       if fallback[n] is not None else
-                       f'{from_export[n]:,} from the export')
+            src.append(f'{from_export[n]:,} from '
+                       + (repr(head[fallback[n]]) if fallback[n] is not None
+                          else repr(head[acct_fb]) if n == 0 and acct_fb is not None
+                          else 'the export') + ' in the export')
         print(f'  {label}: {len(seen)} value(s)  ({"; ".join(src) or "nothing"})')
         print('    ' + ', '.join(seen[:14]) + (' ...' if len(seen) > 14 else ''))
         if missing:
-            print(f'    not in this export, though the master lists them: '
-                  + ', '.join(missing[:10])
-                  + (' ...' if len(missing) > 10 else ''))
+            print('    not in this export, though the master lists them: '
+                  + ', '.join(missing[:10]) + (' ...' if len(missing) > 10 else ''))
 
-    # ── payload ────────────────────────────────────────────────────────────
-    levels = []
-    for n, (label, _, _) in enumerate(FILTERS):
-        seen = sorted({k[n] for k in combos})
-        levels.append({'name': label, 'values': seen})
     index = {lv['name']: {v: i for i, v in enumerate(lv['values'])} for lv in levels}
-
-    node_map = {}
-    for nd in nodes:
-        if nd['pos'] in slot_of and all(k in slot_of for k in nd['children']):
-            node_map[slot_of[nd['pos']]] = {
-                'k': [slot_of[k] for k in nd['children']], 's': nd['signs']}
-    claimed = {k for v in node_map.values() for k in v['k']}
-
-    def reach(slot: int, seen=None) -> int:
-        seen = seen if seen is not None else set()
-        for k in (node_map.get(slot) or {'k': ()})['k']:
-            if k not in seen:
-                seen.add(k)
-                reach(k, seen)
-        return len(seen)
-
-    # The page opens on the fullest tree - the bottom line rather than whichever
-    # subtotal happens to sit leftmost in the export.
-    roots = sorted((s for s in node_map if s not in claimed),
-                   key=lambda s: (-reach(s), -abs(cols[measures[s]]['total'] or 0)))
-    if not roots:
-        roots = sorted(range(len(measures)),
-                       key=lambda s: -abs(cols[measures[s]]['total'] or 0))[:12]
-
-    # ── the gross-to-profit chart's five figures ───────────────────────────
-    bridge = []
-    print('\ngross-to-profit chart:')
-    for key, label, names in BRIDGE:
-        i = find(head, *names)
-        slot = slot_of.get(i) if i is not None else None
-        print(f'  {label:17} {head[i] if slot is not None else "-- not found --"}')
-        if slot is not None:
-            bridge.append({'key': key, 'label': label, 'slot': slot})
-    keys = {b['key'] for b in bridge}
-    if not {'gross', 'profit'} <= keys:
-        print('  without both a gross figure and an operating profit the chart '
-              'has nothing to draw, so that view stays off')
-        bridge = []
+    start = args.start_channel or ''
+    if start and start not in levels[0]['values']:
+        print(f'\n--start-channel {start!r} is not a channel in the data; opening '
+              f'on all of them. Seen: {", ".join(levels[0]["values"])}')
+        start = ''
+    elif start:
+        print(f'\nopens on: {start}  (set Channel to All to bring '
+              f'{", ".join(v for v in levels[0]["values"] if v != start)} back in)')
 
     payload = {
         'title': args.title,
         'file': target.name,
         'rows': len(body),
-        'measures': [cols[p]['header'] for p in measures],
-        'nodes': node_map,
-        'roots': roots,
+        'custDepth': CUST_DEPTH,
         'levels': levels,
-        'bridge': bridge,
+        'series': series,
+        'start': index[levels[0]['name']].get(start, -1) if start else -1,
+        # Rounded to whole units: the chart is drawn in millions and the table
+        # in whole amounts, so cents would only make the file bigger.
         'combos': [{'k': [index[lv['name']][k[n]] for n, lv in enumerate(levels)],
-                    'n': counts[k],
-                    'v': [round(x, 2) for x in v]}
+                    'n': counts[k], 'v': [round(x) for x in v]}
                    for k, v in combos.items()],
     }
 
@@ -323,23 +319,18 @@ def main() -> int:
                             json.dumps(payload, ensure_ascii=False,
                                        separators=(',', ':')))
     if not args.cdn:
-        vendor = HERE / 'vendor'
-        libs = [('https://cdn.jsdelivr.net/npm/chart.js@4', 'chart.umd.js')]
-        for url, name in libs:
-            f = vendor / name
-            if f.is_file():
-                code = f.read_text(encoding='utf-8').replace('</script>', '<\\/script>')
-                html = html.replace(f'<script src="{url}"></script>',
-                                    f'<script>/* {name} */\n{code}\n</script>')
-            else:
-                print(f'vendor/{name} missing - the page will need a connection')
+        f = HERE / 'vendor' / 'chart.umd.js'
+        if f.is_file():
+            code = f.read_text(encoding='utf-8').replace('</script>', '<\\/script>')
+            html = html.replace(
+                '<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>',
+                f'<script>/* chart.umd.js */\n{code}\n</script>')
+        else:
+            print('vendor/chart.umd.js missing - the page will need a connection')
 
     out = Path(args.out)
     out.write_text(html, encoding='utf-8')
-    print(f'\n{len(roots)} headline figure(s): '
-          + ', '.join(payload['measures'][s] for s in roots[:6])
-          + (' ...' if len(roots) > 6 else ''))
-    print(f'-> {out.resolve()}  ({len(html.encode("utf-8")) / 1024:,.0f} KB'
+    print(f'\n-> {out.resolve()}  ({len(html.encode("utf-8")) / 1024:,.0f} KB'
           f'{", needs a connection" if args.cdn else ", works offline"})')
     if args.open:
         webbrowser.open(out.resolve().as_uri())

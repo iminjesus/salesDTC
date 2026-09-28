@@ -3,39 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>P&amp;L</title>
+<title>Profit</title>
 <style>
 :root {
   color-scheme: light;
-  --page:        #f4f5f7;
-  --surface:     #fcfcfb;
-  --line:        #e3e4e8;
-  --grid:        #ecedf1;
-  --ink:         #0b0b0b;
-  --ink-2:       #52514e;
-  --ink-3:       #83827d;
-  --adds:        #2a78d6;
-  --subs:        #eb6834;
-  --accent:      #2a78d6;
-  --accent-ink:  #ffffff;
-  --chip:        #ffffff;
-  --on-fill:     #0b0b0b;   /* label sitting on a bar; dark reads on both hues */
-  /* The gross-to-profit chart: a fixed hue per figure, never by rank, so a
-     filter that drops a member cannot repaint the rest. */
-  --c-gross:     #2a78d6;
-  --c-deduction: #eb6834;
-  --c-cogs:      #1baf7a;
-  --c-opex:      #eda100;
-  --c-profit:    #4a3aa7;
+  --page: #f4f5f7; --surface: #fcfcfb; --line: #e3e4e8; --grid: #ecedf1;
+  --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #83827d;
+  --accent: #2a78d6; --accent-ink: #ffffff; --chip: #ffffff; --neg: #d14343;
+  /* A fixed hue per figure, never by rank, so a filter that drops a member
+     cannot repaint the rest. */
+  --c-gross: #2a78d6; --c-deduction: #eb6834; --c-cogs: #1baf7a;
+  --c-opex: #eda100; --c-profit: #4a3aa7;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
     --page: #111110; --surface: #1a1a19; --line: #343431; --grid: #2a2a28;
     --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8e85;
-    --adds: #3987e5; --subs: #d95926; --accent: #3987e5; --accent-ink: #0b0b0b;
-    --chip: #232321;
-    --on-fill: #0b0b0b;
+    --accent: #3987e5; --accent-ink: #0b0b0b; --chip: #232321; --neg: #f08a7a;
     --c-gross: #3987e5; --c-deduction: #d95926; --c-cogs: #199e70;
     --c-opex: #c98500; --c-profit: #9085e9;
   }
@@ -44,9 +29,7 @@
   color-scheme: dark;
   --page: #111110; --surface: #1a1a19; --line: #343431; --grid: #2a2a28;
   --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8e85;
-  --adds: #3987e5; --subs: #d95926; --accent: #3987e5; --accent-ink: #0b0b0b;
-  --chip: #232321;
-  --on-fill: #0b0b0b;
+  --accent: #3987e5; --accent-ink: #0b0b0b; --chip: #232321; --neg: #f08a7a;
   --c-gross: #3987e5; --c-deduction: #d95926; --c-cogs: #199e70;
   --c-opex: #c98500; --c-profit: #9085e9;
 }
@@ -59,37 +42,34 @@ h1 { font-size: 20px; margin: 0 0 2px; }
 .sub { color: var(--ink-3); font-size: 12px; margin-bottom: 16px; }
 .card { background: var(--surface); border: 1px solid var(--line);
   border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
-.row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-end; }
 label.f { display: flex; flex-direction: column; gap: 3px; font-size: 11px;
   color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
+label.f.off > span { color: var(--ink-3); opacity: .55; }
 select, .btn { font: inherit; color: var(--ink); background: var(--chip);
   border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; }
-select { min-width: 150px; max-width: 230px; }
+select { min-width: 140px; max-width: 220px; }
+select:disabled { opacity: .5; }
 .btn { cursor: pointer; }
-.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:hover { border-color: var(--accent); }
 .btn.active { background: var(--accent); border-color: var(--accent);
   color: var(--accent-ink); }
-.btn:disabled { opacity: .45; cursor: default; }
-.crumb { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-  font-size: 13px; margin-bottom: 10px; }
-.crumb button { background: none; border: 0; color: var(--accent);
-  cursor: pointer; font: inherit; padding: 2px 4px; border-radius: 5px; }
-.crumb button:hover { text-decoration: underline; }
-.crumb .sep { color: var(--ink-3); }
-.crumb .now { font-weight: 600; }
-.hero { display: flex; flex-wrap: wrap; gap: 26px; align-items: flex-end;
-  margin: 4px 0 14px; }
-.hero .k { font-size: 11px; color: var(--ink-3); text-transform: uppercase;
-  letter-spacing: .04em; }
-.hero .v { font-size: 30px; font-weight: 650; letter-spacing: -.02em;
+.scope { font-size: 12px; color: var(--ink-3); margin: 10px 0 0; }
+.scope b { color: var(--ink-2); font-weight: 600; }
+.kpis { display: flex; flex-wrap: wrap; gap: 10px; margin: 2px 0 14px; }
+.kpi { flex: 1 1 130px; background: var(--chip); border: 1px solid var(--line);
+  border-radius: 8px; padding: 9px 12px; }
+.kpi .k { font-size: 11px; color: var(--ink-3); text-transform: uppercase;
+  letter-spacing: .04em; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.kpi .v { font-size: 19px; font-weight: 650; letter-spacing: -.01em;
   font-variant-numeric: tabular-nums; }
-.hero .v.neg { color: var(--subs); }
-.hero .small .v { font-size: 18px; font-weight: 600; }
-.legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-2);
-  margin-bottom: 6px; }
+.kpi .v.neg { color: var(--neg); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12px;
+  color: var(--ink-2); margin-bottom: 8px; }
 .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block;
   margin-right: 6px; vertical-align: -1px; }
-.chart { position: relative; height: 380px; }
+.chart { position: relative; height: 420px; }
 .hint { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
 table { border-collapse: collapse; width: 100%; font-size: 13px;
   font-variant-numeric: tabular-nums; }
@@ -98,33 +78,30 @@ th, td { padding: 7px 10px; border-bottom: 1px solid var(--grid);
 th:first-child, td:first-child { text-align: left; white-space: normal; }
 thead th { color: var(--ink-3); font-weight: 600; font-size: 11px;
   text-transform: uppercase; letter-spacing: .04em; }
-td.neg { color: var(--subs); }
+td.neg { color: var(--neg); }
 tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0; }
-tbody tr.link { cursor: pointer; }
-tbody tr.link:hover { background: var(--grid); }
-@media (max-width: 620px) { select { min-width: 0; width: 100%; }
-  label.f { flex: 1 1 100%; } .hero .v { font-size: 24px; } }
+@media (max-width: 640px) {
+  select { min-width: 0; width: 100%; } label.f { flex: 1 1 100%; }
+  .chart { height: 340px; }
+}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1 id="pageTitle">P&amp;L</h1>
+  <h1 id="pageTitle">Profit</h1>
   <div class="sub" id="pageSub"></div>
 
   <div class="card">
     <div class="row" id="filters"></div>
+    <div class="scope" id="scope"></div>
   </div>
 
   <div class="card">
-    <div class="crumb" id="crumb"></div>
-    <div class="hero" id="hero"></div>
     <div class="row" style="margin-bottom:12px">
-      <button class="btn" id="viewComp">What it is made of</button>
-      <button class="btn" id="viewDim">Split by</button>
-      <button class="btn" id="viewBridge">Gross &rarr; profit</button>
-      <select id="dimPick"></select>
+      <label class="f"><span>Bars by</span><select id="dimPick"></select></label>
       <button class="btn" id="tableBtn">Table</button>
     </div>
+    <div class="kpis" id="kpis"></div>
     <div class="legend" id="legend"></div>
     <div class="chart" id="plot"><canvas id="bars"></canvas></div>
     <div class="hint" id="hint"></div>
@@ -137,40 +114,38 @@ tbody tr.link:hover { background: var(--grid); }
 <script>
 const DATA = /*__DATA__*/null;
 
-/* Colours come from the stylesheet so light and dark stay in one place;
-   Chart.js cannot resolve a custom property itself, so read them once. */
+/* Chart.js cannot resolve a custom property, so the series colours are read off
+   the stylesheet once per render - that way light and dark live in one place. */
 const css = n => getComputedStyle(document.documentElement)
                    .getPropertyValue(n).trim();
 let C = {};
 function readColours() {
-  C = { adds: css('--adds'), subs: css('--subs'), ink: css('--ink'),
-        ink2: css('--ink-2'), ink3: css('--ink-3'), grid: css('--grid'),
-        surface: css('--surface'), onFill: css('--on-fill'),
+  C = { ink: css('--ink'), ink2: css('--ink-2'), ink3: css('--ink-3'),
+        grid: css('--grid'), surface: css('--surface'), neg: css('--neg'),
         gross: css('--c-gross'), deduction: css('--c-deduction'),
-        cogs: css('--c-cogs'), opex: css('--c-opex'),
-        profit: css('--c-profit') };
+        cogs: css('--c-cogs'), opex: css('--c-opex'), profit: css('--c-profit') };
 }
-readColours();
 
 const fmt = n => Math.round(n).toLocaleString();
-const pct = n => (n * 100).toFixed(1) + '%';
-const nameOf = s => DATA.measures[s];
-const kidsOf = s => DATA.nodes[s] || null;
+const has = {};
+DATA.series.forEach((s, i) => { has[s.key] = i; });
+const label = k => (has[k] === undefined ? k : DATA.series[has[k]].label);
+const COSTS = ['deduction', 'cogs', 'opex'].filter(k => has[k] !== undefined);
 
+/* The page opens on one channel - the online business - with everything else
+   still in the file. Setting Channel back to All steps up and brings it in. */
 const state = {
-  path: [DATA.roots[0]],           // the drill, deepest last
-  filter: DATA.levels.map(() => -1),   // -1 = every value
-  view: 'comp',
-  dim: 0,
+  filter: DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1)),
+  // Bars start on the level below the channel, since the channel is filtered.
+  dim: DATA.levels.length > 1 ? 1 : 0,
   table: false,
 };
 
-/* ── the numbers ──────────────────────────────────────────────────────────
-   Every combination of the filter values was totalled at build time, so a
-   filter change is a sum over the matching combinations rather than a pass
-   over the rows. */
+/* Every combination of the filter values was totalled at build time, so a
+   filter change is a sum over the matching combinations rather than a pass over
+   the rows. */
 function totals(extra) {
-  const out = new Float64Array(DATA.measures.length);
+  const v = new Float64Array(DATA.series.length);
   let rows = 0;
   for (const c of DATA.combos) {
     let keep = true;
@@ -180,207 +155,100 @@ function totals(extra) {
     }
     if (!keep) continue;
     rows += c.n;
-    for (let m = 0; m < out.length; m++) out[m] += c.v[m];
+    for (let m = 0; m < v.length; m++) v[m] += c.v[m];
   }
-  return { v: out, rows };
+  const at = k => (has[k] === undefined ? 0 : v[has[k]]);
+  const profit = at('profit');
+  const net = has.net !== undefined ? at('net') : at('gross');
+  return { rows, gross: at('gross'), deduction: Math.abs(at('deduction')),
+           cogs: Math.abs(at('cogs')), opex: Math.abs(at('opex')),
+           profit, net, margin: net ? (profit / net) * 100 : null };
+}
+
+/* Which values a level can still offer, given the levels above it in the same
+   group - picking a Type should not leave Type2 listing other types' values. */
+function optionsFor(level) {
+  const group = level < DATA.custDepth ? [0, DATA.custDepth] : [DATA.custDepth,
+                                                                DATA.levels.length];
+  const seen = new Set();
+  for (const c of DATA.combos) {
+    let ok = true;
+    for (let i = group[0]; i < level; i++) {
+      if (state.filter[i] >= 0 && c.k[i] !== state.filter[i]) { ok = false; break; }
+    }
+    if (ok) seen.add(c.k[level]);
+  }
+  return seen;
+}
+
+function buildFilters() {
+  const box = document.getElementById('filters');
+  box.innerHTML = '';
+  DATA.levels.forEach((lv, i) => {
+    const allowed = optionsFor(i);
+    if (state.filter[i] >= 0 && !allowed.has(state.filter[i])) state.filter[i] = -1;
+    const wrap = document.createElement('label');
+    wrap.className = 'f' + (allowed.size <= 1 ? ' off' : '');
+    wrap.innerHTML = `<span>${lv.name}</span>`;
+    const sel = document.createElement('select');
+    sel.innerHTML = `<option value="-1">All (${allowed.size})</option>`
+      + lv.values.map((v, j) => allowed.has(j)
+          ? `<option value="${j}">${v}</option>` : '').join('');
+    sel.value = String(state.filter[i]);
+    sel.disabled = allowed.size <= 1 && state.filter[i] < 0;
+    sel.onchange = () => { state.filter[i] = +sel.value; render(); };
+    wrap.appendChild(sel);
+    box.appendChild(wrap);
+  });
+  const reset = document.createElement('button');
+  reset.className = 'btn';
+  reset.textContent = 'Reset';
+  reset.onclick = () => {
+    state.filter = DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1));
+    render();
+  };
+  box.appendChild(reset);
 }
 
 function render() {
   readColours();
   document.getElementById('pageTitle').textContent = DATA.title;
   document.getElementById('pageSub').textContent =
-    `${DATA.file} · ${DATA.rows.toLocaleString()} rows · ` +
-    `${DATA.measures.length} figures, ${Object.keys(DATA.nodes).length} of them totals`;
+    `${DATA.file} · ${DATA.rows.toLocaleString()} rows`;
+  buildFilters();
 
-  const here = state.path[state.path.length - 1];
-  const kids = kidsOf(here);
-  if (state.view === 'comp' && !kids) state.view = 'dim';
-  if (state.view === 'bridge' && !DATA.bridge.length) state.view = 'dim';
-  const sums = totals();
-  const value = sums.v[here];
+  const picked = DATA.levels
+    .map((lv, i) => (state.filter[i] >= 0 ? `${lv.name} ${lv.values[state.filter[i]]}` : null))
+    .filter(Boolean);
+  document.getElementById('scope').innerHTML = picked.length
+    ? 'Showing <b>' + picked.join('</b> · <b>') + '</b>'
+      + (state.filter[0] >= 0
+          ? ` — set ${DATA.levels[0].name} to All to step up and compare the rest.`
+          : '')
+    : 'Showing everything in the file.';
 
-  /* ── breadcrumb ── */
-  const crumb = document.getElementById('crumb');
-  crumb.innerHTML = '';
-  state.path.forEach((s, i) => {
-    if (i) crumb.insertAdjacentHTML('beforeend', '<span class="sep">›</span>');
-    if (i === state.path.length - 1) {
-      crumb.insertAdjacentHTML('beforeend',
-        `<span class="now">${nameOf(s)}</span>`);
-    } else {
-      const b = document.createElement('button');
-      b.textContent = nameOf(s);
-      b.onclick = () => { state.path = state.path.slice(0, i + 1); render(); };
-      crumb.appendChild(b);
-    }
-  });
-  if (DATA.roots.length > 1 && state.path.length === 1) {
-    const sel = document.createElement('select');
-    DATA.roots.forEach(s => {
-      const o = document.createElement('option');
-      o.value = s; o.textContent = nameOf(s); o.selected = s === here;
-      sel.appendChild(o);
-    });
-    sel.onchange = () => { state.path = [+sel.value]; render(); };
-    crumb.innerHTML = ''; crumb.appendChild(sel);
-  }
-
-  /* ── headline ── */
-  const parent = state.path.length > 1 ? state.path[state.path.length - 2] : null;
-  // A share of a total that is itself negative reads as nonsense, so it is
-  // only offered where the figure above is positive.
-  const share = parent !== null && sums.v[parent] > 0 ? value / sums.v[parent] : null;
-  document.getElementById('hero').innerHTML = `
-    <div><div class="k">${nameOf(here)}</div>
-         <div class="v ${value < 0 ? 'neg' : ''}">${fmt(value)}</div></div>
-    ${share !== null ? `<div class="small"><div class="k">share of
-       ${nameOf(parent)}</div><div class="v">${pct(share)}</div></div>` : ''}
-    <div class="small"><div class="k">rows in view</div>
-         <div class="v">${sums.rows.toLocaleString()}</div></div>`;
-
-  document.getElementById('viewComp').classList.toggle('active', state.view === 'comp');
-  document.getElementById('viewComp').disabled = !kids;
-  document.getElementById('viewDim').classList.toggle('active', state.view === 'dim');
-  const vb = document.getElementById('viewBridge');
-  vb.classList.toggle('active', state.view === 'bridge');
-  vb.disabled = !DATA.bridge.length;
+  const dimSel = document.getElementById('dimPick');
+  dimSel.innerHTML = DATA.levels.map((lv, i) =>
+    `<option value="${i}">${lv.name}</option>`).join('');
+  dimSel.value = state.dim;
   document.getElementById('tableBtn').classList.toggle('active', state.table);
-  document.getElementById('dimPick').value = state.dim;
 
-  /* ── the bars ── */
-  if (state.view === 'bridge') { drawBridge(); return; }
-  let labels, values, signs, drill;
-  if (state.view === 'comp') {
-    labels = kids.k.map(nameOf);
-    values = kids.k.map((s, i) => sums.v[s] * kids.s[i]);
-    signs = kids.s;
-    drill = kids.k;
-  } else {
-    const lv = DATA.levels[state.dim];
-    const rows = lv.values.map((name, i) => ({
-      name, value: totals({ level: state.dim, value: i }).v[here] }));
-    rows.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
-    const top = rows.slice(0, 20);
-    labels = top.map(r => r.name);
-    values = top.map(r => r.value);
-    signs = top.map(() => 1);
-    drill = null;
-  }
-  draw(labels, values, signs, drill, value);
-  renderTable(labels, values, value, drill);
+  const all = totals();
+  document.getElementById('kpis').innerHTML = [
+    [label('gross'), fmt(all.gross), ''],
+    ...COSTS.map(k => [label(k), fmt(all[k]), '']),
+    [label('profit'), fmt(all.profit), all.profit < 0 ? 'neg' : ''],
+    ['Profit %', all.margin == null ? '-' : all.margin.toFixed(1) + '%',
+     all.margin < 0 ? 'neg' : ''],
+  ].map(([k, v, cls]) =>
+    `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
+  ).join('');
+
+  draw();
 }
 
-let chart = null;
-/* Values at the end of each bar: a horizontal bar chart has the room, and it
-   saves reading a number off an axis. */
-const endLabels = {
-  id: 'endLabels',
-  afterDatasetsDraw(c) {
-    const { ctx } = c;
-    const meta = c.getDatasetMeta(0);
-    ctx.save();
-    ctx.font = '600 11px -apple-system, "Segoe UI", Roboto, sans-serif';
-    ctx.textBaseline = 'middle';
-    const area = c.chartArea;
-    meta.data.forEach((bar, i) => {
-      const v = c.data.datasets[0].data[i];
-      const text = Math.round(v).toLocaleString();
-      const w = ctx.measureText(text).width;
-      const pos = v >= 0;
-      // Outside the bar end where there is room; inside it where the label
-      // would otherwise run off the plot and under the category names.
-      if (pos ? bar.x + 6 + w <= area.right : bar.x - 6 - w >= area.left) {
-        ctx.fillStyle = C.ink2;
-        ctx.textAlign = pos ? 'left' : 'right';
-        ctx.fillText(text, bar.x + (pos ? 6 : -6), bar.y);
-      } else if (Math.abs(bar.x - bar.base) > w + 16) {
-        ctx.fillStyle = C.onFill;
-        ctx.textAlign = pos ? 'right' : 'left';
-        ctx.fillText(text, bar.x + (pos ? -8 : 8), bar.y);
-      }
-    });
-    ctx.restore();
-  }
-};
-
-function draw(labels, values, signs, drill, parentValue) {
-  const colours = values.map(v => (v < 0 ? C.subs : C.adds));
-  const [up, down] = state.view === 'comp'
-    ? ['adds to the total', 'takes away from it']
-    : ['positive', 'negative'];
-  document.getElementById('legend').innerHTML =
-    `<span><i style="background:${C.adds}"></i>${up}</span>` +
-    `<span><i style="background:${C.subs}"></i>${down}</span>`;
-  // The plot grows with the number of bars rather than squeezing them.
-  document.getElementById('plot').style.height =
-    Math.max(240, labels.length * 40 + 56) + 'px';
-  if (chart) chart.destroy();
-  chart = new Chart(document.getElementById('bars'), {
-    type: 'bar',
-    data: { labels, datasets: [{
-      label: 'Amount', data: values, backgroundColor: colours,
-      borderRadius: 4, borderSkipped: false,
-      borderWidth: 2, borderColor: C.surface,
-      barPercentage: 0.82, categoryPercentage: 0.86, maxBarThickness: 44 }] },
-    options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
-      animation: { duration: 220 },
-      layout: { padding: { right: 78, left: 8 } },
-      onClick: (e, els) => {
-        if (!drill || !els.length) return;
-        const s = drill[els[0].index];
-        if (kidsOf(s)) { state.path = state.path.concat([s]); render(); }
-      },
-      scales: {
-        x: { grid: { color: C.grid, drawBorder: false },
-             border: { display: false },
-             ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
-        y: { grid: { display: false }, border: { display: false },
-             ticks: { color: C.ink2, autoSkip: false,
-                      callback(v) { const t = this.getLabelForValue(v);
-                        return t.length > 30 ? t.slice(0, 29) + '…' : t; } } }
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: C.surface, titleColor: C.ink, bodyColor: C.ink2,
-          borderColor: C.grid, borderWidth: 1, padding: 10, displayColors: false,
-          callbacks: {
-            label(ctx) {
-              const v = ctx.parsed.x;
-              const lines = [Number(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')];
-              if (parentValue)
-                lines.push(`${pct(v / parentValue)} of `
-                           + nameOf(state.path[state.path.length - 1]));
-              if (drill && kidsOf(drill[ctx.dataIndex]))
-                lines.push('click to open its own lines');
-              return lines;
-            }
-          }
-        }
-      }
-    },
-    plugins: [endLabels]
-  });
-
-  const openable = drill ? drill.filter(s => kidsOf(s)).length : 0;
-  document.getElementById('hint').textContent = state.view === 'comp'
-    ? (openable ? `${openable} of these ${drill.length} are totals themselves - `
-                + 'click one to see what it is made of.'
-                : 'These are detail lines; none of them breaks down further.')
-    : `${nameOf(state.path[state.path.length - 1])} by `
-      + `${DATA.levels[state.dim].name}, largest first`
-      + (DATA.levels[state.dim].values.length > 20 ? ' (top 20)' : '') + '.';
-}
-
-/* Where the gross figure went, per member of the chosen dimension: one bar for
-   what came in, a stack beside it for what it went out on, and a line for what
-   was left. Same form as the Sales Dashboard's profit chart, with one axis -
-   operating profit is an amount, so it belongs on the same scale as the bars
-   rather than on a second one nobody reads the same way. */
-/* The percentage above each point of the line: twelve points at most, and it
-   saves reading them off the right-hand axis. */
+/* The percentage above each point of the line, on a plate in the surface
+   colour so it stays readable where the line crosses a bar. */
 const pointLabels = {
   id: 'pointLabels',
   afterDatasetsDraw(c) {
@@ -396,8 +264,6 @@ const pointLabels = {
       if (v == null) return;
       const text = v.toFixed(1) + '%';
       const w = ctx.measureText(text).width;
-      // A plate in the surface colour, so the label stays readable where the
-      // line crosses a bar.
       ctx.globalAlpha = 0.85;
       ctx.fillStyle = C.surface;
       ctx.beginPath();
@@ -411,41 +277,31 @@ const pointLabels = {
   }
 };
 
-function drawBridge() {
+let chart = null;
+function draw() {
   const lv = DATA.levels[state.dim];
-  const by = {};
-  DATA.bridge.forEach(b => { by[b.key] = b; });
-  const rows = lv.values.map((name, i) => {
-    const v = totals({ level: state.dim, value: i }).v;
-    const at = k => (by[k] ? v[by[k].slot] : 0);
-    const profit = at('profit');
-    const net = by.net ? at('net') : at('gross');
-    return { name, gross: at('gross'), deduction: Math.abs(at('deduction')),
-             cogs: Math.abs(at('cogs')), opex: Math.abs(at('opex')),
-             profit, net, margin: net ? (profit / net) * 100 : null };
-  }).filter(r => r.gross || r.profit);
+  const rows = lv.values
+    .map((name, i) => ({ name, ...totals({ level: state.dim, value: i }) }))
+    .filter(r => r.rows && (r.gross || r.profit));
   rows.sort((a, b) => Math.abs(b.gross) - Math.abs(a.gross));
   const top = rows.slice(0, 12);
   const labels = top.map(r => r.name);
 
-  const COST = [['deduction', C.deduction], ['cogs', C.cogs], ['opex', C.opex]];
-  const bar = (key, colour, stack, label) => ({
-    type: 'bar', label, stack, data: top.map(r => r[key]),
+  const bar = (key, colour, stack) => ({
+    type: 'bar', label: label(key), stack, data: top.map(r => r[key]),
     backgroundColor: colour, borderRadius: 4, borderSkipped: false,
-    // A 2px gap in the surface colour keeps stacked segments from bleeding
-    // into each other, and the grouped bars apart.
-    borderWidth: 2, borderColor: C.surface,
+    // A 2px gap in the surface colour keeps stacked segments from bleeding into
+    // each other, and the two grouped bars apart.
+    borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
   });
-  const datasets = [bar('gross', C.gross, 'in', by.gross ? by.gross.label : 'Gross')];
-  COST.forEach(([k, colour]) => {
-    if (by[k]) datasets.push(bar(k, colour, 'out', by[k].label));
-  });
+  const datasets = [bar('gross', C.gross, 'in')];
+  COSTS.forEach(k => datasets.push(bar(k, C[k], 'out')));
+  const denom = has.net !== undefined ? label('net') : label('gross');
   // The line is a percentage and the bars are amounts, so it carries its own
-  // scale on the right - they cannot share one. It goes last so it takes no
-  // column of its own in the bar grouping, and order:-1 draws it over them.
-  const denom = by.net ? by.net.label : (by.gross ? by.gross.label : 'net sales');
+  // scale on the right. It goes last so it takes no column of its own in the
+  // bar grouping, and order:-1 draws it over them.
   datasets.push({
-    type: 'line', label: `${by.profit.label} % of ${denom}`, yAxisID: 'y1',
+    type: 'line', label: `${label('profit')} % of ${denom}`, yAxisID: 'y1',
     data: top.map(r => r.margin),
     borderColor: C.profit, backgroundColor: C.profit, borderWidth: 2,
     pointRadius: 4, pointHoverRadius: 7, tension: 0.25, fill: false,
@@ -453,10 +309,9 @@ function drawBridge() {
   });
 
   document.getElementById('legend').innerHTML = datasets.map(d =>
-    `<span><i style="background:${d.borderColor && d.type === 'line'
-      ? d.borderColor : d.backgroundColor}"></i>${d.label}</span>`).join('');
-  document.getElementById('plot').style.height =
-    Math.max(320, Math.min(560, labels.length * 64 + 140)) + 'px';
+    `<span><i style="background:${d.type === 'line' ? d.borderColor
+      : d.backgroundColor}"></i>${d.label}</span>`).join('');
+
   if (chart) chart.destroy();
   chart = new Chart(document.getElementById('bars'), {
     type: 'bar',
@@ -480,8 +335,7 @@ function drawBridge() {
              title: { display: true, text: 'Amount', color: C.ink3 },
              ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
         y1: { position: 'right', grid: { drawOnChartArea: false },
-              border: { display: false },
-              suggestedMin: -10, suggestedMax: 10,
+              border: { display: false }, suggestedMin: -10, suggestedMax: 10,
               title: { display: true, text: 'Profit %', color: C.ink3 },
               ticks: { color: C.ink3, callback: v => `${v}%` } }
       },
@@ -492,13 +346,13 @@ function drawBridge() {
           borderColor: C.grid, borderWidth: 1, padding: 10,
           callbacks: {
             label: ctx => ctx.dataset.yAxisID === 'y1'
-              ? `${ctx.dataset.label}: ` +
-                (ctx.parsed.y == null ? 'no net sales' : ctx.parsed.y.toFixed(1) + '%')
+              ? `${ctx.dataset.label}: ` + (ctx.parsed.y == null
+                  ? 'no net sales' : ctx.parsed.y.toFixed(1) + '%')
               : `${ctx.dataset.label}: ` + Number(ctx.parsed.y || 0).toLocaleString(),
             footer(items) {
               const r = top[items[0].dataIndex];
-              return [`Costs: ${fmt(r.deduction + r.cogs + r.opex)}`,
-                      `${by.profit.label}: ${fmt(r.profit)}`];
+              return [`Costs: ${fmt(COSTS.reduce((a, k) => a + r[k], 0))}`,
+                      `${label('profit')}: ${fmt(r.profit)}`];
             }
           }
         }
@@ -506,32 +360,29 @@ function drawBridge() {
     }
   });
 
-  const shown = by.gross ? by.gross.label : 'gross';
   document.getElementById('hint').textContent =
-    `${shown} beside what it went out on, by ${lv.name}` +
-    (rows.length > top.length ? ` (top ${top.length} of ${rows.length})` : '') +
-    `. Costs are drawn as amounts; the line is ${by.profit.label} over `
+    `${label('gross')} beside what it went out on, by ${lv.name}`
+    + (rows.length > top.length ? ` (top ${top.length} of ${rows.length})` : '')
+    + `. Costs are drawn as amounts; the line is ${label('profit')} over `
     + `${denom}, on the right-hand scale.`;
-  bridgeTable(top, by, lv.name);
+
+  renderTable(top, lv.name);
 }
 
-/* The same figures as a table - the chart's own relief, and what gets copied
-   into a mail. */
-function bridgeTable(rows, by, dimName) {
+function renderTable(rows, dimName) {
   document.getElementById('tableCard').hidden = !state.table;
   if (!state.table) return;
-  const cost = [['deduction'], ['cogs'], ['opex']].filter(([k]) => by[k]);
   const sum = k => rows.reduce((a, r) => a + r[k], 0);
-  const tot = { gross: sum('gross'), deduction: sum('deduction'),
-                cogs: sum('cogs'), opex: sum('opex'),
-                profit: sum('profit'), net: sum('net') };
-  const head = [dimName, by.gross.label, ...cost.map(([k]) => by[k].label),
-                'Costs', by.profit.label, 'Profit %'];
+  const tot = { name: 'Total', gross: sum('gross'), profit: sum('profit'),
+                net: sum('net') };
+  COSTS.forEach(k => { tot[k] = sum(k); });
+  const head = [dimName, label('gross'), ...COSTS.map(label), 'Costs',
+                label('profit'), 'Profit %'];
   const line = r => {
-    const costs = cost.reduce((a, [k]) => a + r[k], 0);
+    const costs = COSTS.reduce((a, k) => a + r[k], 0);
     const m = r.net ? (r.profit / r.net) * 100 : null;
     return [`<td>${r.name}</td>`, `<td>${fmt(r.gross)}</td>`,
-            ...cost.map(([k]) => `<td>${fmt(r[k])}</td>`),
+            ...COSTS.map(k => `<td>${fmt(r[k])}</td>`),
             `<td>${fmt(costs)}</td>`,
             `<td class="${r.profit < 0 ? 'neg' : ''}">${fmt(r.profit)}</td>`,
             `<td class="${m < 0 ? 'neg' : ''}">${
@@ -540,59 +391,11 @@ function bridgeTable(rows, by, dimName) {
   document.getElementById('tableBox').innerHTML = `<table>
     <thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(r => `<tr>${line(r)}</tr>`).join('')}</tbody>
-    <tfoot><tr>${line({ ...tot, name: 'Total' })}</tr></tfoot></table>`;
+    <tfoot><tr>${line(tot)}</tr></tfoot></table>`;
 }
 
-function renderTable(labels, values, total, drill) {
-  document.getElementById('tableCard').hidden = !state.table;
-  if (!state.table) return;
-  document.getElementById('tableBox').innerHTML = `<table>
-    <thead><tr><th>${state.view === 'comp' ? 'Line' : DATA.levels[state.dim].name}</th>
-      <th>Amount</th><th>Share</th></tr></thead>
-    <tbody>${labels.map((l, i) => `<tr class="${
-        drill && kidsOf(drill[i]) ? 'link' : ''}" data-i="${i}">
-      <td>${l}</td><td class="${values[i] < 0 ? 'neg' : ''}">${fmt(values[i])}</td>
-      <td>${total ? pct(values[i] / total) : '-'}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td>${nameOf(state.path[state.path.length - 1])}</td>
-      <td class="${total < 0 ? 'neg' : ''}">${fmt(total)}</td><td></td></tr></tfoot>
-  </table>`;
-  if (drill) document.querySelectorAll('#tableBox tr.link').forEach(tr => {
-    tr.onclick = () => { state.path = state.path.concat([drill[+tr.dataset.i]]);
-                         render(); };
-  });
-}
-
-/* ── filters ── */
-const fbox = document.getElementById('filters');
-DATA.levels.forEach((lv, i) => {
-  const wrap = document.createElement('label');
-  wrap.className = 'f';
-  wrap.innerHTML = `<span>${lv.name}</span>`;
-  const sel = document.createElement('select');
-  sel.innerHTML = `<option value="-1">All (${lv.values.length})</option>`
-    + lv.values.map((v, j) => `<option value="${j}">${v}</option>`).join('');
-  sel.onchange = () => { state.filter[i] = +sel.value; render(); };
-  wrap.appendChild(sel);
-  fbox.appendChild(wrap);
-});
-const reset = document.createElement('button');
-reset.className = 'btn';
-reset.textContent = 'Reset filters';
-reset.onclick = () => {
-  state.filter = DATA.levels.map(() => -1);
-  fbox.querySelectorAll('select').forEach(s => { s.value = '-1'; });
-  render();
-};
-fbox.appendChild(reset);
-
-const dimPick = document.getElementById('dimPick');
-dimPick.innerHTML = DATA.levels
-  .map((lv, i) => `<option value="${i}">${lv.name}</option>`).join('');
-dimPick.onchange = () => { state.dim = +dimPick.value; state.view = 'dim'; render(); };
-document.getElementById('viewComp').onclick = () => { state.view = 'comp'; render(); };
-document.getElementById('viewDim').onclick = () => { state.view = 'dim'; render(); };
-document.getElementById('viewBridge').onclick = () => {
-  state.view = 'bridge'; render(); };
+document.getElementById('dimPick').onchange = e => {
+  state.dim = +e.target.value; render(); };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
