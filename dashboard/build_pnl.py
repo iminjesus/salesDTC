@@ -53,9 +53,13 @@ def key_norm(v: str) -> str:
     return t
 
 
+RAW: dict[str, tuple] = {}          # file name -> (header, rows), for --where
+
+
 def master(path: Path, key_names: tuple, wanted: dict) -> dict:
     rows, _ = read_any(path)
     head = [h.strip() for h in rows[0]]
+    RAW[path.name] = (head, rows[1:])
     k = find(head, *key_names)
     if k is None:
         return {}
@@ -116,6 +120,9 @@ def main() -> int:
     ap.add_argument('--find', metavar='VALUE',
                     help='say where one code appears - which column of the export '
                          'holds it and what the masters have for it')
+    ap.add_argument('--where', metavar='VALUE',
+                    help='say where one filter value sits - which Channel, Type '
+                         'and so on carry it, and how many rows. e.g. --where GOV')
     ap.add_argument('--cdn', action='store_true',
                     help='link Chart.js instead of embedding it: a smaller file '
                          'that then needs a connection')
@@ -226,6 +233,29 @@ def main() -> int:
             print(f'  {name}: ' + (' / '.join(f'{k}={v or "(blank)"}'
                                               for k, v in row.items())
                                    if row else 'not listed'))
+        # The levels are only part of what the master holds. Print the whole
+        # row: a value that is plainly there but never reaches a filter is
+        # sitting in a column no level reads, and this is where that shows.
+        for fname, (mhead, mrows) in RAW.items():
+            mkey = find(mhead, 'Sold-To', 'sold To', 'sold_to', 'SKU', 'Material')
+            if mkey is None:
+                continue
+            for r in mrows:
+                if key_norm(r[mkey] if mkey < len(r) else '') != needle:
+                    continue
+                print(f'  {fname}, every column of that row:')
+                for i, h in enumerate(mhead):
+                    v = r[i].strip() if i < len(r) else ''
+                    if not v:
+                        continue
+                    where = [lbl for lbl, _, names in FILTERS
+                             if names and find([h], *names) is not None]
+                    if not where and find([h], *CUST.ACCOUNT_NAMES) is not None:
+                        where = ['Channel (online or offline)']
+                    print(f'    {h:22} {v}'
+                          + (f'   -> {where[0]}' if where else
+                             '   (no filter level reads this column)'))
+                break
 
     # ── roll up: one row per combination of the filter values ──────────────
     keys = [k for k, _, _ in SERIES if k in pos_of]
@@ -288,6 +318,47 @@ def main() -> int:
         if missing:
             print('    not in this export, though the master lists them: '
                   + ', '.join(missing[:10]) + (' ...' if len(missing) > 10 else ''))
+
+    # ── where does one filter value sit? ───────────────────────────────────
+    # The page's selects cascade, so a value under a channel or type that is
+    # narrowed away is simply not listed - which reads like it is not in the
+    # file at all. This says which paths actually carry it.
+    if args.where:
+        want = args.where.strip().upper()
+        print(f'\nwhere {args.where!r} sits:')
+        found = False
+        for n, lv in enumerate(levels):
+            hits = {k[:n]: 0 for k in combos if k[n].strip().upper() == want}
+            if not hits:
+                continue
+            found = True
+            for k in combos:
+                if k[n].strip().upper() == want:
+                    hits[k[:n]] += counts[k]
+            total = sum(hits.values())
+            print(f'  as a {lv["name"]}: {total:,} row(s) over {len(hits)} path(s)')
+            for path, n_rows in sorted(hits.items(), key=lambda kv: -kv[1])[:8]:
+                trail = ' / '.join(path) if path else '(top level)'
+                print(f'    {trail}: {n_rows:,} row(s)')
+            if len(hits) > 8:
+                print(f'    ... and {len(hits) - 8} more path(s)')
+        if not found:
+            print('  no filter level carries it')
+        # A value can be perfectly real and still never reach a filter, because
+        # it sits in a column no level reads. Name the column rather than leave
+        # "not there" to mean two different things.
+        wired = {n for _, _, names in FILTERS + [('', '', CUST.ACCOUNT_NAMES)]
+                 for n in names}
+        for name, (mhead, mrows) in RAW.items():
+            for i, h in enumerate(mhead):
+                n = sum(1 for r in mrows
+                        if i < len(r) and r[i].strip().upper() == want)
+                if not n:
+                    continue
+                read = any(find([h], alias) is not None for alias in wired)
+                print(f'  {name} column {h!r}: {n:,} row(s)'
+                      + ('' if read else
+                         '   <- no filter level reads this column'))
 
     index = {lv['name']: {v: i for i, v in enumerate(lv['values'])} for lv in levels}
     start = args.start_channel or ''

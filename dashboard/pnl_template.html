@@ -62,6 +62,8 @@ select:disabled { opacity: .5; }
 .crumb button:hover { background: var(--grid); }
 .crumb .sep { color: var(--ink-3); }
 .crumb .now { font-weight: 600; padding: 2px 5px; }
+.note { font-style: normal; font-size: 10px; color: var(--ink-3);
+  text-transform: none; letter-spacing: 0; max-width: 220px; }
 .scope b { color: var(--ink-2); font-weight: 600; }
 .kpis { display: flex; flex-wrap: wrap; gap: 10px; margin: 2px 0 14px; }
 .kpi { flex: 1 1 130px; background: var(--chip); border: 1px solid var(--line);
@@ -180,14 +182,20 @@ function optionsFor(level) {
   const group = level < DATA.custDepth ? [0, DATA.custDepth] : [DATA.custDepth,
                                                                 DATA.levels.length];
   const seen = new Set();
+  const all = new Set();
+  const blame = [];
+  for (let i = group[0]; i < level; i++) {
+    if (state.filter[i] >= 0) blame.push(DATA.levels[i].name);
+  }
   for (const c of DATA.combos) {
+    all.add(c.k[level]);
     let ok = true;
     for (let i = group[0]; i < level; i++) {
       if (state.filter[i] >= 0 && c.k[i] !== state.filter[i]) { ok = false; break; }
     }
     if (ok) seen.add(c.k[level]);
   }
-  return seen;
+  return { seen, hidden: all.size - seen.size, blame };
 }
 
 /* Narrowing to a value moves the bars down to the next level; widening back to
@@ -204,19 +212,26 @@ function buildFilters() {
   const box = document.getElementById('filters');
   box.innerHTML = '';
   DATA.levels.forEach((lv, i) => {
-    const allowed = optionsFor(i);
-    if (state.filter[i] >= 0 && !allowed.has(state.filter[i])) state.filter[i] = -1;
+    const { seen, hidden, blame } = optionsFor(i);
+    if (state.filter[i] >= 0 && !seen.has(state.filter[i])) state.filter[i] = -1;
     const wrap = document.createElement('label');
-    wrap.className = 'f' + (allowed.size <= 1 ? ' off' : '');
+    wrap.className = 'f' + (seen.size <= 1 ? ' off' : '');
     wrap.innerHTML = `<span>${lv.name}</span>`;
     const sel = document.createElement('select');
-    sel.innerHTML = `<option value="-1">All (${allowed.size})</option>`
-      + lv.values.map((v, j) => allowed.has(j)
+    sel.innerHTML = `<option value="-1">All (${seen.size})</option>`
+      + lv.values.map((v, j) => seen.has(j)
           ? `<option value="${j}">${v}</option>` : '').join('');
     sel.value = String(state.filter[i]);
-    sel.disabled = allowed.size <= 1 && state.filter[i] < 0;
+    sel.disabled = seen.size <= 1 && state.filter[i] < 0;
     sel.onchange = () => setFilter(i, +sel.value);
     wrap.appendChild(sel);
+    // A value missing from this list is usually not missing from the file - it
+    // sits under a level above that is narrowed. Say so, rather than let it
+    // read as "there are no such customers".
+    if (hidden) {
+      wrap.insertAdjacentHTML('beforeend',
+        `<em class="note">${hidden} more under other ${blame.join(' / ')}</em>`);
+    }
     box.appendChild(wrap);
   });
   const reset = document.createElement('button');

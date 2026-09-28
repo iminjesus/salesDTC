@@ -176,7 +176,17 @@ The build prints what it matched, and that is usually the answer:
   missing from a filter is one of two different things, and this separates them:
   the master does not know it, or it knows it and nothing was sold under it this
   month. `--find VALUE` asks the same question of one code: which column holds
-  it, how often, and what the masters have for it.
+  it, how often, and **every column of its master row**, marked with the filter
+  level that reads it - so a value that is plainly in the file but never reaches
+  a filter shows up as sitting in a column no level reads.
+- `--where VALUE` goes the other way: which Channel / Type / Portal Group paths
+  carry that value and how many rows, and, when no level does, which master
+  column holds it instead.
+
+A value missing from a select is one of three things, and these separate them:
+the cascade is hiding it (the select says how many and under which level), no
+row of this export carries it, or it lives in a column no level reads. The last
+one is fixed by adding the column's name to `LEVELS` in `tools/customer.py`.
 - `N total(s) read straight off the layout, M column(s) left to place` - a large
   M means the export is not printed as totals-then-lines, and most of the work
   fell to the wider search.
