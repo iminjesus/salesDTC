@@ -55,17 +55,22 @@ def column_profile(head: list[str], rows: list[list[str]]) -> list[dict]:
     for i in range(width):
         vals = [(r[i] if i < len(r) else '') for r in rows]
         filled = [v for v in vals if str(v).strip()]
-        nums = [parse_number(v) for v in filled]
-        ok = [n for n in nums if n is not None]
+        ok = [n for n in (parse_number(v) for v in filled) if n is not None]
         numeric = bool(filled) and len(ok) >= 0.9 * len(filled)
         distinct = len(set(filled))
+        # One entry per row, not one per readable cell. A column with a single
+        # blank in it used to come out shorter than its neighbours, which slid
+        # every row after that blank against them and quietly broke the
+        # arithmetic the whole analysis rests on.
+        per_row = [(parse_number(v) or 0.0) if str(v).strip() else 0.0
+                   for v in vals]
         out.append({
             'pos': i,
             'header': head[i].strip() if i < len(head) else f'col{i + 1}',
             'filled': len(filled),
             'distinct': distinct,
             'numeric': numeric,
-            'values': ok if numeric else None,
+            'values': per_row if numeric else None,
             'negatives': any(n < 0 for n in ok),
             'fractional': any(abs(n - round(n)) > 1e-9 for n in ok),
             'total': sum(ok) if numeric else None,

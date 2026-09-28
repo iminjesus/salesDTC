@@ -25,7 +25,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
 import customer as CUST                                        # noqa: E402
-from rawdata import pick_file, pick_latest, read_any           # noqa: E402
+from rawdata import (parse_number, pick_file, pick_latest,      # noqa: E402
+                     read_any)
 
 HERE = Path(__file__).resolve().parent
 
@@ -61,24 +62,16 @@ def key_norm(v: str) -> str:
 def to_num(v: str) -> tuple:
     """Return (value, status) where status is 'ok', 'blank' or 'bad'.
 
-    Amounts arrive in several shapes: 1,234.56 with separators, (1,234.56) in
-    accounting form, and 1234.56- with the sign trailing, which is how SAP writes
-    negatives. Anything unrecognised is reported rather than silently counted as
-    zero - a whole column reading zero is otherwise invisible.
+    The parsing is rawdata.parse_number's - separators, accounting brackets,
+    SAP's trailing sign - and the status is what this page adds: a value that
+    could not be read is reported rather than silently counted as zero, since a
+    whole column reading zero is otherwise invisible.
     """
-    t = str(v or '').strip().replace(',', '').replace('$', '').replace(' ', '')
+    t = str(v or '').strip()
     if not t or t in ('-', '#N/A', 'N/A', 'NULL'):
         return 0.0, 'blank'
-    if t.startswith('(') and t.endswith(')'):
-        t = '-' + t[1:-1]
-    elif t.endswith('-'):                      # SAP trailing sign: 1234.56-
-        t = '-' + t[:-1]
-    elif t.endswith('+'):
-        t = t[:-1]
-    try:
-        return float(t), 'ok'
-    except ValueError:
-        return 0.0, 'bad'
+    n = parse_number(t)
+    return (n, 'ok') if n is not None else (0.0, 'bad')
 
 
 def load(path: Path) -> tuple[list[str], list[list[str]]]:

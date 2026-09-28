@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import math
 import re
 import sqlite3
 import sys
@@ -298,6 +299,10 @@ def parse_number(v) -> float | None:
     (1,234.56) in accounting form, 1234.56- with the sign trailing, and the odd
     $ or stray space. Everything else - '#N/A', a blank, a description - is not
     a number and says so rather than counting as zero.
+
+    That includes 'NaN' and 'inf', which a broken formula leaves behind and
+    float() accepts without complaint. They are not amounts: summing them
+    poisons a whole column, and rounding one raises.
     """
     t = str(v or '').strip().replace(',', '').replace('$', '').replace(' ', '')
     if not t or t in ('-', '#N/A', 'N/A', 'NULL', '#DIV/0!', '#REF!'):
@@ -309,9 +314,10 @@ def parse_number(v) -> float | None:
     elif t.endswith('+'):
         t = t[:-1]
     try:
-        return float(t)
+        n = float(t)
     except ValueError:
         return None
+    return n if math.isfinite(n) else None
 
 
 # ── tidying and output ──────────────────────────────────────────────────────
