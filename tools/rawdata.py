@@ -173,6 +173,29 @@ def read_any(path: Path) -> tuple[list[list[str]], dict]:
     return read_text_table(path)
 
 
+def parse_number(v) -> float | None:
+    """The number a cell holds, or None if it does not hold one.
+
+    Amounts leave SAP and Excel in several shapes: 1,234.56 with separators,
+    (1,234.56) in accounting form, 1234.56- with the sign trailing, and the odd
+    $ or stray space. Everything else - '#N/A', a blank, a description - is not
+    a number and says so rather than counting as zero.
+    """
+    t = str(v or '').strip().replace(',', '').replace('$', '').replace(' ', '')
+    if not t or t in ('-', '#N/A', 'N/A', 'NULL', '#DIV/0!', '#REF!'):
+        return None
+    if t.startswith('(') and t.endswith(')'):
+        t = '-' + t[1:-1]
+    elif t.endswith('-'):                      # SAP trailing sign: 1234.56-
+        t = '-' + t[:-1]
+    elif t.endswith('+'):
+        t = t[:-1]
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
 # ── tidying and output ──────────────────────────────────────────────────────
 def column_names(header: list[str], width: int) -> list[str]:
     names, seen = [], {}
