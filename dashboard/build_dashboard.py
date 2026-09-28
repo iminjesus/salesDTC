@@ -247,25 +247,40 @@ def main() -> int:
                   f'   (carried, not a level)')
         # One Sold-To listed twice used to mean "last row wins", which can move a
         # whole account under the wrong Type without saying anything.
-        clashes: dict[str, set] = {}
+        # The same Sold-To is listed more than once, and the repeats are often
+        # a stub with the detail columns empty. Last row wins meant a stub
+        # could blank out a real account, so each column is filled from the
+        # first row that has anything in it and a later disagreement is
+        # reported rather than applied.
+        repeats, clashes = 0, {}
         for r in c_rows:
             key = key_norm(r[c_key] if c_key < len(r) else '')
             if not key:
                 continue
             row = {k: (r[i].strip() if i is not None and i < len(r) else '')
                    for k, i in cols.items()}
-            row['channel'] = CUST.channel_of(row.get('account'))
             prev = cust.get(key)
-            if prev is not None and any(prev[k] != row[k] for _, k, _ in CUST_LEVELS):
-                clashes.setdefault(key, set()).add(
-                    ' / '.join(prev[k] or '-' for _, k, _ in CUST_LEVELS))
-                clashes[key].add(' / '.join(row[k] or '-' for _, k, _ in CUST_LEVELS))
-            cust[key] = row
-        if clashes:
-            print(f'\nWARNING: {len(clashes):,} Sold-To(s) appear more than once in '
-                  f'{c_head[c_key]} with different levels. The last row wins:')
+            if prev is None:
+                row['channel'] = CUST.channel_of(row.get('account'))
+                cust[key] = row
+                continue
+            repeats += 1
+            for slot, v in row.items():
+                if not v:
+                    continue
+                if not prev[slot]:
+                    prev[slot] = v
+                elif prev[slot] != v:
+                    clashes.setdefault(key, set()).add(f'{slot}: {prev[slot]} / {v}')
+            prev['channel'] = CUST.channel_of(prev.get('account'))
+        if repeats:
+            print(f'\n{repeats:,} repeated Sold-To(s) in {c_head[c_key]}; each '
+                  'column is taken from the first row that fills it')
             for key, variants in list(sorted(clashes.items()))[:5]:
-                print(f'  {key}: ' + '  |  '.join(sorted(variants)))
+                print(f'  {key} disagreed, later value left: '
+                      + '  |  '.join(sorted(variants)))
+            if len(clashes) > 5:
+                print(f'  ... and {len(clashes) - 5:,} more that disagreed')
 
     d_key = find(d_head, 'SKU', 'sku')
     prod = {}

@@ -57,6 +57,15 @@ RAW: dict[str, tuple] = {}          # file name -> (header, rows), for --where
 
 
 def master(path: Path, key_names: tuple, wanted: dict) -> dict:
+    """One row per key, built from the first row that fills each column.
+
+    The same Sold-To is listed more than once, and the repeats are often a
+    stub with the detail columns empty. Taking the last row wins meant a stub
+    could blank out a real account - which is how a whole Type2 disappears from
+    the filters while plainly sitting in the file. So each column is filled
+    from the first row that has anything in it, and a later row that disagrees
+    is reported rather than applied.
+    """
     rows, _ = read_any(path)
     head = [h.strip() for h in rows[0]]
     RAW[path.name] = (head, rows[1:])
@@ -64,12 +73,31 @@ def master(path: Path, key_names: tuple, wanted: dict) -> dict:
     if k is None:
         return {}
     cols = {slot: find(head, *names) for slot, names in wanted.items()}
-    out = {}
+    out: dict[str, dict] = {}
+    repeats = clashes = 0
     for r in rows[1:]:
         key = key_norm(r[k] if k < len(r) else '')
-        if key:
-            out[key] = {s: (r[i].strip() if i is not None and i < len(r) else '')
-                        for s, i in cols.items()}
+        if not key:
+            continue
+        row = {s: (r[i].strip() if i is not None and i < len(r) else '')
+               for s, i in cols.items()}
+        prev = out.get(key)
+        if prev is None:
+            out[key] = row
+            continue
+        repeats += 1
+        for slot, v in row.items():
+            if not v:
+                continue
+            if not prev[slot]:
+                prev[slot] = v
+            elif prev[slot] != v:
+                clashes += 1
+    if repeats:
+        print(f'  {repeats:,} repeated key(s) in {path.name}; each column is '
+              f'taken from the first row that fills it'
+              + (f', and {clashes:,} later value(s) disagreed and were left'
+                 if clashes else ''))
     return out
 
 
@@ -206,8 +234,18 @@ def main() -> int:
                       {slot: names for _, slot, names in PRODUCT_LEVELS})
         print(f'product master: {len(prod):,} products')
 
-    c_key = find(head, 'Payer', 'sold To', 'Sold-To', 'Customer')
-    p_key = find(head, 'Material', 'SKU', 'Material Code')
+    c_key = find(head, 'Payer', 'sold To', 'Sold-To', 'Customer', 'Customer Code',
+                 'Payer Code', 'Sold To Party')
+    p_key = find(head, 'Material', 'SKU', 'Material Code', 'Model', 'Model Code',
+                 'Material No', 'Item', 'Product')
+    print('\njoining on:')
+    for what, i in (('customer', c_key), ('product', p_key)):
+        print(f'  {what:9} {head[i] if i is not None else "-- no such column --"}'
+              + ('' if i is not None else
+                 f'  (nothing will match {what}_2608)'))
+    if c_key is None or p_key is None:
+        print('  columns in the export: ' + ', '.join(head[:30])
+              + (' ...' if len(head) > 30 else ''))
     acct_fb = find(head, *CUST.ACCOUNT_NAMES)
     fallback = [find(head, *names) if names else None for _, _, names in FILTERS]
 
@@ -294,6 +332,19 @@ def main() -> int:
                 vals[j] += n
     print(f'\njoined: {matched_c:,} of {len(body):,} rows matched a customer, '
           f'{matched_p:,} matched a product')
+
+    # A join that matches nothing is two codes that were never the same code.
+    # Print both sides: the mismatch is usually obvious once they sit together.
+    for what, n, i, m, mfile in (('customer', matched_c, c_key, cust, 'customer_2608'),
+                                 ('product', matched_p, p_key, prod, 'product_2608')):
+        if n or not m:
+            continue
+        theirs = [key_norm(cell(r, i)) for r in body[:2000] if cell(r, i)]
+        print(f'  not one row matched {mfile}. '
+              + (f'{head[i]!r} holds e.g. ' + ', '.join(repr(k) for k in theirs[:4])
+                 if theirs else f'{head[i]!r} is empty on every row')
+              + f'; {mfile} is keyed on '
+              + ', '.join(repr(k) for k in list(m)[:4]))
     print(f'{len(combos):,} filter combination(s)')
 
     # ── what the filters ended up holding ──────────────────────────────────

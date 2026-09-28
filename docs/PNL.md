@@ -168,6 +168,14 @@ The build prints what it matched, and that is usually the answer:
   dimension. The name test in `is_measure` is the place to look.
 - `-- not found --` beside one of the six series - the export spells that
   header differently. Add the spelling to `SERIES` in `build_pnl.py`.
+- `joining on:` - the column each join is made on. A `-- no such column --`
+  here is why nothing matched, and the export's headers are printed beside it.
+  When a key is found but matches nothing, both sides are printed together -
+  the mismatch is usually obvious once they sit side by side.
+- `N repeated key(s) in customer_2608` - the same Sold-To listed more than
+  once. Each column is taken from the first row that fills it, so a later stub
+  with empty detail columns cannot blank out a real account; a later row that
+  disagrees on a filled column is reported and left.
 - `joined: N of M rows matched a customer` - a zero here means the export does
   not carry the key the master is on, and the filters fall back to the columns
   of the profit file itself.
