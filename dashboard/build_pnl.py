@@ -74,6 +74,28 @@ FILTERS = [
 ]
 
 
+# The five figures the gross-to-profit chart is made of: one bar for what came
+# in, a stack of what it went out on, and a line for what was left. Each is
+# looked up by header with the spellings the export has used, and the build
+# prints what it matched.
+BRIDGE = [
+    ('gross',     'Gross Sales', ('*S.Gross Sales', '*Gross Sales', 'Gross Sales',
+                                  'S.Gross Sales AMT', '*Net Sales', 'Net Sales')),
+    ('deduction', 'Sales Deduction', ('*Sales Deduction', 'Sales Deduction',
+                                      '*Delear Discount')),
+    ('cogs',      'COGS', ('*Cost of Goods Sold', 'Cost of Goods Sold', 'COGS',
+                           '*Ref. CoGS')),
+    ('opex',      'Operating Cost', ('*Operating Expense', 'Operating Expense',
+                                     'Operating Cost', '*Operating Cost',
+                                     '*Other Expense')),
+    ('profit',    'Operating Profit', ('*Operating Profit', 'Operating Profit',
+                                       'Subsidiary Op.Profit')),
+    # The denominator of the profit line. Kept separate from the gross figure:
+    # the line is profit over net sales, not over gross.
+    ('net',       'Net Sales', ('*Net Sales', 'Net Sales', 'Net Sales Amt')),
+]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -266,6 +288,21 @@ def main() -> int:
         roots = sorted(range(len(measures)),
                        key=lambda s: -abs(cols[measures[s]]['total'] or 0))[:12]
 
+    # ── the gross-to-profit chart's five figures ───────────────────────────
+    bridge = []
+    print('\ngross-to-profit chart:')
+    for key, label, names in BRIDGE:
+        i = find(head, *names)
+        slot = slot_of.get(i) if i is not None else None
+        print(f'  {label:17} {head[i] if slot is not None else "-- not found --"}')
+        if slot is not None:
+            bridge.append({'key': key, 'label': label, 'slot': slot})
+    keys = {b['key'] for b in bridge}
+    if not {'gross', 'profit'} <= keys:
+        print('  without both a gross figure and an operating profit the chart '
+              'has nothing to draw, so that view stays off')
+        bridge = []
+
     payload = {
         'title': args.title,
         'file': target.name,
@@ -274,6 +311,7 @@ def main() -> int:
         'nodes': node_map,
         'roots': roots,
         'levels': levels,
+        'bridge': bridge,
         'combos': [{'k': [index[lv['name']][k[n]] for n, lv in enumerate(levels)],
                     'n': counts[k],
                     'v': [round(x, 2) for x in v]}

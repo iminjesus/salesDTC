@@ -20,6 +20,13 @@
   --accent-ink:  #ffffff;
   --chip:        #ffffff;
   --on-fill:     #0b0b0b;   /* label sitting on a bar; dark reads on both hues */
+  /* The gross-to-profit chart: a fixed hue per figure, never by rank, so a
+     filter that drops a member cannot repaint the rest. */
+  --c-gross:     #2a78d6;
+  --c-deduction: #eb6834;
+  --c-cogs:      #1baf7a;
+  --c-opex:      #eda100;
+  --c-profit:    #4a3aa7;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
@@ -28,6 +35,9 @@
     --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8e85;
     --adds: #3987e5; --subs: #d95926; --accent: #3987e5; --accent-ink: #0b0b0b;
     --chip: #232321;
+    --on-fill: #0b0b0b;
+    --c-gross: #3987e5; --c-deduction: #d95926; --c-cogs: #199e70;
+    --c-opex: #c98500; --c-profit: #9085e9;
   }
 }
 :root[data-theme="dark"] {
@@ -36,6 +46,9 @@
   --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8e85;
   --adds: #3987e5; --subs: #d95926; --accent: #3987e5; --accent-ink: #0b0b0b;
   --chip: #232321;
+  --on-fill: #0b0b0b;
+  --c-gross: #3987e5; --c-deduction: #d95926; --c-cogs: #199e70;
+  --c-opex: #c98500; --c-profit: #9085e9;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--ink);
@@ -108,6 +121,7 @@ tbody tr.link:hover { background: var(--grid); }
     <div class="row" style="margin-bottom:12px">
       <button class="btn" id="viewComp">What it is made of</button>
       <button class="btn" id="viewDim">Split by</button>
+      <button class="btn" id="viewBridge">Gross &rarr; profit</button>
       <select id="dimPick"></select>
       <button class="btn" id="tableBtn">Table</button>
     </div>
@@ -131,7 +145,10 @@ let C = {};
 function readColours() {
   C = { adds: css('--adds'), subs: css('--subs'), ink: css('--ink'),
         ink2: css('--ink-2'), ink3: css('--ink-3'), grid: css('--grid'),
-        surface: css('--surface'), onFill: css('--on-fill') };
+        surface: css('--surface'), onFill: css('--on-fill'),
+        gross: css('--c-gross'), deduction: css('--c-deduction'),
+        cogs: css('--c-cogs'), opex: css('--c-opex'),
+        profit: css('--c-profit') };
 }
 readColours();
 
@@ -178,6 +195,7 @@ function render() {
   const here = state.path[state.path.length - 1];
   const kids = kidsOf(here);
   if (state.view === 'comp' && !kids) state.view = 'dim';
+  if (state.view === 'bridge' && !DATA.bridge.length) state.view = 'dim';
   const sums = totals();
   const value = sums.v[here];
 
@@ -223,10 +241,14 @@ function render() {
   document.getElementById('viewComp').classList.toggle('active', state.view === 'comp');
   document.getElementById('viewComp').disabled = !kids;
   document.getElementById('viewDim').classList.toggle('active', state.view === 'dim');
+  const vb = document.getElementById('viewBridge');
+  vb.classList.toggle('active', state.view === 'bridge');
+  vb.disabled = !DATA.bridge.length;
   document.getElementById('tableBtn').classList.toggle('active', state.table);
   document.getElementById('dimPick').value = state.dim;
 
   /* ── the bars ── */
+  if (state.view === 'bridge') { drawBridge(); return; }
   let labels, values, signs, drill;
   if (state.view === 'comp') {
     labels = kids.k.map(nameOf);
@@ -352,6 +374,175 @@ function draw(labels, values, signs, drill, parentValue) {
       + (DATA.levels[state.dim].values.length > 20 ? ' (top 20)' : '') + '.';
 }
 
+/* Where the gross figure went, per member of the chosen dimension: one bar for
+   what came in, a stack beside it for what it went out on, and a line for what
+   was left. Same form as the Sales Dashboard's profit chart, with one axis -
+   operating profit is an amount, so it belongs on the same scale as the bars
+   rather than on a second one nobody reads the same way. */
+/* The percentage above each point of the line: twelve points at most, and it
+   saves reading them off the right-hand axis. */
+const pointLabels = {
+  id: 'pointLabels',
+  afterDatasetsDraw(c) {
+    const i = c.data.datasets.findIndex(d => d.type === 'line');
+    if (i < 0) return;
+    const { ctx } = c;
+    ctx.save();
+    ctx.font = '600 11px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    c.getDatasetMeta(i).data.forEach((pt, j) => {
+      const v = c.data.datasets[i].data[j];
+      if (v == null) return;
+      const text = v.toFixed(1) + '%';
+      const w = ctx.measureText(text).width;
+      // A plate in the surface colour, so the label stays readable where the
+      // line crosses a bar.
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = C.surface;
+      ctx.beginPath();
+      ctx.roundRect(pt.x - w / 2 - 4, pt.y - 24, w + 8, 15, 3);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = C.profit;
+      ctx.fillText(text, pt.x, pt.y - 9);
+    });
+    ctx.restore();
+  }
+};
+
+function drawBridge() {
+  const lv = DATA.levels[state.dim];
+  const by = {};
+  DATA.bridge.forEach(b => { by[b.key] = b; });
+  const rows = lv.values.map((name, i) => {
+    const v = totals({ level: state.dim, value: i }).v;
+    const at = k => (by[k] ? v[by[k].slot] : 0);
+    const profit = at('profit');
+    const net = by.net ? at('net') : at('gross');
+    return { name, gross: at('gross'), deduction: Math.abs(at('deduction')),
+             cogs: Math.abs(at('cogs')), opex: Math.abs(at('opex')),
+             profit, net, margin: net ? (profit / net) * 100 : null };
+  }).filter(r => r.gross || r.profit);
+  rows.sort((a, b) => Math.abs(b.gross) - Math.abs(a.gross));
+  const top = rows.slice(0, 12);
+  const labels = top.map(r => r.name);
+
+  const COST = [['deduction', C.deduction], ['cogs', C.cogs], ['opex', C.opex]];
+  const bar = (key, colour, stack, label) => ({
+    type: 'bar', label, stack, data: top.map(r => r[key]),
+    backgroundColor: colour, borderRadius: 4, borderSkipped: false,
+    // A 2px gap in the surface colour keeps stacked segments from bleeding
+    // into each other, and the grouped bars apart.
+    borderWidth: 2, borderColor: C.surface,
+  });
+  const datasets = [bar('gross', C.gross, 'in', by.gross ? by.gross.label : 'Gross')];
+  COST.forEach(([k, colour]) => {
+    if (by[k]) datasets.push(bar(k, colour, 'out', by[k].label));
+  });
+  // The line is a percentage and the bars are amounts, so it carries its own
+  // scale on the right - they cannot share one. It goes last so it takes no
+  // column of its own in the bar grouping, and order:-1 draws it over them.
+  const denom = by.net ? by.net.label : (by.gross ? by.gross.label : 'net sales');
+  datasets.push({
+    type: 'line', label: `${by.profit.label} % of ${denom}`, yAxisID: 'y1',
+    data: top.map(r => r.margin),
+    borderColor: C.profit, backgroundColor: C.profit, borderWidth: 2,
+    pointRadius: 4, pointHoverRadius: 7, tension: 0.25, fill: false,
+    spanGaps: true, order: -1,
+  });
+
+  document.getElementById('legend').innerHTML = datasets.map(d =>
+    `<span><i style="background:${d.borderColor && d.type === 'line'
+      ? d.borderColor : d.backgroundColor}"></i>${d.label}</span>`).join('');
+  document.getElementById('plot').style.height =
+    Math.max(320, Math.min(560, labels.length * 64 + 140)) + 'px';
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('bars'), {
+    type: 'bar',
+    data: { labels, datasets },
+    plugins: [pointLabels],
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 220 },
+      interaction: { mode: 'index', intersect: false },
+      datasets: { bar: { categoryPercentage: 0.8, barPercentage: 0.95 } },
+      scales: {
+        // stacked:true with two stack names puts the pair side by side and
+        // centred on the tick; same-stack datasets pile up.
+        x: { stacked: true, offset: true, grid: { display: false },
+             border: { display: false },
+             ticks: { color: C.ink2, autoSkip: false, maxRotation: 30,
+                      callback(v) { const t = this.getLabelForValue(v);
+                        return t.length > 18 ? t.slice(0, 17) + '…' : t; } } },
+        y: { beginAtZero: true, grid: { color: C.grid },
+             border: { display: false },
+             title: { display: true, text: 'Amount', color: C.ink3 },
+             ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
+        y1: { position: 'right', grid: { drawOnChartArea: false },
+              border: { display: false },
+              suggestedMin: -10, suggestedMax: 10,
+              title: { display: true, text: 'Profit %', color: C.ink3 },
+              ticks: { color: C.ink3, callback: v => `${v}%` } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: C.surface, titleColor: C.ink, bodyColor: C.ink2,
+          borderColor: C.grid, borderWidth: 1, padding: 10,
+          callbacks: {
+            label: ctx => ctx.dataset.yAxisID === 'y1'
+              ? `${ctx.dataset.label}: ` +
+                (ctx.parsed.y == null ? 'no net sales' : ctx.parsed.y.toFixed(1) + '%')
+              : `${ctx.dataset.label}: ` + Number(ctx.parsed.y || 0).toLocaleString(),
+            footer(items) {
+              const r = top[items[0].dataIndex];
+              return [`Costs: ${fmt(r.deduction + r.cogs + r.opex)}`,
+                      `${by.profit.label}: ${fmt(r.profit)}`];
+            }
+          }
+        }
+      }
+    }
+  });
+
+  const shown = by.gross ? by.gross.label : 'gross';
+  document.getElementById('hint').textContent =
+    `${shown} beside what it went out on, by ${lv.name}` +
+    (rows.length > top.length ? ` (top ${top.length} of ${rows.length})` : '') +
+    `. Costs are drawn as amounts; the line is ${by.profit.label} over `
+    + `${denom}, on the right-hand scale.`;
+  bridgeTable(top, by, lv.name);
+}
+
+/* The same figures as a table - the chart's own relief, and what gets copied
+   into a mail. */
+function bridgeTable(rows, by, dimName) {
+  document.getElementById('tableCard').hidden = !state.table;
+  if (!state.table) return;
+  const cost = [['deduction'], ['cogs'], ['opex']].filter(([k]) => by[k]);
+  const sum = k => rows.reduce((a, r) => a + r[k], 0);
+  const tot = { gross: sum('gross'), deduction: sum('deduction'),
+                cogs: sum('cogs'), opex: sum('opex'),
+                profit: sum('profit'), net: sum('net') };
+  const head = [dimName, by.gross.label, ...cost.map(([k]) => by[k].label),
+                'Costs', by.profit.label, 'Profit %'];
+  const line = r => {
+    const costs = cost.reduce((a, [k]) => a + r[k], 0);
+    const m = r.net ? (r.profit / r.net) * 100 : null;
+    return [`<td>${r.name}</td>`, `<td>${fmt(r.gross)}</td>`,
+            ...cost.map(([k]) => `<td>${fmt(r[k])}</td>`),
+            `<td>${fmt(costs)}</td>`,
+            `<td class="${r.profit < 0 ? 'neg' : ''}">${fmt(r.profit)}</td>`,
+            `<td class="${m < 0 ? 'neg' : ''}">${
+              m == null ? '-' : m.toFixed(1) + '%'}</td>`].join('');
+  };
+  document.getElementById('tableBox').innerHTML = `<table>
+    <thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${line(r)}</tr>`).join('')}</tbody>
+    <tfoot><tr>${line({ ...tot, name: 'Total' })}</tr></tfoot></table>`;
+}
+
 function renderTable(labels, values, total, drill) {
   document.getElementById('tableCard').hidden = !state.table;
   if (!state.table) return;
@@ -400,6 +591,8 @@ dimPick.innerHTML = DATA.levels
 dimPick.onchange = () => { state.dim = +dimPick.value; state.view = 'dim'; render(); };
 document.getElementById('viewComp').onclick = () => { state.view = 'comp'; render(); };
 document.getElementById('viewDim').onclick = () => { state.view = 'dim'; render(); };
+document.getElementById('viewBridge').onclick = () => {
+  state.view = 'bridge'; render(); };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);

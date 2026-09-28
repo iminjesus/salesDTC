@@ -92,7 +92,36 @@ On a 251-column, 11,573-row export the whole run takes about ten seconds.
 | **click a bar** | open that line's own lines |
 | the breadcrumb | step back up; the first step is a picker of the headline figures |
 | **Split by** | the current figure across the members of one dimension |
+| **Gross → profit** | where the gross figure went, in the Sales Dashboard's form |
 | **Table** | the same numbers with their share of the total |
+
+### Gross → profit
+
+One bar for what came in, a stack beside it for what it went out on - sales
+deduction, cost of goods sold, operating cost - and a line for operating profit
+as a percentage of net sales. Same shape as the Sales Dashboard's profit chart
+(`new-sales2`, branch `claude/crawl-product-pricing-Hafp4`), across the members
+of whichever dimension the picker is on rather than across months.
+
+The line is a percentage and the bars are amounts, so the line carries its own
+scale on the right - the one place in these pages with two y axes, because the
+two cannot share one. Each point is labelled, so the right-hand scale rarely
+needs reading, and the table underneath carries every figure.
+
+Costs are drawn as amounts whichever sign the export stores them with. The five
+figures are found by header name and the build prints what it matched:
+
+| Series | Headers accepted |
+|---|---|
+| Gross Sales | `*S.Gross Sales`, `*Gross Sales`, `S.Gross Sales AMT`, then `*Net Sales` |
+| Sales Deduction | `*Sales Deduction`, `*Delear Discount` |
+| COGS | `*Cost of Goods Sold`, `COGS`, `*Ref. CoGS` |
+| Operating Cost | `*Operating Expense`, `*Operating Cost`, `*Other Expense` |
+| Operating Profit | `*Operating Profit`, `Subsidiary Op.Profit` |
+| Net Sales (the line's denominator) | `*Net Sales`, `Net Sales Amt` |
+
+Without a gross figure and an operating profit there is nothing to draw, and the
+button stays off.
 
 Blue adds to the total, orange takes away from it. Bars carry their value, so
 nothing has to be read off the axis, and a figure's share of the one above it
