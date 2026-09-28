@@ -31,7 +31,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rawdata import parse_number, read_any, column_names      # noqa: E402
+from rawdata import (column_names, parse_number, pick_file,  # noqa: E402
+                     pick_latest, read_any)      # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -47,20 +48,6 @@ MAX_CHILDREN = 40
 
 
 # ── reading ─────────────────────────────────────────────────────────────────
-def pick_file(folder: Path, *stems: str) -> Path | None:
-    def norm(s):
-        return re.sub(r'[^a-z0-9]', '', str(s).lower())
-    for stem in stems:
-        for p in sorted(folder.iterdir()):
-            if p.is_file() and norm(p.stem) == norm(stem):
-                return p
-    for stem in stems:
-        for p in sorted(folder.iterdir()):
-            if p.is_file() and norm(p.stem).startswith(norm(stem)):
-                return p
-    return None
-
-
 def column_profile(head: list[str], rows: list[list[str]]) -> list[dict]:
     """One entry per column: what it holds and whether it can be added up."""
     width = max(len(head), max((len(r) for r in rows), default=0))
@@ -296,7 +283,7 @@ class Finder:
         return None
 
     def explain(self, t: int, totals: list[int], measures: list[int],
-                cheap: bool = False):
+                mode: str = 'strict'):
         """The simplest relation that holds exactly, or nothing.
 
         Order matters: a relation between two subtotals is the one an accountant
@@ -307,15 +294,26 @@ class Finder:
         the first round had not found yet.
         """
         big = sorted(totals, key=lambda j: -abs(self.cols[j]['total'] or 0))[:40]
-        passes = ([(totals, 2), (big, 3)] if cheap
+        if mode == 'strict':
+            # A statement prints a derived total after the lines it draws on, so
+            # the first round only looks left. Without it, `gross margin = net
+            # sales - cost of goods sold` is just as happily reported the other
+            # way round - true, and backwards - and whichever is found first
+            # blocks the other as a circular definition.
+            totals = [j for j in totals if j < t]
+            measures = [j for j in measures if j < t]
+            big = [j for j in big if j < t]
+        rounds = ([(totals, 2), (big, 3)] if mode == 'cheap'
                   else [(totals, 2), (measures, 2), (big, 3)])
-        for pool, size in passes:
+        for pool, size in rounds:
             if len(pool) < size:
                 continue
             hit = self.combinations(t, pool, size)
             if hit:
                 return hit
-        return None if cheap else self.greedy(t, [j for j in measures if j != t])
+        if mode == 'cheap':
+            return None
+        return self.greedy(t, [j for j in measures if j != t])
 
 
 
@@ -351,7 +349,8 @@ def analyse(cols: list[dict], measures: list[int], n_rows: int,
         for n_done, i in enumerate(todo):
             if len(todo) > 24 and n_done and n_done % 24 == 0:
                 say(f'    {n_done}/{len(todo)}', flush=True)
-            hit = f.explain(i, totals, measures, cheap=attempt > 0)
+            hit = f.explain(i, totals, measures,
+                            ('strict', 'loose', 'cheap', 'cheap')[attempt])
             if not hit:
                 continue
             kids, signs, worst = hit
@@ -372,7 +371,7 @@ def analyse(cols: list[dict], measures: list[int], n_rows: int,
         if n['how'] != 'derived' or len(n['children']) <= 2:
             continue
         f.forget(n['pos'])
-        hit = f.explain(n['pos'], sorted(explained - {n['pos']}), measures)
+        hit = f.explain(n['pos'], sorted(explained - {n['pos']}), measures, 'loose')
         if hit and len(hit[0]) < len(n['children']):
             n['children'], n['signs'] = order_terms(hit[0], hit[1])
             n['max_diff'] = hit[2] or 0.0
@@ -463,7 +462,9 @@ def render(nodes: list[dict], cols: list[dict], roots: list[int]) -> list[str]:
         node = node_at.get(pos)
         tag = ''
         if node:
-            tag = f"   = {len(node['children'])} item(s)"
+            tag = ('   = the same figure' if len(node['children']) == 1
+                   and node['signs'][0] > 0 else
+                   f"   = {len(node['children'])} item(s)")
             if node['how'] == 'derived':
                 tag += ' (not printed as a block)'
         lines.append(f"{amount}  {'    ' * depth}{mark}{c['header']}{tag}")
@@ -482,7 +483,8 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata', help='folder holding the files')
     ap.add_argument('--file', default=None,
-                    help='the export to analyse (default: the newest profit_* file)')
+                    help='the export to analyse (default: the highest-numbered '
+                         'profit_* file in the folder)')
     ap.add_argument('--db', default=None, help='SQLite file (default: <dir>/sales.db)')
     ap.add_argument('--no-db', action='store_true', help='skip the database')
     ap.add_argument('--json', default=str(ROOT / 'docs' / 'structure.json'))
@@ -496,8 +498,7 @@ def main() -> int:
 
     target = (folder / args.file if args.file and (folder / args.file).is_file()
               else pick_file(folder, args.file) if args.file
-              else pick_file(folder, 'profit_2608_2', 'profit_2608_1', 'profit_2608',
-                             'profit'))
+              else pick_latest(folder, 'profit'))
     if target is None:
         print(f'no profit export found in {folder.resolve()}', file=sys.stderr)
         return 2

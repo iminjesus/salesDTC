@@ -22,7 +22,7 @@ import webbrowser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
-from rawdata import read_any, parse_number                     # noqa: E402
+from rawdata import parse_number, pick_file, pick_latest, read_any  # noqa: E402
 import analyze_structure as A                                  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -78,6 +78,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata')
+    ap.add_argument('--file', default=None,
+                    help='the export to draw (default: the highest-numbered '
+                         'profit_* file in the folder)')
     ap.add_argument('--out', default=str(HERE / 'pnl_2608.html'))
     ap.add_argument('--title', default='August 2026 P&L')
     ap.add_argument('--structure', default=str(ROOT / 'docs' / 'structure.json'),
@@ -95,8 +98,8 @@ def main() -> int:
     if not folder.is_dir():
         print(f'no such folder: {folder.resolve()}', file=sys.stderr)
         return 2
-    target = A.pick_file(folder, 'profit_2608_2', 'profit_2608_1', 'profit_2608',
-                         'profit')
+    target = (pick_file(folder, args.file) if args.file
+              else pick_latest(folder, 'profit'))
     if target is None:
         print(f'no profit export in {folder.resolve()}', file=sys.stderr)
         return 2
@@ -132,13 +135,13 @@ def main() -> int:
 
     # ── dimensions ──────────────────────────────────────────────────────────
     cust = prod = {}
-    cp = A.pick_file(folder, 'customer_2608')
+    cp = pick_file(folder, 'customer_2608')
     if cp:
         cust = master(cp, ('Sold-To', 'sold To', 'sold_to'),
                       {'account': ('Account Name', 'account_name'),
                        'type': ('Type', 'customer_type')})
         print(f'  customer master: {len(cust):,} accounts')
-    pp = A.pick_file(folder, 'product_2608')
+    pp = pick_file(folder, 'product_2608')
     if pp:
         prod = master(pp, ('SKU', 'sku', 'Material'),
                       {'division': ('Division',), 'category': ('Category',)})
@@ -246,7 +249,19 @@ def main() -> int:
             node_map[slot_of[nd['pos']]] = {
                 'k': [slot_of[k] for k in nd['children']], 's': nd['signs']}
     claimed = {k for v in node_map.values() for k in v['k']}
-    roots = [s for s in sorted(node_map) if s not in claimed]
+
+    def reach(slot: int, seen=None) -> int:
+        seen = seen if seen is not None else set()
+        for k in (node_map.get(slot) or {'k': ()})['k']:
+            if k not in seen:
+                seen.add(k)
+                reach(k, seen)
+        return len(seen)
+
+    # The page opens on the fullest tree - the bottom line rather than whichever
+    # subtotal happens to sit leftmost in the export.
+    roots = sorted((s for s in node_map if s not in claimed),
+                   key=lambda s: (-reach(s), -abs(cols[measures[s]]['total'] or 0)))
     if not roots:
         roots = sorted(range(len(measures)),
                        key=lambda s: -abs(cols[measures[s]]['total'] or 0))[:12]

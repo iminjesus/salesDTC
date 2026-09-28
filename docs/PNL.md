@@ -1,9 +1,19 @@
 # The wide P&L: database, structure, chart
 
-`profit_2608_2` is a wide profit-and-loss export - a couple of hundred amount
+The profit export is a wide profit-and-loss file - a couple of hundred amount
 columns where a total and the lines behind it sit side by side. Nothing in the
 file marks which is which. The asterisks in the header are a habit of the export,
 not a guarantee, so the tooling here reads the numbers instead.
+
+**Which file gets read.** The tools take the highest-numbered `profit_*` file
+in the folder - `profit_2608_3` over `profit_2608_2` over `profit_2608_1` - so a
+re-cut export needs no code change, only the file dropped in. `--file NAME`
+picks a different one. Both commands print the name they chose.
+
+Columns move between cuts, which is the point of reading the structure from the
+numbers: a renamed, added or dropped column changes the tree rather than breaking
+the run. A relation that no longer adds up is simply not reported, and the column
+turns up under **Not part of any total** in the report.
 
 Two commands. The first loads and analyses, the second draws.
 

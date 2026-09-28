@@ -24,7 +24,7 @@ import webbrowser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
-from rawdata import read_any                                   # noqa: E402
+from rawdata import pick_file, pick_latest, read_any           # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 
@@ -89,18 +89,10 @@ def load(path: Path) -> tuple[list[str], list[list[str]]]:
     return [h.strip() for h in rows[0]], rows[1:]
 
 
-def pick_file(folder: Path, *stems: str) -> Path:
-    for stem in stems:
-        hits = sorted(p for p in folder.iterdir()
-                      if p.is_file() and norm(p.stem) == norm(stem))
-        if hits:
-            return hits[0]
-    for stem in stems:                              # prefix match, e.g. profit_2608_1x
-        hits = sorted(p for p in folder.iterdir()
-                      if p.is_file() and norm(p.stem).startswith(norm(stem)))
-        if hits:
-            return hits[0]
-    raise SystemExit(f'none of {stems} found in {folder.resolve()}')
+def need(path, what: str, folder: Path) -> Path:
+    if path is None:
+        raise SystemExit(f'no {what} file in {folder.resolve()}')
+    return path
 
 
 # ── the measures the chart needs, and the headers they may arrive under ─────
@@ -161,9 +153,11 @@ def main() -> int:
         return 2
 
     print('reading:')
-    p_head, p_rows = load(pick_file(folder, 'profit_2608_1', 'profit_2608'))
-    c_head, c_rows = load(pick_file(folder, 'customer_2608'))
-    d_head, d_rows = load(pick_file(folder, 'product_2608'))
+    p_head, p_rows = load(need(pick_latest(folder, 'profit'), 'profit_*', folder))
+    c_head, c_rows = load(need(pick_file(folder, 'customer_2608'),
+                               'customer_2608', folder))
+    d_head, d_rows = load(need(pick_file(folder, 'product_2608'),
+                               'product_2608', folder))
 
     def show_headers(name: str, head: list[str]) -> None:
         print(f'\n{name} columns ({len(head)}):')

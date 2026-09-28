@@ -173,6 +173,42 @@ def read_any(path: Path) -> tuple[list[list[str]], dict]:
     return read_text_table(path)
 
 
+def norm_stem(s) -> str:
+    return re.sub(r'[^a-z0-9]', '', str(s).lower())
+
+
+def pick_file(folder: Path, *stems: str):
+    """The file named like one of these stems, exact match first."""
+    for stem in stems:
+        hits = sorted(p for p in folder.iterdir()
+                      if p.is_file() and norm_stem(p.stem) == norm_stem(stem))
+        if hits:
+            return hits[0]
+    for stem in stems:
+        hits = sorted(p for p in folder.iterdir()
+                      if p.is_file() and norm_stem(p.stem).startswith(norm_stem(stem)))
+        if hits:
+            return hits[0]
+    return None
+
+
+def pick_latest(folder: Path, prefix: str):
+    """The newest export of a series: profit_2608_3 over profit_2608_1.
+
+    The exports get re-cut and renamed, so the numbers in the name decide -
+    read left to right, as many as there are. Nothing in the tools needs
+    editing when the next one lands.
+    """
+    hits = [p for p in folder.iterdir()
+            if p.is_file() and norm_stem(p.stem).startswith(norm_stem(prefix))
+            and p.suffix.lower() != '.db']
+    if not hits:
+        return None
+    def rank(p):
+        return ([int(n) for n in re.findall(r'\d+', p.stem)], p.name)
+    return max(hits, key=rank)
+
+
 def parse_number(v) -> float | None:
     """The number a cell holds, or None if it does not hold one.
 
