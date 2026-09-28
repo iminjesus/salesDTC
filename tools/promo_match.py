@@ -27,7 +27,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rawdata import find, parse_number, pick_file, read_any    # noqa: E402
+import customer as CUST                                       # noqa: E402
+from rawdata import find, parse_number, pick_file, read_any   # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -56,7 +57,83 @@ NAMES = {
     'group':   ('Portal Group', 'Site', 'Channel', 'Store'),
     'cancel':  ('Cancelled', 'Order Cancelled'),
     'cat':     ('Product Category', 'Category', 'Product Division', 'Product'),
+    'division': ('Product Division', 'Division'),
 }
+# A rule spells its mechanic in short; the plan spells it out. Same thing.
+MECHANIC = {'DISC': 'Discount', 'DISCOUNT': 'Discount', 'PWP': 'PWP',
+            'GWP': 'GWP', 'BUNDLE': 'Bundle', 'BDL': 'Bundle',
+            'CASHBACK': 'Cashback', 'CB': 'Cashback', 'TRADEUP': 'Trade-Up',
+            'TRADEIN': 'Trade-In', 'VOUCHER': 'Voucher', 'PROMO': 'Discount'}
+
+
+def mechanic_of(rules: list[dict]) -> tuple[str, str]:
+    """The offer type and detail a set of rules describes.
+
+    The plan names an Offer_Type and an Offer_Detail; a rule carries the same
+    two things run together in its code. Reading the mechanic out of the rule
+    lets both sides sit on one pair of levels instead of two vocabularies that
+    cannot be charted together.
+    """
+    kinds, rest = [], []
+    for d in rules:
+        words = d['what'].split()
+        hit = next((w for w in words if w.upper() in MECHANIC), '')
+        if hit:
+            kinds.append(MECHANIC[hit.upper()])
+            rest.append(' '.join(w for w in words if w != hit) or d['what'])
+        else:
+            rest.append(d['what'])
+    return (' + '.join(dict.fromkeys(kinds)) or '(not named in the rule)',
+            ' + '.join(dict.fromkeys(rest)) or '(no detail)')
+
+
+def portal_levels(path: Path, say=print) -> dict:
+    """The customer hierarchy, keyed by portal group rather than by account.
+
+    The order export carries a portal group, not a payer, so the customer
+    master is folded down to one row per portal group. A group whose accounts
+    disagree takes the value most of them carry, and the disagreement is
+    reported - it is a judgement, not a lookup.
+    """
+    rows, _ = read_any(path)
+    head = [h.strip() for h in rows[0]]
+    k = find(head, 'Portal Group', 'portal_group')
+    if k is None:
+        say('  customer_2608 has no Portal Group column, so the order export '
+            'cannot be joined to it')
+        return {}
+    cols = {slot: find(head, *names) for _, slot, names in CUST.LEVELS if names}
+    cols['account'] = find(head, *CUST.ACCOUNT_NAMES)
+    counts: dict[str, dict] = {}
+    for r in rows[1:]:
+        group = (r[k].strip() if k < len(r) else '')
+        if not group or group == '-':
+            continue
+        seen = counts.setdefault(group.upper(), {})
+        for slot, i in cols.items():
+            v = (r[i].strip() if i is not None and i < len(r) else '')
+            if v and v != '-':
+                seen.setdefault(slot, {})
+                seen[slot][v] = seen[slot].get(v, 0) + 1
+    out, mixed = {}, []
+    for group, seen in counts.items():
+        row = {}
+        for slot, tally in seen.items():
+            row[slot] = max(tally, key=tally.get)
+            if len(tally) > 1:
+                mixed.append(f'{group} {slot}: '
+                             + ', '.join(f'{v} x{n}' for v, n in
+                                         sorted(tally.items(), key=lambda t: -t[1])[:3]))
+        row['channel'] = CUST.channel_of(row.get('account'))
+        out[group] = row
+    say(f'  customer master folded to {len(out):,} portal group(s)'
+        + (f'; {len(mixed):,} of them hold accounts that disagree, and the '
+           'commonest value is used:' if mixed else ''))
+    for line in mixed[:5]:
+        say(f'    {line}')
+    if len(mixed) > 5:
+        say(f'    ... and {len(mixed) - 5:,} more')
+    return out
 # Every column in the plan that can hold a price, tried nearest-first against
 # what the order actually paid. Which one wins is reported, because "matched
 # T2_Price" says which tier the customer was on.
@@ -167,7 +244,7 @@ def from_plan(order: dict, plan: Plan, tol: float) -> dict:
     cands, how = plan.candidates(order['code'])
     if not cands:
         return {'promo': '', 'how': how, 'gap': '', 'alts': 0,
-                'priced': '', 'type': ''}
+                'priced': '', 'type': '', 'detail': ''}
 
     if order['date'] is not None:
         dated = [c for c in cands if c['start'] or c['end']]
@@ -177,7 +254,7 @@ def from_plan(order: dict, plan: Plan, tol: float) -> dict:
         undated = [c for c in cands if c not in dated]
         if dated and not live and not undated:
             return {'promo': '', 'gap': '', 'alts': len(dated), 'priced': '',
-                    'type': '',
+                    'type': '', 'detail': '',
                     'how': how + ', but no promotion for it was running that day'}
         if dated:
             cands = live + undated
@@ -198,15 +275,15 @@ def from_plan(order: dict, plan: Plan, tol: float) -> dict:
                 nothing = [c for c in cands if not c['prices']]
                 if not nothing:
                     return {'promo': '', 'gap': gap, 'alts': len(cands),
-                            'priced': '', 'type': '',
+                            'priced': '', 'type': '', 'detail': '',
                             'how': how + f', but the price paid is {gap:+,.2f} '
                                    f'from the nearest ({best["promo"]}, {col})'}
                 cands, gap = nothing, ''
                 how += ', price fits none of the priced lines'
 
     return {'promo': cands[0]['promo'], 'how': how, 'gap': gap,
-            'type': cands[0]['type'], 'priced': priced_as,
-            'alts': len(cands) - 1}
+            'type': cands[0]['type'], 'detail': cands[0]['detail'],
+            'priced': priced_as, 'alts': len(cands) - 1}
 
 
 # ── describing a file ───────────────────────────────────────────────────────
@@ -315,6 +392,7 @@ def main() -> int:
     P['start'] = choose(p_head, p_body, 'start', args.promo_start)
     P['end'] = choose(p_head, p_body, 'end', args.promo_end)
     P['voucher'] = choose(p_head, p_body, 'voucher', args.promo_voucher)
+    P['promo2b'] = find(p_head, 'Offer_Detail', 'Offer Detail')
     O = {
         'sku': choose(o_head, o_body, 'sku', args.order_sku),
         'date': choose(o_head, o_body, 'date', args.order_date),
@@ -325,6 +403,7 @@ def main() -> int:
         'voucher': choose(o_head, o_body, 'voucher', args.order_voucher),
         'group': choose(o_head, o_body, 'group', None),
         'cat': choose(o_head, o_body, 'cat', None),
+        'division': choose(o_head, o_body, 'division', None),
         'cancel': choose(o_head, o_body, 'cancel', None),
     }
     price_cols = [(c, find(p_head, c)) for c in PRICE_COLS]
@@ -380,6 +459,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
                            if x and x != '-') or '(unnamed plan line)'
         plan_rows.append({
             'code': code, 'promo': label, 'type': cell(r, P['type']),
+            'detail': cell(r, P['promo2b']) or cell(r, P['promo2']),
             'start': to_date(cell(r, P['start'])),
             'end': to_date(cell(r, P['end'])),
             'site': cell(r, P['site']),
@@ -388,6 +468,10 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
                        if (p := parse_number(cell(r, i))) is not None},
         })
     plan = Plan(plan_rows)
+    portals = {}
+    cp = pick_file(Path(args.dir), 'customer_2608')
+    if cp:
+        portals = portal_levels(cp)
     dated = sum(1 for r in plan_rows if r['start'] or r['end'])
     print(f'\nplan: {len(plan_rows):,} line(s) over {len(plan.by_code):,} product '
           f'code(s); {dated:,} carry a window, {len(plan.by_voucher):,} voucher '
@@ -451,8 +535,23 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         agg[0] += 1
         agg[1] += qty
         agg[2] += amount or 0.0
-        page.append((how, promo or '(no promotion found)',
-                     cell(r, O['group']) or '(blank)',
+        # The offer, on one pair of levels whichever source answered.
+        if how == 'rule':
+            o_type, o_detail = mechanic_of(rules)
+        elif how == 'voucher':
+            o_type = v_hits[0]['type'] or '(not named in the plan)'
+            o_detail = v_hits[0]['detail'] or v_hits[0]['promo']
+        elif how == 'plan':
+            o_type = guess['type'] or '(not named in the plan)'
+            o_detail = guess['detail'] or guess['promo']
+        else:
+            o_type = o_detail = '(nothing fits)'
+        group = cell(r, O['group']) or '(blank)'
+        c = portals.get(group.upper(), {})
+        page.append((how,
+                     c.get('channel') or CUST.NO_MATCH,
+                     c.get('type') or '(blank)', c.get('type2') or '(blank)',
+                     group, o_type, o_detail,
                      cell(r, O['cat']) or '(blank)',
                      order['date'].isoformat() if order['date'] else '',
                      qty, amount or 0.0))
@@ -467,6 +566,17 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
             guess['promo'], guess['how'], guess['priced'], guess['gap'],
             guess['alts'] or '',
         ])
+
+    if O['division'] is not None:
+        divs: dict[str, int] = {}
+        for r in o_body:
+            d = cell(r, O['division']) or '(blank)'
+            divs[d] = divs.get(d, 0) + 1
+        total = sum(divs.values()) or 1
+        print('\nthe order export by division - the plan only covers what it '
+              'lists, so the rest cannot be attributed at all:')
+        for d, c in sorted(divs.items(), key=lambda kv: -kv[1])[:6]:
+            print(f'  {d[:20]:<20} {c:>8,} line(s)  {c * 100 / total:>5.1f}%')
 
     n = len(out) or 1
     print(f'\nattributed {len(out):,} order line(s)'
@@ -542,37 +652,50 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
 
 def write_page(path: Path, args, pp, op, page: list, reasons: list,
                cancelled: int) -> None:
-    """One self-contained page: what was attributed, to what, and what was not.
+    """One self-contained page, with the profit chart's controls.
 
-    The rows are rolled up to one per source, promotion, portal group, category
-    and day. That is always fewer than the order lines and usually far fewer,
-    so the filters and the daily chart work off sums rather than off forty
-    thousand rows carried into the browser.
+    The rows are rolled up to one per source, per level value and per day -
+    always fewer than the order lines and usually far fewer - so the filters
+    and the drill work off sums rather than off forty thousand rows carried
+    into the browser.
     """
     import json
 
-    sources, promos, groups, cats, days = {}, {}, {}, {}, set()
+    # The drill, top first. The customer half comes from the portal group
+    # folded against the customer master; the offer half is the promotion.
+    LEVELS = ['Channel', 'Type', 'Type2', 'Portal Group',
+              'Offer Type', 'Offer Detail', 'Product Category']
+    sources: dict[str, int] = {}
+    values: list[dict[str, int]] = [{} for _ in LEVELS]
+    days = set()
     buckets: dict[tuple, list[float]] = {}
+
     def idx(d, v):
         return d.setdefault(v, len(d))
-    for how, promo, group, cat, day, qty, amt in page:
+
+    for row in page:
+        how, levels, day, qty, amt = row[0], row[1:8], row[8], row[9], row[10]
         days.add(day)
-        key = (idx(sources, how), idx(promos, promo), idx(groups, group),
-               idx(cats, cat), day)
+        key = (idx(sources, how),) + tuple(idx(values[i], v)
+                                           for i, v in enumerate(levels)) + (day,)
         b = buckets.setdefault(key, [0.0, 0.0, 0.0])
         b[0] += 1
         b[1] += qty
         b[2] += amt
-    order = sorted(days)
+
     payload = {
         'title': 'August 2026 Promotions',
         'plan': pp.name, 'orders': op.name,
         'lines': len(page), 'cancelled': cancelled,
-        'sources': list(sources), 'promos': list(promos),
-        'days': order,
-        'levels': [{'name': 'Portal group', 'values': list(groups)},
-                   {'name': 'Product category', 'values': list(cats)}],
-        'rows': [{'s': k[0], 'p': k[1], 'k': [k[2], k[3]], 'd': k[4],
+        'sources': list(sources),
+        'days': sorted(days),
+        # Offer Type is where the page opens: it is the question this file
+        # answers, and Offer Detail sits one click inside it.
+        'startDim': LEVELS.index('Offer Type'),
+        'custDepth': 4,
+        'levels': [{'name': n, 'values': list(v)}
+                   for n, v in zip(LEVELS, values)],
+        'rows': [{'s': k[0], 'k': list(k[1:1 + len(LEVELS)]), 'd': k[-1],
                   'n': int(v[0]), 'q': round(v[1], 2), 'a': round(v[2], 2)}
                  for k, v in buckets.items()],
         'reasons': [[w, n] for w, n in reasons[:12]],

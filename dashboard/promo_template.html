@@ -57,6 +57,16 @@ select { min-width:150px; max-width:240px; }
 .legend i { width:11px; height:11px; border-radius:3px; display:inline-block;
   margin-right:6px; vertical-align:-1px; }
 .chart { position:relative; }
+.scope { font-size:12px; color:var(--ink-3); margin:10px 0 0; }
+.scope b { color:var(--ink-2); font-weight:600; }
+.crumb { display:flex; flex-wrap:wrap; gap:4px; align-items:center;
+  font-size:13px; margin-bottom:12px; }
+.crumb button { background:none; border:0; color:var(--accent); cursor:pointer;
+  font:inherit; padding:2px 5px; border-radius:5px; }
+.crumb button:hover { background:var(--grid); }
+.crumb .sep { color:var(--ink-3); } .crumb .now { font-weight:600; padding:2px 5px; }
+.note { font-style:normal; font-size:10px; color:var(--ink-3);
+  text-transform:none; letter-spacing:0; max-width:220px; }
 .hint { font-size:12px; color:var(--ink-3); margin-top:10px; }
 table { border-collapse:collapse; width:100%; font-size:13px;
   font-variant-numeric:tabular-nums; }
@@ -77,7 +87,10 @@ tfoot td { font-weight:650; border-top:1px solid var(--line); border-bottom:0; }
   <h1 id="pageTitle">Promotions</h1>
   <div class="sub" id="pageSub"></div>
 
-  <div class="card"><div class="row" id="filters"></div></div>
+  <div class="card">
+    <div class="row" id="filters"></div>
+    <div class="scope" id="scope"></div>
+  </div>
 
   <div class="card">
     <h2>How each order line was attributed</h2>
@@ -88,8 +101,10 @@ tfoot td { font-weight:650; border-top:1px solid var(--line); border-bottom:0; }
   </div>
 
   <div class="card">
-    <h2>Revenue by promotion</h2>
-    <div class="row" style="margin-bottom:10px">
+    <div class="crumb" id="crumb"></div>
+    <div class="row" style="margin-bottom:12px">
+      <label class="f"><span>Bars by</span><select id="dimPick"></select></label>
+      <button class="btn" id="backBtn">&larr; Back</button>
       <label class="f"><span>Show</span><select id="topPick">
         <option value="15">Top 15</option><option value="30">Top 30</option>
         <option value="0">All</option></select></label>
@@ -129,14 +144,81 @@ const SOURCES = [
 const fmt = n => Math.round(n).toLocaleString();
 const pct = n => n.toFixed(1) + '%';
 
-const state = { filter: DATA.levels.map(() => -1), top: 15, hideNone: false };
+const state = {
+  filter: DATA.levels.map(() => -1),
+  dim: DATA.startDim,
+  top: 15,
+  hideNone: false,
+};
 
-/* Every combination of source, promotion, the filter values and the day was
-   totalled at build time, so a filter change is a sum over those rather than a
-   pass over forty thousand order lines. */
 function rowsIn() {
   return DATA.rows.filter(r =>
     state.filter.every((want, i) => want < 0 || r.k[i] === want));
+}
+
+/* Which values a level can still offer, given the levels above it in the same
+   half - picking a Type should not leave Type2 listing other types' values. */
+function optionsFor(level) {
+  const group = level < DATA.custDepth ? [0, DATA.custDepth]
+                                       : [DATA.custDepth, DATA.levels.length];
+  const seen = new Set(), all = new Set(), blame = [];
+  for (let i = group[0]; i < level; i++) {
+    if (state.filter[i] >= 0) blame.push(DATA.levels[i].name);
+  }
+  for (const r of DATA.rows) {
+    all.add(r.k[level]);
+    let ok = true;
+    for (let i = group[0]; i < level; i++) {
+      if (state.filter[i] >= 0 && r.k[i] !== state.filter[i]) { ok = false; break; }
+    }
+    if (ok) seen.add(r.k[level]);
+  }
+  return { seen, hidden: all.size - seen.size, blame };
+}
+
+/* Narrowing to a value moves the bars down to the next level; widening back to
+   All brings them up. A bar click and a select change go through here, so the
+   two cannot disagree. */
+function setFilter(i, v) {
+  state.filter[i] = v;
+  if (v >= 0 && state.dim === i && i + 1 < DATA.levels.length) state.dim = i + 1;
+  if (v < 0 && state.dim > i) state.dim = i;
+  render();
+}
+
+function buildFilters() {
+  const box = document.getElementById('filters');
+  box.innerHTML = '';
+  DATA.levels.forEach((lv, i) => {
+    const { seen, hidden, blame } = optionsFor(i);
+    if (state.filter[i] >= 0 && !seen.has(state.filter[i])) state.filter[i] = -1;
+    const wrap = document.createElement('label');
+    wrap.className = 'f';
+    wrap.innerHTML = `<span>${lv.name}</span>`;
+    const sel = document.createElement('select');
+    sel.innerHTML = `<option value="-1">All (${seen.size})</option>`
+      + lv.values.map((v, j) => seen.has(j)
+          ? `<option value="${j}">${v}</option>` : '').join('');
+    sel.value = String(state.filter[i]);
+    sel.disabled = seen.size <= 1 && state.filter[i] < 0;
+    sel.onchange = () => setFilter(i, +sel.value);
+    wrap.appendChild(sel);
+    // A value missing from the list is usually not missing from the file: it
+    // sits under a level above that is narrowed. Say so.
+    if (hidden) {
+      wrap.insertAdjacentHTML('beforeend',
+        `<em class="note">${hidden} more under other ${blame.join(' / ')}</em>`);
+    }
+    box.appendChild(wrap);
+  });
+  const reset = document.createElement('button');
+  reset.className = 'btn'; reset.textContent = 'Reset';
+  reset.onclick = () => {
+    state.filter = DATA.levels.map(() => -1);
+    state.dim = DATA.startDim;
+    render();
+  };
+  box.appendChild(reset);
 }
 
 function render() {
@@ -148,8 +230,48 @@ function render() {
     + ` · plan: ${DATA.plan}`;
   buildFilters();
 
+  const picked = DATA.levels
+    .map((lv, i) => (state.filter[i] >= 0
+      ? `${lv.name} ${lv.values[state.filter[i]]}` : null)).filter(Boolean);
+  document.getElementById('scope').innerHTML = picked.length
+    ? 'Showing <b>' + picked.join('</b> · <b>') + '</b>'
+    : 'Showing every order line the plan could be asked about.';
+
+  const dimSel = document.getElementById('dimPick');
+  dimSel.innerHTML = DATA.levels.map((lv, i) =>
+    `<option value="${i}">${lv.name}</option>`).join('');
+  dimSel.value = state.dim;
+  document.getElementById('backBtn').disabled = state.dim === 0;
+
+  /* The path taken so far, then the level the bars are on. */
+  const crumb = document.getElementById('crumb');
+  crumb.innerHTML = '';
+  const step = (text, onclick) => {
+    if (crumb.children.length) {
+      crumb.insertAdjacentHTML('beforeend', '<span class="sep">&rsaquo;</span>');
+    }
+    if (!onclick) {
+      crumb.insertAdjacentHTML('beforeend', `<span class="now">${text}</span>`);
+      return;
+    }
+    const b = document.createElement('button');
+    b.textContent = text; b.onclick = onclick; crumb.appendChild(b);
+  };
+  step('All', () => {
+    state.filter = DATA.levels.map(() => -1);
+    state.dim = 0; render();
+  });
+  DATA.levels.forEach((lv, i) => {
+    if (state.filter[i] < 0 || i >= state.dim) return;
+    step(lv.values[state.filter[i]], () => {
+      for (let j = i; j < state.filter.length; j++) state.filter[j] = -1;
+      state.dim = i; render();
+    });
+  });
+  step(`by ${DATA.levels[state.dim].name}`, null);
+
   const rows = rowsIn();
-  const bySource = {}, byDay = {}, byPromo = new Map();
+  const bySource = {}, byDay = {}, byBar = new Map();
   let lines = 0, amount = 0;
   for (const r of rows) {
     lines += r.n; amount += r.a;
@@ -157,17 +279,19 @@ function render() {
     bySource[s] = bySource[s] || [0, 0];
     bySource[s][0] += r.n; bySource[s][1] += r.a;
     (byDay[r.d] = byDay[r.d] || {})[s] = (byDay[r.d][s] || 0) + r.a;
-    const key = r.s + '\u0000' + r.p;
-    const cur = byPromo.get(key) || { s: r.s, name: DATA.promos[r.p], n: 0, q: 0, a: 0 };
+    const name = DATA.levels[state.dim].values[r.k[state.dim]];
+    const cur = byBar.get(name)
+      || { name, idx: r.k[state.dim], n: 0, q: 0, a: 0, by: {} };
     cur.n += r.n; cur.q += r.q; cur.a += r.a;
-    byPromo.set(key, cur);
+    cur.by[s] = (cur.by[s] || 0) + r.a;
+    byBar.set(name, cur);
   }
 
   const known = lines - (bySource.none ? bySource.none[0] : 0);
   document.getElementById('kpis').innerHTML = [
     ['Order lines', fmt(lines), ''],
     ['Attributed', lines ? pct(known * 100 / lines) : '-', `${fmt(known)} lines`],
-    ...SOURCES.map(([s, label]) => [
+    ...SOURCES.map(([s]) => [
       s === 'none' ? 'Nothing fits' : `By ${s}`,
       fmt(bySource[s] ? bySource[s][1] : 0),
       `${fmt(bySource[s] ? bySource[s][0] : 0)} lines`]),
@@ -175,42 +299,14 @@ function render() {
   ].map(([k, v, n]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div>` +
     (n ? `<div class="n">${n}</div>` : '') + '</div>').join('');
-
   document.getElementById('legend').innerHTML = SOURCES.map(([s, label]) =>
     `<span><i style="background:${C[s]}"></i>${label}</span>`).join('');
 
   drawDays(byDay);
-  drawPromos([...byPromo.values()], amount);
+  drawBars([...byBar.values()], amount);
 }
 
-function buildFilters() {
-  const box = document.getElementById('filters');
-  box.innerHTML = '';
-  DATA.levels.forEach((lv, i) => {
-    const seen = new Set();
-    for (const r of DATA.rows) {
-      if (state.filter.every((w, j) => j === i || w < 0 || r.k[j] === w))
-        seen.add(r.k[i]);
-    }
-    const wrap = document.createElement('label');
-    wrap.className = 'f';
-    wrap.innerHTML = `<span>${lv.name}</span>`;
-    const sel = document.createElement('select');
-    sel.innerHTML = `<option value="-1">All (${seen.size})</option>`
-      + lv.values.map((v, j) => seen.has(j)
-          ? `<option value="${j}">${v}</option>` : '').join('');
-    sel.value = String(state.filter[i]);
-    sel.onchange = () => { state.filter[i] = +sel.value; render(); };
-    wrap.appendChild(sel);
-    box.appendChild(wrap);
-  });
-  const reset = document.createElement('button');
-  reset.className = 'btn'; reset.textContent = 'Reset';
-  reset.onclick = () => { state.filter = DATA.levels.map(() => -1); render(); };
-  box.appendChild(reset);
-}
-
-let dayChart = null, promoChart = null;
+let dayChart = null, barChart = null;
 function drawDays(byDay) {
   const days = DATA.days;
   const datasets = SOURCES.map(([s, label]) => ({
@@ -245,92 +341,124 @@ function drawDays(byDay) {
     + 'no source explained - its shape over the month is the thing to look at.';
 }
 
-/* The value at the end of each bar, so the axis need not be read. */
+/* The total at the end of each bar, so the axis need not be read. */
 const endLabels = { id: 'endLabels', afterDatasetsDraw(c) {
   const { ctx } = c, area = c.chartArea;
+  const last = c.data.datasets.length - 1;
   ctx.save();
   ctx.font = '600 11px -apple-system,"Segoe UI",Roboto,sans-serif';
   ctx.textBaseline = 'middle';
-  c.getDatasetMeta(0).data.forEach((bar, i) => {
-    const v = c.data.datasets[0].data[i];
-    const t = Math.round(v).toLocaleString();
+  c.getDatasetMeta(last).data.forEach((bar, i) => {
+    let total = 0;
+    for (const d of c.data.datasets) total += d.data[i] || 0;
+    const t = Math.round(total).toLocaleString();
     const w = ctx.measureText(t).width;
     if (bar.x + 6 + w <= area.right) {
       ctx.fillStyle = C.ink2; ctx.textAlign = 'left';
       ctx.fillText(t, bar.x + 6, bar.y);
-    } else if (Math.abs(bar.x - bar.base) > w + 16) {
-      ctx.fillStyle = C.onFill; ctx.textAlign = 'right';
-      ctx.fillText(t, bar.x - 8, bar.y);
     }
   });
   ctx.restore();
 } };
 
-function drawPromos(all, totalAmount) {
+function drawBars(all, totalAmount) {
+  const lv = DATA.levels[state.dim];
   let rows = all.slice();
-  if (state.hideNone) rows = rows.filter(r => DATA.sources[r.s] !== 'none');
+  if (state.hideNone) {
+    rows = rows.filter(r => !/nothing fits|no customer match/i.test(r.name));
+  }
   rows.sort((a, b) => b.a - a.a);
   const shown = state.top ? rows.slice(0, state.top) : rows;
+  const canDrill = state.dim + 1 < DATA.levels.length;
+
+  // One bar per member, stacked by which source answered for it - so a mixed
+  // bar shows at a glance how much of that offer needed inferring.
+  const datasets = SOURCES.map(([s, label]) => ({
+    label, stack: 'a', data: shown.map(r => r.by[s] || 0),
+    backgroundColor: C[s], borderRadius: 3, borderSkipped: false,
+    borderWidth: 1, borderColor: C.surface, maxBarThickness: 22,
+  }));
   document.getElementById('promoPlot').style.height =
-    Math.max(220, shown.length * 26 + 60) + 'px';
-  if (promoChart) promoChart.destroy();
-  promoChart = new Chart(document.getElementById('promoChart'), {
-    type: 'bar',
-    data: { labels: shown.map(r => r.name), datasets: [{
-      data: shown.map(r => r.a),
-      backgroundColor: shown.map(r => C[DATA.sources[r.s]]),
-      borderRadius: 4, borderSkipped: false, borderWidth: 2,
-      borderColor: C.surface, maxBarThickness: 22 }] },
+    Math.max(220, shown.length * 28 + 60) + 'px';
+  if (barChart) barChart.destroy();
+  barChart = new Chart(document.getElementById('promoChart'), {
+    type: 'bar', data: { labels: shown.map(r => r.name), datasets },
     plugins: [endLabels],
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      animation: { duration: 200 }, layout: { padding: { right: 84 } },
+      animation: { duration: 200 }, layout: { padding: { right: 104 } },
+      interaction: { mode: 'index', intersect: false },
+      onHover: (e, els) => {
+        e.native.target.style.cursor = (els.length && canDrill) ? 'pointer' : '';
+      },
+      onClick: (e, els) => {
+        if (!canDrill || !els.length) return;
+        setFilter(state.dim, shown[els[0].index].idx);
+      },
       scales: {
-        x: { beginAtZero: true, grid: { color: C.grid }, border: { display: false },
+        x: { stacked: true, beginAtZero: true, grid: { color: C.grid },
+             border: { display: false },
              ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
-        y: { grid: { display: false }, border: { display: false },
+        y: { stacked: true, grid: { display: false }, border: { display: false },
              ticks: { color: C.ink2, autoSkip: false, callback(v) {
                const t = this.getLabelForValue(v);
-               return t.length > 42 ? t.slice(0, 41) + '…' : t; } } },
+               return t.length > 42 ? t.slice(0, 41) + '\u2026' : t; } } },
       },
       plugins: {
         legend: { display: false },
         tooltip: { backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
-          displayColors: false, callbacks: {
-            label: c => {
-              const r = shown[c.dataIndex];
-              return [`${fmt(r.a)}  (${pct(totalAmount ? r.a * 100 / totalAmount : 0)})`,
+          filter: c => c.parsed.x !== 0,
+          callbacks: {
+            label: c => `${c.dataset.label}: ${fmt(c.parsed.x)}`,
+            footer: items => {
+              const r = shown[items[0].dataIndex];
+              return [`${fmt(r.a)} in all (${pct(totalAmount
+                        ? r.a * 100 / totalAmount : 0)})`,
                       `${fmt(r.n)} line(s), ${fmt(r.q)} unit(s)`,
-                      `answered by: ${DATA.sources[r.s]}`];
+                      ...(canDrill ? [`click to open by ${
+                        DATA.levels[state.dim + 1].name}`] : [])];
             } } },
       },
     },
   });
-  document.getElementById('promoHint').textContent =
-    `${shown.length} of ${rows.length} promotion(s), biggest first. Bar colour is `
-    + 'which source answered - blue is the store’s own rule, so those need '
-    + 'no inference at all.';
 
-  const tot = rows.reduce((a, r) => ({ n: a.n + r.n, q: a.q + r.q, a: a.a + r.a }),
-                          { n: 0, q: 0, a: 0 });
+  document.getElementById('promoHint').textContent =
+    `${shown.length} of ${rows.length} ${lv.name.toLowerCase()}(s), biggest first. `
+    + 'Each bar is split by which source answered, so a bar that is mostly blue '
+    + 'needed no inference.'
+    + (canDrill ? ` Click a bar to open it by ${DATA.levels[state.dim + 1].name}.`
+                : ' This is the last level; Back steps out.');
+
+  const tot = shown.reduce((a, r) => ({ n: a.n + r.n, q: a.q + r.q, a: a.a + r.a }),
+                           { n: 0, q: 0, a: 0 });
   document.getElementById('tableBox').innerHTML = `<table>
-    <thead><tr><th>Source</th><th>Promotion</th><th>Lines</th><th>Units</th>
-      <th>Revenue</th><th>Share</th></tr></thead>
-    <tbody>${shown.map(r => `<tr>
-      <td><span class="tag" style="background:${C[DATA.sources[r.s]]}">${
-        DATA.sources[r.s]}</span></td>
-      <td>${r.name}</td><td>${fmt(r.n)}</td><td>${fmt(r.q)}</td>
-      <td>${fmt(r.a)}</td>
-      <td>${pct(tot.a ? r.a * 100 / tot.a : 0)}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td></td><td>${shown.length < rows.length
-      ? `Total of these ${shown.length}` : 'Total'}</td>
-      <td>${fmt(shown.reduce((a, r) => a + r.n, 0))}</td>
-      <td>${fmt(shown.reduce((a, r) => a + r.q, 0))}</td>
-      <td>${fmt(shown.reduce((a, r) => a + r.a, 0))}</td><td></td></tr></tfoot>
-  </table>`;
+    <thead><tr><th>${lv.name}</th><th>Mostly from</th><th>Lines</th>
+      <th>Units</th><th>Revenue</th><th>Share</th></tr></thead>
+    <tbody>${shown.map(r => {
+      const top = Object.entries(r.by).sort((x, y) => y[1] - x[1])[0];
+      return `<tr><td>${r.name}</td>
+        <td><span class="tag" style="background:${C[top[0]]}">${top[0]}</span></td>
+        <td>${fmt(r.n)}</td><td>${fmt(r.q)}</td><td>${fmt(r.a)}</td>
+        <td>${pct(tot.a ? r.a * 100 / tot.a : 0)}</td></tr>`;
+    }).join('')}</tbody>
+    <tfoot><tr><td>${shown.length < rows.length
+      ? `Total of these ${shown.length}` : 'Total'}</td><td></td>
+      <td>${fmt(tot.n)}</td><td>${fmt(tot.q)}</td><td>${fmt(tot.a)}</td>
+      <td></td></tr></tfoot></table>`;
 }
 
+document.getElementById('dimPick').onchange = e => {
+  state.dim = +e.target.value;
+  for (let j = state.dim; j < state.filter.length; j++) state.filter[j] = -1;
+  render();
+};
+document.getElementById('backBtn').onclick = () => {
+  if (state.dim === 0) return;
+  state.dim -= 1;
+  for (let j = state.dim; j < state.filter.length; j++) state.filter[j] = -1;
+  render();
+};
 document.getElementById('topPick').onchange = e => {
   state.top = +e.target.value; render(); };
 document.getElementById('hideNone').onclick = e => {

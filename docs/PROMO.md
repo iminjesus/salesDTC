@@ -100,22 +100,56 @@ overwriting the other.
 py tools\promo_match.py --html        # -> dashboard\promo_2608.html
 ```
 
-One self-contained file, like the profit chart, with three things on it:
+One self-contained file with the profit chart's controls - the same cascading
+selects, breadcrumb, **← Back** and **Bars by** - and three things on it:
 
 - **How each line was attributed** - the KPI row and a daily stacked bar. The
   grey band is what nothing could answer for, and *its shape over the month* is
   the thing to look at: a flat grey band is a systematic gap, a spike is one
   day's promotion missing from the plan.
-- **Revenue by promotion**, biggest first, coloured by which source answered.
-  Blue is the store's own rule and needs no inference at all, so the amount of
-  blue is how much of the answer came free.
+- **Revenue by offer**, biggest first. The page opens on **Offer Type** -
+  Discount, PWP, GWP, Bundle - and clicking a bar opens it by **Offer Detail**,
+  then on into Product Category. Each bar is *stacked by which source answered*,
+  so a bar that is mostly blue needed no inference and a bar that is mostly
+  green rests entirely on the SKU-window-price guess.
+
+  Both sources land on the same two levels: the plan names an `Offer_Type` and
+  an `Offer_Detail`, and a rule runs the same two together in its code, so the
+  mechanic is read back out of it (`DISC` → Discount) rather than charting two
+  vocabularies that cannot be compared.
 - **Why nothing fit**, as a table, since each reason wants something different
   done about it.
 
-Filters narrow by portal group and product category. The rows are rolled up to
-one per source, promotion, portal group, category and day - always fewer than
-the order lines, usually far fewer - so the page stays small and the filters
-work off sums.
+### The customer half
+
+The order export carries a **portal group**, not a payer, so the customer
+master is folded down to one row per portal group and that gives the same
+hierarchy the profit chart drills:
+
+```
+Channel -> Type -> Type2 -> Portal Group -> Offer Type -> Offer Detail -> Product Category
+```
+
+A portal group whose accounts disagree on a level takes the value most of them
+carry, and the disagreement is printed - it is a judgement, not a lookup, so it
+is not made silently.
+
+Rows are rolled up to one per source, per level value and per day - always
+fewer than the order lines, usually far fewer - so the page stays small and the
+filters and the drill work off sums.
+
+### What it can cover
+
+The plan only lists one division, so nothing outside it can be attributed at
+all. The build prints the order export split by division, which is the ceiling
+on what any of this can explain:
+
+```
+the order export by division - the plan only covers what it lists, so the rest
+cannot be attributed at all:
+  MX                     28,140 line(s)   66.8%
+  TV & SD                 7,905 line(s)   18.8%
+```
 
 ## When a guess is wrong
 
