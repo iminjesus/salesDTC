@@ -1,108 +1,102 @@
 # Which promotion did an order come in on?
 
 ```powershell
-py tools\analyze_structure.py                 # everything in rawdata\ -> rawdata\sales.db
-py tools\promo_match.py --profile             # describe both files, change nothing
-py tools\promo_match.py                       # -> docs\promo_orders.csv, docs\promo_summary.csv
+py tools\promo_match.py --profile      # describe both files, change nothing
+py tools\promo_match.py                # attribute, and cross-check the two
 ```
 
-Two files: a promotion plan (`MX_product`), one row per product per promotion
-with a window and usually a price, and the orders themselves (`26 DTC Aug`).
-Neither says which order belongs to which promotion - that has to be inferred,
-and the inference can be wrong, so nothing here is asserted quietly.
+## The order export already knows
 
-## Start with --profile
+`26 DTC Aug` carries **`promotion_rule`** - the code the store itself applied -
+and **`Voucher Code(s)`** - what the customer typed. Neither is a guess, so
+both are used before anything is inferred. Three sources, in order of how much
+they can be trusted, and every row says which one answered it:
 
-It prints every column of both files - what it holds, how full it is, how many
-distinct values, three samples - and then the columns it would use:
+| Source | |
+|---|---|
+| `rule` | the store's own promotion code, parsed into something readable |
+| `voucher` | the order's voucher found in the plan's `Voucher_Code` |
+| `plan` | the SKU, in a promotion whose window covers the order date, at a price near the one paid - **an inference** |
+
+A rule like `AU_EPP_WEB_SP_14AUG26_09SEP26_PWP_S-SERIES-WATCH-30PCT` is pulled
+apart on its dates: whatever sits before them says where it ran, whatever sits
+after says what the offer was. The shape is read off the dates rather than off
+fixed positions, because the positions vary. One cell can hold several rules,
+comma-separated; all of them are kept.
+
+## The plan
+
+`MX_product` has no single promotion-name column, so the label is built from
+`Nationwide_Campaign`, `DTC_Campaign2` and `Offer_Type` - whichever are filled.
+Lines whose `Status` or `PUMI` reads cancelled, tentative, draft or rejected
+are **left out**: nothing sold under a promotion that was never live.
+`--keep-cancelled` keeps them, and cancelled orders, in.
+
+Every price column the plan carries - `S.COM_Price`, `T1_Price` … `T3_Price`,
+`EDU_Price`, `RRP` - is tried, nearest to what was paid. Which one won is
+written on the row, so **`paid the T2_Price`** says which tier the customer was
+on without the portal having to be mapped by hand.
+
+### The two prices must be on the same basis
+
+`AUD Revenue excl. GST` is a line total without tax; the plan quotes retail
+prices per unit. So the amount is divided by the quantity and grossed up by
+`--gst` (10 by default) before anything is compared. `--amount-is unit` turns
+off the division.
+
+The run prints the **median gap**. Near zero means the two agree; far from zero
+means they do not, and every comparison is then wrong in the same direction:
 
 ```
-columns chosen  (--flags override any of these):
-  MX_product.csv     product code   'Model Code'
-  MX_product.csv     starts         'Start Date'
-  26 DTC Aug.csv     product code   'Model'
-  26 DTC Aug.csv     price paid     'Unit Price'
+price paid vs plan price, 1,361 comparison(s): median +2.43, from -277.64 to +129.88
+a median far from zero means the two quote prices on different bases - try --gst or --amount-is
 ```
 
-Any of them can be named directly: `--order-sku Model`, `--promo-start "Valid
-From"`, and so on. Get these right before reading any number below them.
-
-## How a match is decided
-
-Three tests, in order, and each one is recorded on the row:
-
-1. **The code.** Exact first, then the same code with punctuation and case
-   removed, then the longest plan code the order code *starts with*. A plan
-   lists a model family, `SM-S931B`, where the order carries the code it was
-   actually sold under, `SM-S931BZKAXSA`. That last rule is an inference, so it
-   is written out as `code starts with SMS931B` rather than left to look like a
-   match.
-2. **The window.** A promotion that was not running on the order date cannot
-   have sold it. Plan lines with no dates stay in the running - they are
-   standing offers, not expired ones.
-3. **The price.** Where both files carry one, the promotion whose price the
-   order actually paid is the one it came in on. An order that paid **full
-   price** did not come in on a promotion however neatly the code and dates
-   line up, so it is rejected rather than credited with a discount that was
-   never given. `--price-tolerance` sets how close is close enough (3% of the
-   promotion price by default; `--price-tolerance 100` effectively turns the
-   test off).
-
-Where more than one promotion survives all three, the best is used and the row
-says how many others also fit, in `Other fits`. Those are worth looking at: the
-plan genuinely cannot tell them apart.
+Check that before trusting the split.
 
 ## Reading the result
 
 ```
-attributed 940 order line(s):
-       225   23.9%  one promotion fits
-       237   25.2%  more than one fits - the best is used
-       478   50.9%  none fits
-  price paid vs promotion price, over 761 comparison(s): median +0.00 ...
-
-why the rest did not match:
-     299  the price paid is not a promotion price
-     159  the plan has no line for this product
-      20  no promotion was running on the order date
+attributed 3,785 order line(s) (215 cancelled left out):
+   2,130   56.3%  the store's own promotion rule
+     250    6.6%  a voucher the plan lists
+     335    8.9%  inferred from the plan - code, window, price
+   1,070   28.3%  nothing fits
+  of 467 line(s) the rule and the plan both answered for, the mechanic matches
+  on 125 and differs on 342
+  689 line(s) carry a rule whose own dates do not cover the order date
 ```
 
-"None fits" is three different answers and each wants something different done
-about it, so they are counted apart. The product codes the plan never mentions
-are listed with their line counts, beside what the plan *is* keyed on - a
-mismatch of code systems shows up there immediately.
+Two cross-checks, both chosen so they mean something:
 
-**The median price gap is the one to check first.** Far from zero means the two
-files quote prices on different bases - one including tax, or one per line
-rather than per unit - and every comparison is then wrong in the same
-direction. Fix that before trusting the split.
+- **The mechanic.** The rule and the plan name promotions in different
+  vocabularies - a rule says `PWP`, the plan says `Black Friday / PWP` - so
+  comparing the names would measure nothing. The mechanic is the part both
+  spell, so that is what is compared.
+- **The rule's own window.** A rule names the dates it runs between. An order
+  dated outside them needs no plan to spot, and says something is wrong with
+  one of the two files.
+
+`why nothing fit` splits the misses into the three different answers they are -
+no plan line for the product, nothing running that day, or a price no promotion
+offers - because each wants something different done about it.
 
 ## What comes out
 
 | File | |
 |---|---|
-| `docs\promo_orders.csv` | one row per order line: the promotion, **how** it was matched, the price gap, and how many other promotions also fit |
-| `docs\promo_summary.csv` | per promotion: order lines, units, amount |
+| `docs\promo_orders.csv` | one row per order line: source, promotion, the raw rule, the voucher, what the plan would have said, how it matched, which price column, and the gap |
+| `docs\promo_summary.csv` | per source and promotion: order lines, units, amount |
 
 Both are UTF-8 with a BOM, so Excel opens them without the import wizard.
 
-`Matched by` is the column to read when a number looks wrong. It carries the
-whole chain - `code starts with SMS931B, in window, nearest price` - so a
-result can always be traced back to the rule that produced it.
+The plan's answer is kept **on every row even when a rule won**, in `Plan says`
+and `Plan matched by`. That is what makes the two comparable rather than one
+overwriting the other.
 
-## The database
+## When a guess is wrong
 
-`tools\analyze_structure.py` loads **every** file in `rawdata\` into
-`rawdata\sales.db`, one typed table each, named after the file:
-`mx_product`, `26_dtc_aug`, `customer_2608`, `profit_2608_3`. Columns holding
-amounts become `REAL` so SQL can sum them; codes stay `TEXT`, because a product
-number with a leading zero is not a number. `column_map` keeps the original
-header beside each column name.
-
-So the same question can be asked in SQL, once the matching rules are settled:
-
-```sql
-SELECT promotion_name, COUNT(*) FROM "26_dtc_aug" o
-JOIN mx_product p ON o.model LIKE p.model_code || '%'
-GROUP BY 1;
-```
+`--profile` prints every column of both files and then the columns it chose.
+Each can be named directly: `--order-rule promotion_rule`, `--promo-name
+DTC_Campaign1`, `--order-amount "AUD RRP"`, and so on. The columns decide every
+number below them, so fix those first.
