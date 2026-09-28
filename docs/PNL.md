@@ -175,7 +175,8 @@ The build prints what it matched, and that is usually the answer:
 - `N repeated key(s) in customer_2608` - the same Sold-To listed more than
   once. Each column is taken from the first row that fills it, so a later stub
   with empty detail columns cannot blank out a real account; a later row that
-  disagrees on a filled column is reported and left.
+  disagrees on a filled column is reported by key and left, so a conflict that
+  matters can be looked up in the master.
 - `joined: N of M rows matched a customer` - a zero here means the export does
   not carry the key the master is on, and the filters fall back to the columns
   of the profit file itself.

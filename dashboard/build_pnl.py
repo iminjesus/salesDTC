@@ -74,7 +74,8 @@ def master(path: Path, key_names: tuple, wanted: dict) -> dict:
         return {}
     cols = {slot: find(head, *names) for slot, names in wanted.items()}
     out: dict[str, dict] = {}
-    repeats = clashes = 0
+    repeats = 0
+    clashes: dict[str, set] = {}
     for r in rows[1:]:
         key = key_norm(r[k] if k < len(r) else '')
         if not key:
@@ -92,12 +93,16 @@ def master(path: Path, key_names: tuple, wanted: dict) -> dict:
             if not prev[slot]:
                 prev[slot] = v
             elif prev[slot] != v:
-                clashes += 1
+                clashes.setdefault(key, set()).add(f'{slot} {prev[slot]} / {v}')
     if repeats:
         print(f'  {repeats:,} repeated key(s) in {path.name}; each column is '
               f'taken from the first row that fills it'
-              + (f', and {clashes:,} later value(s) disagreed and were left'
-                 if clashes else ''))
+              + (f', and {len(clashes):,} key(s) disagreed - the later value '
+                 'was left:' if clashes else ''))
+        for key, variants in list(sorted(clashes.items()))[:5]:
+            print(f'    {key}: ' + '  |  '.join(sorted(variants)))
+        if len(clashes) > 5:
+            print(f'    ... and {len(clashes) - 5:,} more')
     return out
 
 
@@ -236,8 +241,9 @@ def main() -> int:
 
     c_key = find(head, 'Payer', 'sold To', 'Sold-To', 'Customer', 'Customer Code',
                  'Payer Code', 'Sold To Party')
-    p_key = find(head, 'Material', 'SKU', 'Material Code', 'Model', 'Model Code',
-                 'Material No', 'Item', 'Product')
+    p_key = find(head, 'Material', 'SKU', 'Material Code', 'Product Number',
+                 'Model', 'Model Code', 'Material No', 'Item', 'Product',
+                 'Product Code')
     print('\njoining on:')
     for what, i in (('customer', c_key), ('product', p_key)):
         print(f'  {what:9} {head[i] if i is not None else "-- no such column --"}'
@@ -339,12 +345,16 @@ def main() -> int:
                                  ('product', matched_p, p_key, prod, 'product_2608')):
         if n or not m:
             continue
+        keyed = f'{mfile} is keyed on ' + ', '.join(repr(k) for k in list(m)[:4])
+        if i is None:
+            print(f'  not one row matched {mfile}: the export has no column this '
+                  f'build recognises as a {what} key. {keyed}')
+            continue
         theirs = [key_norm(cell(r, i)) for r in body[:2000] if cell(r, i)]
         print(f'  not one row matched {mfile}. '
               + (f'{head[i]!r} holds e.g. ' + ', '.join(repr(k) for k in theirs[:4])
                  if theirs else f'{head[i]!r} is empty on every row')
-              + f'; {mfile} is keyed on '
-              + ', '.join(repr(k) for k in list(m)[:4]))
+              + f'; {keyed}')
     print(f'{len(combos):,} filter combination(s)')
 
     # ── what the filters ended up holding ──────────────────────────────────
