@@ -65,6 +65,10 @@ def main() -> int:
     ap.add_argument('--window-slack', type=int, default=0)
     ap.add_argument('--stem', type=int, default=0)
     ap.add_argument('--out', default=str(ROOT / 'docs'))
+    ap.add_argument('--html', nargs='?', const='', metavar='PATH',
+                    help='also write a page (default dashboard/promo_profit.html)')
+    ap.add_argument('--cdn', action='store_true',
+                    help='link Chart.js in the page instead of embedding it')
     ap.add_argument('--top', type=int, default=20)
     args = ap.parse_args()
 
@@ -293,7 +297,63 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
     print('\nthe profit file carries no promotion, so this is each product\'s '
           'profit split by the units its completed orders came in on. It ranks '
           'promotions; it does not measure what a discount cost.')
+    if args.html is not None:
+        write_page(Path(args.html) if args.html
+                   else ROOT / 'dashboard' / 'promo_profit.html',
+                   args, out, keys, cov_net / all_net * 100 if all_net else 0.0)
     return 0
+
+
+def write_page(path: Path, args, out: dict, keys: list, coverage: float) -> None:
+    """The allocation as one self-contained page.
+
+    Rolled up to one row per source and offer, which is all the page charts -
+    the allocation has no finer grain than that, so nothing is lost by it.
+    """
+    import json
+
+    sources: dict[str, int] = {}
+    types: dict[str, int] = {}
+    details: dict[str, int] = {}
+
+    def idx(d, v):
+        return d.setdefault(v, len(d))
+
+    rows = []
+    for (src, kind, detail), v in out.items():
+        rows.append({'s': idx(sources, src),
+                     'k': [idx(types, kind), idx(details, detail)],
+                     'v': [round(v[j], 2) for j in range(len(keys))]})
+    payload = {
+        'title': 'August 2026 Promotion profit',
+        'orders': args.orders, 'profit': args.profit or 'profit_2608_*',
+        'status': args.status,
+        'channel': args.account or args.online or 'every channel',
+        'coverage': round(coverage, 1),
+        'sources': list(sources),
+        'levels': [{'name': 'Offer type', 'values': list(types)},
+                   {'name': 'Offer detail', 'values': list(details)}],
+        'figures': {k: j for j, k in enumerate(keys)},
+        'figureCount': len(keys),
+        'rows': rows,
+    }
+    here = ROOT / 'dashboard'
+    html = (here / 'promo_profit_template.html').read_text(encoding='utf-8')
+    html = html.replace('/*__DATA__*/null',
+                        json.dumps(payload, ensure_ascii=False,
+                                   separators=(',', ':')))
+    if not args.cdn:
+        lib = here / 'vendor' / 'chart.umd.js'
+        if lib.is_file():
+            code = lib.read_text(encoding='utf-8').replace('</script>', '<\\/script>')
+            html = html.replace(
+                '<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>',
+                f'<script>/* chart.umd.js */\n{code}\n</script>')
+        else:
+            print('vendor/chart.umd.js missing - the page will need a connection')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(html, encoding='utf-8')
+    print(f'-> {path.resolve()}  ({len(html.encode("utf-8")) / 1024:,.0f} KB)')
 
 
 if __name__ == '__main__':

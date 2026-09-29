@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Promotion profit</title>
+<style>
+:root {
+  color-scheme: light;
+  --page:#f4f5f7; --surface:#fcfcfb; --line:#e3e4e8; --grid:#ecedf1;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#83827d;
+  --accent:#2a78d6; --accent-ink:#fff; --chip:#fff; --neg:#d14343;
+  --on-fill:#0b0b0b;
+  --s-rule:#2a78d6; --s-voucher:#eb6834; --s-plan:#1baf7a;
+  --s-loose:#eda100; --s-none:#a9a8a1; --c-margin:#4a3aa7;
+}
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) {
+  color-scheme: dark;
+  --page:#111110; --surface:#1a1a19; --line:#343431; --grid:#2a2a28;
+  --ink:#fff; --ink-2:#c3c2b7; --ink-3:#8f8e85;
+  --accent:#3987e5; --accent-ink:#0b0b0b; --chip:#232321; --neg:#f08a7a;
+  --s-rule:#3987e5; --s-voucher:#d95926; --s-plan:#199e70;
+  --s-loose:#c98500; --s-none:#6b6a64; --c-margin:#9085e9; } }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:#111110; --surface:#1a1a19; --line:#343431; --grid:#2a2a28;
+  --ink:#fff; --ink-2:#c3c2b7; --ink-3:#8f8e85;
+  --accent:#3987e5; --accent-ink:#0b0b0b; --chip:#232321; --neg:#f08a7a;
+  --s-rule:#3987e5; --s-voucher:#d95926; --s-plan:#199e70;
+  --s-loose:#c98500; --s-none:#6b6a64; --c-margin:#9085e9; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--page); color:var(--ink);
+  font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,"Malgun Gothic",sans-serif; }
+.wrap { max-width:1180px; margin:0 auto; padding:20px 16px 48px; }
+h1 { font-size:20px; margin:0 0 2px; } h2 { font-size:14px; margin:0 0 10px; font-weight:650; }
+.sub { color:var(--ink-3); font-size:12px; margin-bottom:16px; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:10px;
+  padding:14px 16px; margin-bottom:14px; }
+.caveat { border-left:3px solid var(--s-loose); padding:2px 0 2px 12px;
+  color:var(--ink-2); font-size:13px; margin:0 0 14px; }
+.row { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:flex-end; }
+label.f { display:flex; flex-direction:column; gap:3px; font-size:11px;
+  color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em; }
+select,.btn { font:inherit; color:var(--ink); background:var(--chip);
+  border:1px solid var(--line); border-radius:7px; padding:6px 10px; }
+select { min-width:150px; } .btn { cursor:pointer; }
+.btn:hover:not(:disabled) { border-color:var(--accent); }
+.btn.active { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+.btn:disabled { opacity:.45; cursor:default; }
+.seg { display:inline-flex; } .seg .btn { border-radius:0; margin-left:-1px; }
+.seg .btn:first-child { border-radius:7px 0 0 7px; margin-left:0; }
+.seg .btn:last-child { border-radius:0 7px 7px 0; }
+.crumb { display:flex; flex-wrap:wrap; gap:4px; align-items:center; font-size:13px;
+  margin-bottom:12px; }
+.crumb button { background:none; border:0; color:var(--accent); cursor:pointer;
+  font:inherit; padding:2px 5px; border-radius:5px; }
+.crumb button:hover { background:var(--grid); }
+.crumb .sep { color:var(--ink-3); } .crumb .now { font-weight:600; padding:2px 5px; }
+.kpis { display:flex; flex-wrap:wrap; gap:10px; margin:2px 0 14px; }
+.kpi { flex:1 1 140px; background:var(--chip); border:1px solid var(--line);
+  border-radius:8px; padding:9px 12px; }
+.kpi .k { font-size:11px; color:var(--ink-3); text-transform:uppercase;
+  letter-spacing:.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kpi .v { font-size:19px; font-weight:650; font-variant-numeric:tabular-nums; }
+.kpi .v.neg { color:var(--neg); } .kpi .n { font-size:11px; color:var(--ink-3); }
+.legend { display:flex; flex-wrap:wrap; gap:8px 16px; font-size:12px;
+  color:var(--ink-2); margin-bottom:8px; }
+.legend i { width:11px; height:11px; border-radius:3px; display:inline-block;
+  margin-right:6px; vertical-align:-1px; }
+.chart { position:relative; }
+.hint { font-size:12px; color:var(--ink-3); margin-top:10px; }
+table { border-collapse:collapse; width:100%; font-size:13px;
+  font-variant-numeric:tabular-nums; }
+th,td { padding:7px 10px; border-bottom:1px solid var(--grid); text-align:right;
+  white-space:nowrap; }
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left;
+  white-space:normal; }
+thead th { color:var(--ink-3); font-weight:600; font-size:11px;
+  text-transform:uppercase; letter-spacing:.04em; }
+td.neg { color:var(--neg); }
+tfoot td { font-weight:650; border-top:1px solid var(--line); border-bottom:0; }
+.tag { display:inline-block; padding:1px 7px; border-radius:99px; font-size:11px;
+  color:var(--on-fill); }
+@media (max-width:640px){ select{min-width:0;width:100%} label.f{flex:1 1 100%} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="pageTitle">Promotion profit</h1>
+  <div class="sub" id="pageSub"></div>
+  <p class="caveat" id="caveat"></p>
+
+  <div class="card">
+    <div class="crumb" id="crumb"></div>
+    <div class="row" style="margin-bottom:12px">
+      <label class="f"><span>Source</span><select id="srcPick"></select></label>
+      <button class="btn" id="backBtn">&larr; Back</button>
+      <span class="seg"><button class="btn" id="mNet">Net sales</button
+        ><button class="btn" id="mProfit">Op profit</button></span>
+      <label class="f"><span>Show</span><select id="topPick">
+        <option value="12">Top 12</option><option value="25">Top 25</option>
+        <option value="0">All</option></select></label>
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <div class="legend" id="legend"></div>
+    <div class="chart" id="plot"><canvas id="bars"></canvas></div>
+    <div class="hint" id="hint"></div>
+  </div>
+
+  <div class="card"><h2>The same, as a table</h2><div id="tableBox"></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+const DATA = /*__DATA__*/null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let C = {};
+function readColours() {
+  C = { ink:css('--ink'), ink2:css('--ink-2'), ink3:css('--ink-3'),
+        grid:css('--grid'), surface:css('--surface'), onFill:css('--on-fill'),
+        margin:css('--c-margin'), rule:css('--s-rule'), voucher:css('--s-voucher'),
+        plan:css('--s-plan'), loose:css('--s-loose'), none:css('--s-none') };
+}
+const SOURCES = [
+  ['rule',    "the store's own promotion rule"],
+  ['voucher', 'a voucher the plan lists'],
+  ['plan',    'inferred from the plan'],
+  ['loose',   'inferred, on a loosened rule'],
+  ['none',    'no promotion found'],
+];
+const fmt = n => Math.round(n).toLocaleString();
+const pct = n => n.toFixed(1) + '%';
+const I = DATA.figures;            // {qty, net, cogs, gm, opex, profit} -> index
+
+const state = { depth: 0, path: [], src: -1, metric: 'net', top: 12 };
+
+function rowsIn() {
+  return DATA.rows.filter(r =>
+    (state.src < 0 || r.s === state.src)
+    && state.path.every((v, i) => r.k[i] === v));
+}
+
+function render() {
+  readColours();
+  document.getElementById('pageTitle').textContent = DATA.title;
+  document.getElementById('pageSub').textContent =
+    `${DATA.orders} · ${DATA.status} orders only · profit: ${DATA.profit}`
+    + ` · ${DATA.channel}`;
+  document.getElementById('caveat').textContent =
+    `The profit file carries no promotion. Each product's profit is split across `
+    + `the promotions its ${DATA.status} orders came in on, in proportion to units - `
+    + `an allocation, not a measurement. It ranks promotions; it cannot price a `
+    + `discount. The allocation covers ${pct(DATA.coverage)} of the channel's net sales.`;
+
+  const sel = document.getElementById('srcPick');
+  sel.innerHTML = '<option value="-1">All sources</option>'
+    + SOURCES.map(([s], i) => DATA.sources.includes(s)
+        ? `<option value="${DATA.sources.indexOf(s)}">${s}</option>` : '').join('');
+  sel.value = state.src;
+  document.getElementById('backBtn').disabled = state.depth === 0;
+  document.getElementById('mNet').classList.toggle('active', state.metric === 'net');
+  document.getElementById('mProfit').classList.toggle('active', state.metric === 'profit');
+
+  const crumb = document.getElementById('crumb');
+  crumb.innerHTML = '';
+  const step = (t, onclick) => {
+    if (crumb.children.length) crumb.insertAdjacentHTML('beforeend', '<span class="sep">&rsaquo;</span>');
+    if (!onclick) { crumb.insertAdjacentHTML('beforeend', `<span class="now">${t}</span>`); return; }
+    const b = document.createElement('button'); b.textContent = t; b.onclick = onclick;
+    crumb.appendChild(b);
+  };
+  step('All', () => { state.path = []; state.depth = 0; render(); });
+  state.path.forEach((v, i) => step(DATA.levels[i].values[v], () => {
+    state.path = state.path.slice(0, i); state.depth = i; render(); }));
+  step(`by ${DATA.levels[state.depth].name}`, null);
+
+  const rows = rowsIn();
+  const byName = new Map();
+  const tot = new Array(DATA.figureCount).fill(0);
+  for (const r of rows) {
+    const name = DATA.levels[state.depth].values[r.k[state.depth]];
+    const cur = byName.get(name) || { name, idx: r.k[state.depth],
+                                      v: new Array(DATA.figureCount).fill(0), by: {} };
+    for (let j = 0; j < r.v.length; j++) { cur.v[j] += r.v[j]; tot[j] += r.v[j]; }
+    const s = DATA.sources[r.s];
+    cur.by[s] = (cur.by[s] || 0) + r.v[I[state.metric]];
+    byName.set(name, cur);
+  }
+  const margin = tot[I.net] ? tot[I.profit] / tot[I.net] * 100 : null;
+  document.getElementById('kpis').innerHTML = [
+    ['Units', fmt(tot[I.qty]), ''],
+    ['Net sales', fmt(tot[I.net]), ''],
+    ['COGS', fmt(tot[I.cogs]), ''],
+    ['Operating cost', fmt(tot[I.opex]), ''],
+    ['Op profit', fmt(tot[I.profit]), tot[I.profit] < 0 ? 'neg' : ''],
+    ['Margin', margin == null ? '-' : pct(margin), margin < 0 ? 'neg' : ''],
+  ].map(([k, v, cls]) =>
+    `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
+  ).join('');
+
+  draw([...byName.values()], tot);
+}
+
+/* The margin above each point, so the right-hand scale need not be read. */
+const pointLabels = { id:'pointLabels', afterDatasetsDraw(c) {
+  const i = c.data.datasets.findIndex(d => d.type === 'line');
+  if (i < 0) return;
+  const { ctx } = c; ctx.save();
+  ctx.font = '600 11px -apple-system,"Segoe UI",Roboto,sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  c.getDatasetMeta(i).data.forEach((p, j) => {
+    const v = c.data.datasets[i].data[j];
+    if (v == null) return;
+    const t = v.toFixed(1) + '%', w = ctx.measureText(t).width;
+    ctx.globalAlpha = .85; ctx.fillStyle = C.surface;
+    ctx.beginPath(); ctx.roundRect(p.x - w / 2 - 4, p.y - 24, w + 8, 15, 3); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillStyle = C.margin;
+    ctx.fillText(t, p.x, p.y - 9);
+  });
+  ctx.restore();
+} };
+
+let chart = null;
+function draw(all, tot) {
+  all.sort((a, b) => Math.abs(b.v[I[state.metric]]) - Math.abs(a.v[I[state.metric]]));
+  const shown = state.top ? all.slice(0, state.top) : all;
+  const canDrill = state.depth + 1 < DATA.levels.length;
+  const label = state.metric === 'net' ? 'Net sales' : 'Op profit';
+
+  // Bars split by which source identified the promotion, so a bar resting on
+  // inference is distinguishable from one the store's own rule answered.
+  const datasets = SOURCES.filter(([s]) => DATA.sources.includes(s))
+    .map(([s, text]) => ({
+      type:'bar', label:text, stack:'a', data: shown.map(r => r.by[s] || 0),
+      backgroundColor: C[s], borderRadius:3, borderSkipped:false,
+      borderWidth:1, borderColor:C.surface, maxBarThickness:34 }));
+  datasets.push({
+    type:'line', label:'Margin %', yAxisID:'y1',
+    data: shown.map(r => (r.v[I.net] ? r.v[I.profit] / r.v[I.net] * 100 : null)),
+    borderColor:C.margin, backgroundColor:C.margin, borderWidth:2,
+    pointRadius:4, pointHoverRadius:7, tension:.25, fill:false, spanGaps:true,
+    order:-1 });
+
+  document.getElementById('legend').innerHTML = datasets.map(d =>
+    `<span><i style="background:${d.type === 'line' ? d.borderColor
+      : d.backgroundColor}"></i>${d.label}</span>`).join('');
+  document.getElementById('plot').style.height =
+    Math.max(300, Math.min(560, shown.length * 46 + 130)) + 'px';
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('bars'), {
+    type:'bar', data:{ labels: shown.map(r => r.name), datasets },
+    plugins:[pointLabels],
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:{ duration:200 },
+      interaction:{ mode:'index', intersect:false },
+      onHover:(e, els) => { e.native.target.style.cursor =
+        (els.length && canDrill) ? 'pointer' : ''; },
+      onClick:(e, els) => {
+        if (!canDrill || !els.length) return;
+        state.path = state.path.concat([shown[els[0].index].idx]);
+        state.depth += 1; render();
+      },
+      scales:{
+        x:{ stacked:true, grid:{ display:false }, border:{ display:false },
+            ticks:{ color:C.ink2, autoSkip:false, maxRotation:28, callback(v) {
+              const t = this.getLabelForValue(v);
+              return t.length > 22 ? t.slice(0, 21) + '…' : t; } } },
+        y:{ stacked:true, beginAtZero:true, grid:{ color:C.grid },
+            border:{ display:false },
+            title:{ display:true, text:label, color:C.ink3 },
+            ticks:{ color:C.ink3, callback:v => Number(v).toLocaleString() } },
+        y1:{ position:'right', grid:{ drawOnChartArea:false },
+             border:{ display:false }, suggestedMin:0, suggestedMax:20,
+             title:{ display:true, text:'Margin %', color:C.ink3 },
+             ticks:{ color:C.ink3, callback:v => `${v}%` } },
+      },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{ backgroundColor:C.surface, titleColor:C.ink, bodyColor:C.ink2,
+          borderColor:C.grid, borderWidth:1, padding:10,
+          filter:c => c.dataset.type === 'line' || c.parsed.y !== 0,
+          callbacks:{
+            label:c => c.dataset.yAxisID === 'y1'
+              ? `Margin: ${c.parsed.y == null ? '-' : c.parsed.y.toFixed(1) + '%'}`
+              : `${c.dataset.label}: ${fmt(c.parsed.y)}`,
+            footer:items => {
+              const r = shown[items[0].dataIndex];
+              return [`${fmt(r.v[I.qty])} unit(s)`,
+                      `net ${fmt(r.v[I.net])}, profit ${fmt(r.v[I.profit])}`,
+                      ...(canDrill ? [`click to open by ${
+                        DATA.levels[state.depth + 1].name}`] : [])];
+            } } },
+      },
+    },
+  });
+
+  document.getElementById('hint').textContent =
+    `${shown.length} of ${all.length} ${DATA.levels[state.depth].name.toLowerCase()}(s), `
+    + `biggest ${label.toLowerCase()} first. Bars are split by which source identified `
+    + 'the promotion, so a bar resting on inference is not mistaken for one the '
+    + 'store’s own rule answered.'
+    + (canDrill ? ` Click a bar to open it by ${DATA.levels[state.depth + 1].name}.`
+                : ' This is the last level; Back steps out.');
+
+  const share = k => (tot[I.net] ? k / tot[I.net] * 100 : 0);
+  document.getElementById('tableBox').innerHTML = `<table>
+    <thead><tr><th>${DATA.levels[state.depth].name}</th><th>Mostly from</th>
+      <th>Units</th><th>Net sales</th><th>COGS</th><th>Operating cost</th>
+      <th>Op profit</th><th>Margin</th><th>Share of net</th></tr></thead>
+    <tbody>${shown.map(r => {
+      const top = Object.entries(r.by).sort((a, b) => b[1] - a[1])[0] || ['none', 0];
+      const m = r.v[I.net] ? r.v[I.profit] / r.v[I.net] * 100 : null;
+      return `<tr><td>${r.name}</td>
+        <td><span class="tag" style="background:${C[top[0]]}">${top[0]}</span></td>
+        <td>${fmt(r.v[I.qty])}</td><td>${fmt(r.v[I.net])}</td>
+        <td>${fmt(r.v[I.cogs])}</td><td>${fmt(r.v[I.opex])}</td>
+        <td class="${r.v[I.profit] < 0 ? 'neg' : ''}">${fmt(r.v[I.profit])}</td>
+        <td class="${m < 0 ? 'neg' : ''}">${m == null ? '-' : pct(m)}</td>
+        <td>${pct(share(r.v[I.net]))}</td></tr>`;
+    }).join('')}</tbody>
+    <tfoot><tr><td>${shown.length < all.length
+      ? `Total of these ${shown.length}` : 'Total'}</td><td></td>
+      <td>${fmt(tot[I.qty])}</td><td>${fmt(tot[I.net])}</td>
+      <td>${fmt(tot[I.cogs])}</td><td>${fmt(tot[I.opex])}</td>
+      <td class="${tot[I.profit] < 0 ? 'neg' : ''}">${fmt(tot[I.profit])}</td>
+      <td>${tot[I.net] ? pct(tot[I.profit] / tot[I.net] * 100) : '-'}</td>
+      <td></td></tr></tfoot></table>`;
+}
+
+document.getElementById('srcPick').onchange = e => { state.src = +e.target.value; render(); };
+document.getElementById('backBtn').onclick = () => {
+  if (!state.depth) return;
+  state.depth -= 1; state.path = state.path.slice(0, state.depth); render(); };
+document.getElementById('mNet').onclick = () => { state.metric = 'net'; render(); };
+document.getElementById('mProfit').onclick = () => { state.metric = 'profit'; render(); };
+document.getElementById('topPick').onchange = e => { state.top = +e.target.value; render(); };
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+render();
+</script>
+</body>
+</html>

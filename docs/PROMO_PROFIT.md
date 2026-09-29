@@ -67,6 +67,26 @@ sit at.
 `docs\promo_profit.csv` carries every row with all six P&L figures - units, net
 sales, COGS, gross margin, operating cost, operating profit - and the margin.
 
+## The page
+
+```powershell
+py tools\promo_profit.py --html      # -> dashboard\promo_profit.html
+```
+
+Bars are net sales (or operating profit - there is a toggle) per offer,
+**split by which source identified the promotion**, with a line for margin on
+the right-hand scale. So the two questions sit on one chart: which promotions
+carry the volume, and which carry margin away from the rest.
+
+A bar that is mostly blue was answered by the store's own rule and rests on
+nothing inferred. One that is mostly green or yellow rests on the plan match,
+and its margin should be read with that in mind.
+
+Clicking a bar opens that offer type by **offer detail**, the level the
+individual campaigns sit at. The caveat above the chart is on the page itself,
+not only in this file, because the number is easy to quote and the caveat is
+not.
+
 ## The levers
 
 The attribution is the same one `promo_match` makes, so `--stem`,
