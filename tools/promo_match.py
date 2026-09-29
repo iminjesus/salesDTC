@@ -228,52 +228,91 @@ def split_rules(v: str) -> list[str]:
 
 
 # ── the plan ────────────────────────────────────────────────────────────────
+PROBE_STEM = 8          # the stem length the "what would looser buy" report uses
+
+
 class Plan:
     """The promotion plan, indexed by product code and by voucher."""
 
-    def __init__(self, rows: list[dict]):
+    def __init__(self, rows, stem=0):
         self.rows = rows
-        self.by_code: dict[str, list[dict]] = {}
-        self.by_voucher: dict[str, list[dict]] = {}
+        self.stem = stem
+        self.by_code = {}
+        self.by_voucher = {}
         for r in rows:
             self.by_code.setdefault(r['code'], []).append(r)
             for v in r['vouchers']:
                 self.by_voucher.setdefault(v, []).append(r)
         self.by_length = sorted(self.by_code, key=len, reverse=True)
+        self.by_stem = {}
+        self.probe = {}
+        for c, rs in self.by_code.items():
+            if stem and len(c) >= stem:
+                self.by_stem.setdefault(c[:stem], []).extend(rs)
+            if len(c) >= PROBE_STEM:
+                self.probe.setdefault(c[:PROBE_STEM], []).extend(rs)
 
-    def candidates(self, code: str) -> tuple[list[dict], str]:
+    def candidates(self, code):
+        """The plan lines that could be this product, and how that was decided.
+
+        Four rules, loosest last, each named on the row it produces. Beyond an
+        exact code they are inferences, and an inference that is not labelled
+        is indistinguishable from a fact.
+        """
         if not code:
             return [], 'the order has no product code'
         if code in self.by_code:
             return self.by_code[code], 'code'
-        # A plan that lists a model family where the order carries the full
-        # selling code. An inference, so it says so.
         for planned in self.by_length:
             if len(planned) >= 6 and code.startswith(planned):
-                return self.by_code[planned], f'code starts with {planned}'
+                return self.by_code[planned], 'code starts with ' + planned
+        for planned in self.by_length:
+            if len(code) >= 6 and planned.startswith(code):
+                return self.by_code[planned], 'code is the start of ' + planned
+        # The same model in another colour or capacity - SM-L320NDAAXSA and
+        # SM-L320NZSAXSA are one product, planned and priced alike.
+        if self.stem and len(code) >= self.stem:
+            hit = self.by_stem.get(code[:self.stem])
+            if hit:
+                return hit, 'same first %d characters' % self.stem
         return [], 'the plan has no line for this product'
 
 
-def from_plan(order: dict, plan: Plan, tol: float) -> dict:
+def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
     """The plan line this order best fits, and what had to be assumed."""
     cands, how = plan.candidates(order['code'])
     if not cands:
-        return {'promo': '', 'how': how, 'gap': '', 'alts': 0,
-                'priced': '', 'type': '', 'detail': ''}
+        return {'promo': '', 'how': how, 'gap': '', 'alts': 0, 'priced': '',
+                'type': '', 'detail': '', 'off_by': '', 'miss': 'code'}
 
+    off_by = ''
     if order['date'] is not None:
         dated = [c for c in cands if c['start'] or c['end']]
-        live = [c for c in dated
-                if (c['start'] is None or c['start'] <= order['date'])
-                and (c['end'] is None or order['date'] <= c['end'])]
         undated = [c for c in cands if c not in dated]
-        if dated and not live and not undated:
-            return {'promo': '', 'gap': '', 'alts': len(dated), 'priced': '',
-                    'type': '', 'detail': '',
-                    'how': how + ', but no promotion for it was running that day'}
+
+        def distance(c):
+            """Days the order sits outside this window; 0 while inside it."""
+            if c['start'] and order['date'] < c['start']:
+                return (c['start'] - order['date']).days
+            if c['end'] and order['date'] > c['end']:
+                return (order['date'] - c['end']).days
+            return 0
+
         if dated:
+            near = sorted(dated, key=distance)
+            best = distance(near[0])
+            live = [c for c in near if distance(c) <= slack]
+            if not live and not undated:
+                return {'promo': '', 'gap': '', 'alts': len(dated), 'priced': '',
+                        'type': '', 'detail': '', 'off_by': best, 'miss': 'window',
+                        'how': how + f', but the nearest window it fits misses '
+                               f'the order date by {best:,} day(s)'}
+            if live and best:
+                off_by = best
+                how += f', in window give or take {best:,} day(s)'
+            elif live:
+                how += ', in window'
             cands = live + undated
-            how += ', in window'
 
     gap, priced_as = '', ''
     if order['price'] is not None:
@@ -282,7 +321,8 @@ def from_plan(order: dict, plan: Plan, tol: float) -> dict:
             priced.sort(key=lambda t: abs(t[2] - order['price']))
             best, col, p = priced[0]
             gap = round(order['price'] - p, 2)
-            if abs(gap) <= max(0.01, abs(p) * tol / 100):
+            off_pct = abs(gap) / abs(p) * 100 if p else 999.0
+            if off_pct <= tol or abs(gap) <= 0.01:
                 priced_as = col
                 cands = [best] + [c for c in cands if c is not best]
                 how += f', paid the {col}'
@@ -291,14 +331,18 @@ def from_plan(order: dict, plan: Plan, tol: float) -> dict:
                 if not nothing:
                     return {'promo': '', 'gap': gap, 'alts': len(cands),
                             'priced': '', 'type': '', 'detail': '',
+                            'off_by': off_by, 'miss': 'price',
+                            'off_pct': round(off_pct, 1),
                             'how': how + f', but the price paid is {gap:+,.2f} '
-                                   f'from the nearest ({best["promo"]}, {col})'}
+                                   f'({off_pct:,.0f}%) from the nearest '
+                                   f'({best["promo"]}, {col})'}
                 cands, gap = nothing, ''
                 how += ', price fits none of the priced lines'
 
     return {'promo': cands[0]['promo'], 'how': how, 'gap': gap,
             'type': cands[0]['type'], 'detail': cands[0]['detail'],
-            'priced': priced_as, 'alts': len(cands) - 1}
+            'priced': priced_as, 'alts': len(cands) - 1, 'off_by': off_by,
+            'miss': ''}
 
 
 # ── describing a file ───────────────────────────────────────────────────────
@@ -351,6 +395,14 @@ def main() -> int:
     ap.add_argument('--price-tolerance', type=float, default=3.0, metavar='PCT',
                     help='how far the price paid may sit from a plan price and '
                          'still count, as a percent of it (default 3)')
+    ap.add_argument('--stem', type=int, default=0, metavar='N',
+                    help='match a product code on its first N characters when '
+                         'nothing else fits - the same model in another colour '
+                         'is planned alike (0 = off; try 8)')
+    ap.add_argument('--window-slack', type=int, default=0, metavar='DAYS',
+                    help='allow an order this many days outside a promotion '
+                         'window (0 = strict). The row records how far out it '
+                         'was, so a slack match is never mistaken for a clean one')
     ap.add_argument('--agree', type=float, default=80.0, metavar='PCT',
                     help='how much of the accounts behind a portal group must '
                          'carry the same value before that level is taken as '
@@ -489,7 +541,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
             'prices': {c: p for c, i in price_cols
                        if (p := parse_number(cell(r, i))) is not None},
         })
-    plan = Plan(plan_rows)
+    plan = Plan(plan_rows, args.stem)
     portals = {}
     cp = pick_file(Path(args.dir), 'customer_2608')
     if cp:
@@ -504,6 +556,10 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
     out, gaps, page = [], [], []
     portal_seen: dict[str, int] = {}
     portal_hit: dict[str, int] = {}
+    near_window: list[int] = []
+    near_price: list[float] = []
+    near_code = 0
+    slack_used = 0
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
     agree = {'same': 0, 'differ': 0, 'outside': 0}
     by_promo: dict[tuple, list[float]] = {}
@@ -525,9 +581,20 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         rules = [parse_rule(t) for t in split_rules(cell(r, O['rule']))]
         vouchers = [code_norm(v) for v in split_rules(cell(r, O['voucher']))]
         v_hits = [p for v in vouchers for p in plan.by_voucher.get(v, [])]
-        guess = from_plan(order, plan, args.price_tolerance)
+        guess = from_plan(order, plan, args.price_tolerance, args.window_slack)
         if guess['gap'] != '':
             gaps.append(guess['gap'])
+        # What each miss missed by, so the cost of loosening can be counted
+        # rather than guessed at.
+        if not guess['promo'] and not rules and not v_hits:
+            if guess['miss'] == 'window':
+                near_window.append(guess['off_by'])
+            elif guess['miss'] == 'price':
+                near_price.append(guess['off_pct'])
+            elif guess['miss'] == 'code' and order['code']:
+                if len(order['code']) >= PROBE_STEM and \
+                        order['code'][:PROBE_STEM] in plan.probe:
+                    near_code += 1
 
         if rules:
             how, promo = 'rule', ' + '.join(d['what'] for d in rules)
@@ -578,7 +645,17 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         # Where the group matched but the master would not commit to a level,
         # say that rather than print a blank - the two mean different things.
         unset = '(master does not say)' if c else CUST.NO_MATCH
-        page.append((how,
+        if how == 'plan' and guess['off_by']:
+            slack_used += 1
+        # A plan match that needed a loosened rule is not the same answer as
+        # one that did not, and the page should not colour them alike.
+        if how == 'plan' and (guess['off_by'] or 'starts with' in guess['how']
+                              or 'is the start of' in guess['how']
+                              or 'same first' in guess['how']):
+            how_page = 'loose'
+        else:
+            how_page = how
+        page.append((how_page,
                      c.get('channel') or unset,
                      c.get('type') or unset, c.get('type2') or unset,
                      group, cell(r, O['portal']) or '(blank)', o_type, o_detail,
@@ -594,7 +671,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
             '; '.join(d['raw'] for d in rules),
             '; '.join(vouchers),
             guess['promo'], guess['how'], guess['priced'], guess['gap'],
-            guess['alts'] or '',
+            guess['off_by'], guess['alts'] or '',
         ])
 
     if portal_seen:
@@ -670,7 +747,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         w.writerow(['Order', 'Product', 'Portal group', 'Date', 'Qty', 'Paid',
                     'Unit price compared', 'Source', 'Promotion', 'Rule raw',
                     'Voucher', 'Plan says', 'Plan matched by', 'Plan price used',
-                    'Price gap', 'Other plan lines fit'])
+                    'Price gap', 'Days outside window', 'Other plan lines fit'])
         w.writerows(out)
     summary = outdir / 'promo_summary.csv'
     table = sorted(by_promo.items(), key=lambda kv: -kv[1][2])
@@ -693,9 +770,35 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
     for row in out:
         if row[7] == 'none':
             why = row[12] or 'no plan line'
+            # One reason per kind, not one per day count: the numbers vary
+            # line by line and the tally is about the kinds.
             why = re.sub(r'\(.*?\)', '(...)', why)
-            why = re.sub(r'[-+][\d,.]+', 'N', why)
+            why = re.sub(r'[-+]?\d[\d,.]*', 'N', why)
             reasons[why] = reasons.get(why, 0) + 1
+    if slack_used:
+        print(f'  {slack_used:,} of the plan matches only fit because of '
+              f'--window-slack {args.window_slack}; their row says by how many days')
+
+    # The data is being matched before it is cleaned, so what matters is what
+    # each loosening is worth and what it costs. Count both rather than guess.
+    if near_code or near_window or near_price:
+        print('\nwhat looser matching would buy, on the lines nothing fits now:')
+        if near_code and not args.stem:
+            print(f'  --stem {PROBE_STEM:<18} {near_code:>8,} more line(s) - the same '
+                  f'model in another colour or capacity')
+        for days in (1, 3, 7, 14):
+            n2 = sum(1 for d in near_window if d <= days)
+            if n2 and days > args.window_slack:
+                print(f'  --window-slack {days:<11} {n2:>8,} more line(s) - '
+                      f'ordered that close to a window')
+        for tol in (5, 10, 20, 50):
+            n2 = sum(1 for g in near_price if g <= tol)
+            if n2 and tol > args.price_tolerance:
+                print(f'  --price-tolerance {tol:<8} {n2:>8,} more line(s) - '
+                      f'paid within {tol}% of a plan price')
+        print('  each one is a looser rule, not a better one: the row says which '
+              'rule matched it, so a loosening can be undone by reading back.')
+
     ranked = sorted(reasons.items(), key=lambda kv: -kv[1])
     if ranked:
         print('\nwhy nothing fit:')

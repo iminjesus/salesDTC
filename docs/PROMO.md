@@ -81,6 +81,40 @@ Two cross-checks, both chosen so they mean something:
 no plan line for the product, nothing running that day, or a price no promotion
 offers - because each wants something different done about it.
 
+## Matching dirty data on purpose
+
+The rules above are the strict ones. When the files are not yet clean, what
+matters is knowing what each loosening is worth and what it costs, so the run
+counts both rather than leaving it to be guessed at:
+
+```
+what looser matching would buy, on the lines nothing fits now:
+  --stem 8                     1,204 more line(s) - the same model in another colour
+  --window-slack 3               192 more line(s) - ordered that close to a window
+  --window-slack 7               365 more line(s) - ordered that close to a window
+  --price-tolerance 10           105 more line(s) - paid within 10% of a plan price
+```
+
+| Flag | What it loosens |
+|---|---|
+| `--stem N` | a product code matches on its first N characters, so the same model in another colour or capacity finds its plan line. Try 8 |
+| `--window-slack DAYS` | an order this far outside a window still counts; the row records how many days out it was |
+| `--price-tolerance PCT` | how far the price paid may sit from a plan price (3 by default) |
+| `--agree PCT` | how much of a portal group's accounts must agree before a customer level is taken as settled (80 by default) |
+
+Every one of them is a *looser* rule, not a better one. So nothing is hidden:
+
+- The row's **`Matched by`** carries the whole chain - `code starts with
+  SMS931B, in window give or take 4 day(s), paid the T2_Price` - and
+  **`Days outside window`** is its own column.
+- On the page, a plan match that needed a loosened rule is **its own colour**,
+  counted apart as *Loosened rule*. A bar that is mostly yellow is held up by
+  the loosening and will move when the data is cleaned; a bar that is mostly
+  blue will not.
+
+That way a loosening can be turned on to see the shape of the month, and read
+back off afterwards.
+
 ## What comes out
 
 | File | |

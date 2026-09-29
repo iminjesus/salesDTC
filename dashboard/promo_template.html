@@ -13,20 +13,23 @@
   --on-fill:#0b0b0b;
   /* One hue per source of the answer, fixed. Grey is deliberate for "nothing
      fits": an absence is not a fifth category. */
-  --s-rule:#2a78d6; --s-voucher:#eb6834; --s-plan:#1baf7a; --s-none:#a9a8a1;
+  --s-rule:#2a78d6; --s-voucher:#eb6834; --s-plan:#1baf7a;
+  --s-loose:#eda100; --s-none:#a9a8a1;
 }
 @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) {
   color-scheme: dark;
   --page:#111110; --surface:#1a1a19; --line:#343431; --grid:#2a2a28;
   --ink:#fff; --ink-2:#c3c2b7; --ink-3:#8f8e85;
   --accent:#3987e5; --accent-ink:#0b0b0b; --chip:#232321; --neg:#f08a7a;
-  --s-rule:#3987e5; --s-voucher:#d95926; --s-plan:#199e70; --s-none:#6b6a64; } }
+  --s-rule:#3987e5; --s-voucher:#d95926; --s-plan:#199e70;
+  --s-loose:#c98500; --s-none:#6b6a64; } }
 :root[data-theme="dark"] {
   color-scheme: dark;
   --page:#111110; --surface:#1a1a19; --line:#343431; --grid:#2a2a28;
   --ink:#fff; --ink-2:#c3c2b7; --ink-3:#8f8e85;
   --accent:#3987e5; --accent-ink:#0b0b0b; --chip:#232321; --neg:#f08a7a;
-  --s-rule:#3987e5; --s-voucher:#d95926; --s-plan:#199e70; --s-none:#6b6a64; }
+  --s-rule:#3987e5; --s-voucher:#d95926; --s-plan:#199e70;
+  --s-loose:#c98500; --s-none:#6b6a64; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--page); color:var(--ink);
   font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,"Malgun Gothic",sans-serif; }
@@ -133,12 +136,13 @@ function readColours() {
   C = { ink:css('--ink'), ink2:css('--ink-2'), ink3:css('--ink-3'),
         grid:css('--grid'), surface:css('--surface'), onFill:css('--on-fill'),
         rule:css('--s-rule'), voucher:css('--s-voucher'), plan:css('--s-plan'),
-        none:css('--s-none') };
+        loose:css('--s-loose'), none:css('--s-none') };
 }
 const SOURCES = [
   ['rule',    "the store's own promotion rule"],
   ['voucher', 'a voucher the plan lists'],
   ['plan',    'inferred from the plan'],
+  ['loose',   'inferred, but only on a loosened rule'],
   ['none',    'nothing fits'],
 ];
 const fmt = n => Math.round(n).toLocaleString();
@@ -292,7 +296,7 @@ function render() {
     ['Order lines', fmt(lines), ''],
     ['Attributed', lines ? pct(known * 100 / lines) : '-', `${fmt(known)} lines`],
     ...SOURCES.map(([s]) => [
-      s === 'none' ? 'Nothing fits' : `By ${s}`,
+      s === 'none' ? 'Nothing fits' : s === 'loose' ? 'Loosened rule' : `By ${s}`,
       fmt(bySource[s] ? bySource[s][1] : 0),
       `${fmt(bySource[s] ? bySource[s][0] : 0)} lines`]),
     ['Revenue in view', fmt(amount), ''],
