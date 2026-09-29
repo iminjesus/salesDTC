@@ -162,13 +162,13 @@ def main() -> int:
 
     # ── masters ────────────────────────────────────────────────────────────
     cust = prod = {}
-    cp = pick_file(folder, 'customer_2608')
+    cp = pick_latest(folder, 'customer')
     if cp:
         want = {slot: names for _, slot, names in CUST.LEVELS if names}
         want['account'] = CUST.ACCOUNT_NAMES
         cust = master(cp, ('Sold-To', 'sold To', 'sold_to'), want)
         print(f'\ncustomer master: {len(cust):,} accounts')
-    pp = pick_file(folder, 'product_2608')
+    pp = pick_latest(folder, 'product')
     if pp:
         prod = master(pp, ('SKU', 'sku', 'Material'),
                       {slot: names for _, slot, names in PRODUCT_LEVELS})

@@ -93,6 +93,7 @@ tfoot td { font-weight:650; border-top:1px solid var(--line); border-bottom:0; }
   <div class="card">
     <div class="crumb" id="crumb"></div>
     <div class="row" style="margin-bottom:12px">
+      <label class="f"><span>Bars by</span><select id="dimPick"></select></label>
       <label class="f"><span>Source</span><select id="srcPick"></select></label>
       <button class="btn" id="backBtn">&larr; Back</button>
       <span class="seg"><button class="btn" id="mNet">Net sales</button
@@ -132,12 +133,15 @@ const fmt = n => Math.round(n).toLocaleString();
 const pct = n => n.toFixed(1) + '%';
 const I = DATA.figures;            // {qty, net, cogs, gm, opex, profit} -> index
 
-const state = { depth: 0, path: [], src: -1, metric: 'net', top: 12 };
+const state = { depth: DATA.startDim, path: [], src: -1, metric: 'net', top: 12 };
 
+/* `path` holds one entry per level, -1 where it was not narrowed. The page
+   opens partway down the chain, so a dense list would not describe it. */
+function pathAt(i) { return state.path[i] === undefined ? -1 : state.path[i]; }
 function rowsIn() {
   return DATA.rows.filter(r =>
     (state.src < 0 || r.s === state.src)
-    && state.path.every((v, i) => r.k[i] === v));
+    && DATA.levels.every((_, i) => pathAt(i) < 0 || r.k[i] === pathAt(i)));
 }
 
 function render() {
@@ -152,6 +156,10 @@ function render() {
     + `an allocation, not a measurement. It ranks promotions; it cannot price a `
     + `discount. The allocation covers ${pct(DATA.coverage)} of the channel's net sales.`;
 
+  const dimSel = document.getElementById('dimPick');
+  dimSel.innerHTML = DATA.levels.map((lv, i) =>
+    `<option value="${i}">${lv.name}</option>`).join('');
+  dimSel.value = state.depth;
   const sel = document.getElementById('srcPick');
   sel.innerHTML = '<option value="-1">All sources</option>'
     + SOURCES.map(([s], i) => DATA.sources.includes(s)
@@ -170,8 +178,11 @@ function render() {
     crumb.appendChild(b);
   };
   step('All', () => { state.path = []; state.depth = 0; render(); });
-  state.path.forEach((v, i) => step(DATA.levels[i].values[v], () => {
-    state.path = state.path.slice(0, i); state.depth = i; render(); }));
+  DATA.levels.forEach((lv, i) => {
+    if (pathAt(i) < 0 || i >= state.depth) return;
+    step(lv.values[pathAt(i)], () => {
+      state.path = state.path.slice(0, i); state.depth = i; render(); });
+  });
   step(`by ${DATA.levels[state.depth].name}`, null);
 
   const rows = rowsIn();
@@ -262,7 +273,8 @@ function draw(all, tot) {
         (els.length && canDrill) ? 'pointer' : ''; },
       onClick:(e, els) => {
         if (!canDrill || !els.length) return;
-        state.path = state.path.concat([shown[els[0].index].idx]);
+        while (state.path.length < state.depth) state.path.push(-1);
+        state.path[state.depth] = shown[els[0].index].idx;
         state.depth += 1; render();
       },
       scales:{
@@ -340,6 +352,12 @@ function draw(all, tot) {
       <td></td></tr></tfoot></table>`;
 }
 
+document.getElementById('dimPick').onchange = e => {
+  state.depth = +e.target.value;
+  // Moving the bars to a level undoes any narrowing done at or below it.
+  state.path = state.path.slice(0, state.depth);
+  render();
+};
 document.getElementById('srcPick').onchange = e => { state.src = +e.target.value; render(); };
 document.getElementById('backBtn').onclick = () => {
   if (!state.depth) return;

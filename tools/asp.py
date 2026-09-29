@@ -99,13 +99,13 @@ def main() -> int:
           f'{head[p_key] if p_key is not None else "-- not found --"}')
 
     prod = {}
-    pp = pick_file(folder, 'product_2608')
+    pp = pick_latest(folder, 'product')
     if pp:
         prod = master(pp, PRODUCT_KEYS, PRODUCT_COLS)
         print(f'\nproduct master: {len(prod):,} products')
     cust = {}
     if args.split:
-        cp = pick_file(folder, 'customer_2608')
+        cp = pick_latest(folder, 'customer')
         if cp:
             want = {slot: names for _, slot, names in CUST.LEVELS if names}
             want['account'] = CUST.ACCOUNT_NAMES

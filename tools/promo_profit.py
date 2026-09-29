@@ -184,12 +184,20 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
         return 1
 
     cust = {}
-    cp = pick_file(folder, 'customer_2608')
+    cp = pick_latest(folder, 'customer')
     if cp and F['cust'] is not None and args.online:
-        cust = master(cp, ('Sold-To', 'sold To', 'sold_to'),
-                      {'account': CUST.ACCOUNT_NAMES}, say=lambda *a: None)
+        want = {slot: names for _, slot, names in CUST.LEVELS if names}
+        want['account'] = CUST.ACCOUNT_NAMES
+        want['who'] = ('Description', 'description', 'Account Name')
+        cust = master(cp, ('Sold-To', 'sold To', 'sold_to'), want,
+                      say=lambda *a: None)
 
     keys = [k for k, _, _ in FIGURES]
+    # One bucket per product and per customer level, so the allocation can be
+    # read by Type as well as by offer. The promotion split is the product's -
+    # it comes from the order file, which has no payer on it - but the profit
+    # being split knows whose it was.
+    cells: dict[tuple, list[float]] = {}
     sku_totals: dict[str, list[float]] = {}
     online_rows = all_rows = 0
     for r in f_body:
@@ -202,11 +210,19 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
                 continue
         online_rows += 1
         code = key_norm(cell(r, F['sku']))
-        v = sku_totals.setdefault(code, [0.0] * len(keys))
+        payer = cell(r, F['cust'])
+        who = ((CUST.channel_of(c['account']) if c and c.get('account')
+                else CUST.NO_MATCH),
+               (c.get('type') if c else '') or '(master does not say)',
+               (c.get('type2') if c else '') or '(master does not say)',
+               (c.get('who') if c else '') or payer or '(blank)')
+        v = cells.setdefault((code,) + who, [0.0] * len(keys))
+        t = sku_totals.setdefault(code, [0.0] * len(keys))
         for j, k in enumerate(keys):
             n = parse_number(cell(r, F[k])) if F[k] is not None else None
             if n is not None:
                 v[j] += n
+                t[j] += n
     print(f'\nprofit: {online_rows:,} of {all_rows:,} row(s) are '
           f'{args.account or args.online or "every channel"}, over '
           f'{len(sku_totals):,} product code(s)')
@@ -225,25 +241,25 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
 
     # ── the allocation ─────────────────────────────────────────────────────
     out: dict[tuple, list[float]] = {}
-    unallocated = [0.0] * len(keys)
-    for code, totals in sku_totals.items():
+    for cellkey, totals in cells.items():
+        code, who = cellkey[0], cellkey[1:]
         share = units.get(code)
         if not share:
-            for j in range(len(keys)):
-                unallocated[j] += totals[j]
-            continue
-        total_units = sum(share.values())
-        for key, u in share.items():
-            w = (u / total_units) if total_units else 1.0 / len(share)
+            key = ('none', '(sold with no completed order)',
+                   '(sold with no completed order)') + who
             agg = out.setdefault(key, [0.0] * (len(keys) + 1))
             for j in range(len(keys)):
+                agg[j] += totals[j]
+            continue
+        total_units = sum(share.values())
+        for offer, u in share.items():
+            w = (u / total_units) if total_units else 1.0 / len(share)
+            agg = out.setdefault(offer + who, [0.0] * (len(keys) + 1))
+            for j in range(len(keys)):
                 agg[j] += totals[j] * w
-            agg[-1] += u                       # the units that earned the share
-    if any(unallocated):
-        out[('none', '(sold with no completed order)',
-             '(sold with no completed order)')] = unallocated + [0.0]
+            agg[-1] += u * w                   # the units that earned the share
 
-    def table(depth: int, title: str) -> None:
+    def table(depth, title: str, at: int = None) -> None:
         """One row per offer, whichever source answered for it.
 
         The source is how the promotion was identified, not a promotion of its
@@ -253,7 +269,7 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
         rolled: dict[tuple, list[float]] = {}
         origin: dict[tuple, dict[str, float]] = {}
         for key, v in out.items():
-            k = key[1:1 + depth]
+            k = (key[at:at + 1] if at is not None else key[1:1 + depth])
             agg = rolled.setdefault(k, [0.0] * len(v))
             for j in range(len(v)):
                 agg[j] += v[j]
@@ -262,7 +278,7 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
         rows = sorted(rolled.items(), key=lambda kv: -kv[1][net_i])
         print(f'\n{title}')
         print(f'  {"":<32}{"units":>9}{"net sales":>13}{"op profit":>13}'
-              f'{"margin":>8}{"share":>7}  from')
+              f'{"op prof %":>10}{"share":>7}  from')
         tot_net = sum(v[net_i] for _, v in rows) or 1
         for k, v in rows[:args.top]:
             name = ' / '.join(k)
@@ -279,20 +295,27 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
 
     table(1, 'by offer type  (profit allocated by unit share, not measured)')
     table(2, 'by offer detail')
+    table(None, 'by customer Type', at=4)
+    table(None, 'by customer', at=6)
 
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
     path = outdir / 'promo_profit.csv'
     with path.open('w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f)
-        w.writerow(['Source', 'Offer type', 'Offer detail', 'Order units']
-                   + [label for _, label, _ in FIGURES] + ['Margin %'])
+        w.writerow(['Source', 'Offer type', 'Offer detail', 'Channel',
+                    'Type', 'Type2', 'Customer', 'Allocated units']
+                   + [label for _, label, _ in FIGURES]
+                   + ['Op profit %', 'Gross margin %'])
         for key, v in sorted(out.items(), key=lambda kv: -kv[1][net_i]):
             margin = (v[profit_i] / v[net_i] * 100
                       if profit_i is not None and v[net_i] else '')
+            gm = (v[keys.index('gm')] / v[net_i] * 100
+                  if 'gm' in keys and v[net_i] else '')
             w.writerow(list(key) + [round(v[-1], 2)]
                        + [round(v[j], 2) for j in range(len(keys))]
-                       + [round(margin, 2) if margin != '' else ''])
+                       + [round(margin, 2) if margin != '' else '',
+                          round(gm, 2) if gm != '' else ''])
     print(f'\n-> {path.resolve()}')
     print('\nthe profit file carries no promotion, so this is each product\'s '
           'profit split by the units its completed orders came in on. It ranks '
@@ -307,22 +330,29 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
 def write_page(path: Path, args, out: dict, keys: list, coverage: float) -> None:
     """The allocation as one self-contained page.
 
-    Rolled up to one row per source and offer, which is all the page charts -
-    the allocation has no finer grain than that, so nothing is lost by it.
+    One row per source, per customer level and per offer - which is the finest
+    grain the allocation has, so nothing is lost by rolling up to it.
     """
     import json
 
+    # The drill, top first: the customer half comes off the payer on the profit
+    # row, the offer half from the promotion. The page opens on Offer type,
+    # since that is the question the file answers, with the customer levels
+    # above it to step up into.
+    LEVELS = ['Channel', 'Type', 'Type2', 'Customer', 'Offer type',
+              'Offer detail']
     sources: dict[str, int] = {}
-    types: dict[str, int] = {}
-    details: dict[str, int] = {}
+    values: list[dict[str, int]] = [{} for _ in LEVELS]
 
     def idx(d, v):
         return d.setdefault(v, len(d))
 
     rows = []
-    for (src, kind, detail), v in out.items():
+    for key, v in out.items():
+        src, kind, detail = key[0], key[1], key[2]
+        order = key[3:7] + (kind, detail)
         rows.append({'s': idx(sources, src),
-                     'k': [idx(types, kind), idx(details, detail)],
+                     'k': [idx(values[i], x) for i, x in enumerate(order)],
                      'v': [round(v[j], 2) for j in range(len(keys))]})
     payload = {
         'title': 'August 2026 Promotion profit',
@@ -331,8 +361,10 @@ def write_page(path: Path, args, out: dict, keys: list, coverage: float) -> None
         'channel': args.account or args.online or 'every channel',
         'coverage': round(coverage, 1),
         'sources': list(sources),
-        'levels': [{'name': 'Offer type', 'values': list(types)},
-                   {'name': 'Offer detail', 'values': list(details)}],
+        'startDim': LEVELS.index('Offer type'),
+        'custDepth': 4,
+        'levels': [{'name': n, 'values': list(v)}
+                   for n, v in zip(LEVELS, values)],
         'figures': {k: j for j, k in enumerate(keys)},
         'figureCount': len(keys),
         'rows': rows,

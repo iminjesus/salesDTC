@@ -207,7 +207,7 @@ def compare(args, op, pp, o_head, o_body, p_head, p_body, o_i, p_i,
 
     # ── the profit rows that are online ────────────────────────────────────
     cust = {}
-    cp = pick_file(folder, 'customer_2608')
+    cp = pick_latest(folder, 'customer')
     if cp and p_i['cust'] is not None and args.online:
         cust = master(cp, ('Sold-To', 'sold To', 'sold_to'),
                       {'account': CUST.ACCOUNT_NAMES}, say=lambda *a: None)

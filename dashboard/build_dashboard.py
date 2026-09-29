@@ -148,10 +148,10 @@ def main() -> int:
 
     print('reading:')
     p_head, p_rows = load(need(pick_latest(folder, 'profit'), 'profit_*', folder))
-    c_head, c_rows = load(need(pick_file(folder, 'customer_2608'),
-                               'customer_2608', folder))
-    d_head, d_rows = load(need(pick_file(folder, 'product_2608'),
-                               'product_2608', folder))
+    c_head, c_rows = load(need(pick_latest(folder, 'customer'),
+                               'customer_*', folder))
+    d_head, d_rows = load(need(pick_latest(folder, 'product'),
+                               'product_*', folder))
 
     def show_headers(name: str, head: list[str]) -> None:
         print(f'\n{name} columns ({len(head)}):')

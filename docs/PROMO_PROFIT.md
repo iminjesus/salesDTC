@@ -87,8 +87,21 @@ A bar that is mostly blue was answered by the store's own rule and rests on
 nothing inferred. One that is mostly green or yellow rests on the plan match,
 and its margin should be read with that in mind.
 
-Clicking a bar opens that offer type by **offer detail**, the level the
-individual campaigns sit at. The caveat above the chart is on the page itself,
+**Bars by** charts any level of the chain, and clicking a bar opens the next
+one:
+
+```
+Channel -> Type -> Type2 -> Customer -> Offer type -> Offer detail
+```
+
+The customer half comes off the **payer on the profit row**, not the order
+file - the order file has no payer on it - so it is the same Channel / Type /
+Type2 the profit chart drills, down to the individual account. The promotion
+split is still the product's, since that is the only thing the two files share,
+but the profit being split knows whose it was.
+
+The page opens on **Offer type**, with the customer levels above it to step up
+into. The caveat above the chart is on the page itself,
 not only in this file, because the number is easy to quote and the caveat is
 not.
 

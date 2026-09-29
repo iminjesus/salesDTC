@@ -28,7 +28,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                       # noqa: E402
-from rawdata import find, parse_number, pick_file, read_any   # noqa: E402
+from rawdata import (find, parse_number, pick_file,            # noqa: E402
+                     pick_latest, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -543,7 +544,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         })
     plan = Plan(plan_rows, args.stem)
     portals = {}
-    cp = pick_file(Path(args.dir), 'customer_2608')
+    cp = pick_latest(Path(args.dir), 'customer')
     if cp:
         portals = portal_levels(cp, args.agree)
     dated = sum(1 for r in plan_rows if r['start'] or r['end'])
