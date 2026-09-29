@@ -27,6 +27,13 @@ order statuses in 26 DTC Aug.csv (20 of them):
   CANCELLED                           478        610        259,737   not shipped
 ```
 
+A **return is not a state of shipping**: the order shipped and then came back.
+The profit file counts quantity net of returns, so a completed return nets to
+nothing there and counting it as a shipment would invent a gap. Every
+`RETURN_*` status is therefore read one way and left out, rather than some
+landing in shipped on the word "completed" and others in not-shipped on
+"refunded".
+
 Anything it cannot read either way is **left out and named**, never guessed at.
 `--shipped "COMPLETED,DELIVERED,PICKED_UP"` replaces the built-in list with
 yours; everything not named is then not shipped.

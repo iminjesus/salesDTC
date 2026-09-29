@@ -36,10 +36,16 @@ ROOT = Path(__file__).resolve().parent.parent
 # What an order status has to say before the units behind it count as August
 # sales. Read as whole words against the status, upper-cased.
 SHIPPED = ('COMPLETE', 'COMPLETED', 'DELIVERED', 'SHIPPED', 'DISPATCHED',
-           'FULFILLED', 'CLOSED', 'PICKED UP', 'COLLECTED')
+           'FULFILLED', 'CLOSED', 'PICKUP COMPLETE', 'COLLECTED')
 NOT_SHIPPED = ('CANCEL', 'CANCELLED', 'PENDING', 'PREPARATION', 'PROCESSING',
-               'CREATED', 'PLACED', 'HOLD', 'FAILED', 'REJECTED', 'RETURNED',
-               'REFUNDED', 'PAYMENT', 'BACKORDER', 'RESERVED')
+               'CREATED', 'PLACED', 'HOLD', 'FAILED', 'REJECTED', 'PAYMENT',
+               'BACKORDER', 'RESERVED', 'READY FOR PICKUP')
+# A return is not a state of shipping: the order shipped, and then came back.
+# The profit file counts quantity net of returns, so a completed return nets to
+# nothing there and counting it as a shipment would invent a gap. Every
+# RETURN_* status is therefore read one way, rather than some landing in
+# SHIPPED on the word "completed" and others in NOT_SHIPPED on "refunded".
+RETURNED = 'RETURN'
 
 O_SKU = ('Product Code', 'SKU', 'Material', 'Model Code', 'Product Number')
 O_QTY = ('Quantity', 'Qty', 'Units')
@@ -56,6 +62,8 @@ def classify(status: str) -> str:
     t = re.sub(r'[^A-Z ]+', ' ', str(status or '').upper()).strip()
     if not t:
         return 'unknown'
+    if t.startswith(RETURNED) or t.startswith('PARTIAL ' + RETURNED):
+        return 'returned'
     words = set(t.split())
     if any(w in words or w in t for w in NOT_SHIPPED):
         return 'not shipped'
@@ -148,6 +156,13 @@ def main() -> int:
     for st, t in sorted(tally.items(), key=lambda kv: -kv[1][0]):
         print(f'  {st[:30]:<30} {t[0]:>8,.0f} {t[1]:>10,.0f} {t[2]:>14,.0f}'
               f'   {verdict(st)}')
+    back = [st for st in tally if verdict(st) == 'returned']
+    if back:
+        n = sum(tally[st][1] for st in back)
+        print(f'\n  {len(back)} status(es) are returns - the order shipped and '
+              f'came back ({n:,.0f} units). The profit file counts quantity net '
+              'of returns, so they net to nothing there and are left out of the '
+              'comparison rather than counted as shipments.')
     unknown = [st for st in tally if verdict(st) == 'unknown']
     if unknown:
         print(f'\n  {len(unknown)} status(es) are not recognised either way and '
