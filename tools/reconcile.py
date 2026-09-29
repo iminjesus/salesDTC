@@ -87,6 +87,10 @@ def main() -> int:
     ap.add_argument('--online', default=CUST.ONLINE, metavar='NAME',
                     help=f'the channel the profit file is filtered to '
                          f'(default {CUST.ONLINE}); "" keeps every channel')
+    ap.add_argument('--account', metavar='NAME',
+                    help='narrow the profit side to one account name exactly, '
+                         'e.g. E-STORE. The channel folds E-STORE and '
+                         'E-STORE_B2B together, and B2B is not a DTC order')
     ap.add_argument('--out', default=str(ROOT / 'docs'))
     ap.add_argument('--tolerance', type=float, default=0.5, metavar='UNITS',
                     help='how far the two unit counts may differ and still be '
@@ -206,11 +210,12 @@ def compare(args, op, pp, o_head, o_body, p_head, p_body, o_i, p_i,
     cp = pick_file(folder, 'customer_2608')
     if cp and p_i['cust'] is not None and args.online:
         cust = master(cp, ('Sold-To', 'sold To', 'sold_to'),
-                      {'account': CUST.ACCOUNT_NAMES})
+                      {'account': CUST.ACCOUNT_NAMES}, say=lambda *a: None)
         print(f'customer master: {len(cust):,} accounts')
 
     sales: dict[str, list[float]] = {}
     by_channel: dict[str, list[float]] = {}
+    by_account: dict[str, list[float]] = {}
     matched = 0
     for r in p_body:
         c = cust.get(key_norm(cell(r, p_i['cust']))) if cust else None
@@ -219,11 +224,18 @@ def compare(args, op, pp, o_head, o_body, p_head, p_body, o_i, p_i,
                    else CUST.NO_MATCH if cust else '(all)')
         qty = parse_number(cell(r, p_i['qty'])) or 0.0
         amt = parse_number(cell(r, p_i['amt'])) or 0.0
+        account = (c['account'] or '(blank)') if c else CUST.NO_MATCH
         agg = by_channel.setdefault(channel, [0.0, 0.0, 0.0])
         agg[0] += 1
         agg[1] += qty
         agg[2] += amt
+        agg2 = by_account.setdefault(account, [0.0, 0.0, 0.0])
+        agg2[0] += 1
+        agg2[1] += qty
+        agg2[2] += amt
         if args.online and channel != args.online:
+            continue
+        if args.account and account.upper() != args.account.upper():
             continue
         code = key_norm(cell(r, p_i['sku']))
         spell.setdefault(code, cell(r, p_i['sku']))
@@ -237,6 +249,16 @@ def compare(args, op, pp, o_head, o_body, p_head, p_body, o_i, p_i,
         for ch, v in sorted(by_channel.items(), key=lambda kv: -kv[1][1]):
             print(f'  {ch[:22]:<22} {v[0]:>8,.0f} rows {v[1]:>11,.0f} units '
                   f'{v[2]:>16,.0f}')
+        # The channel folds every online account name together, and a B2B
+        # e-commerce account is not a DTC order. Worth seeing apart.
+        print('  by the account name behind it'
+              + (f'  (the comparison keeps {args.account})' if args.account
+                 else ', which the channel folds together:'))
+        for an, v in sorted(by_account.items(), key=lambda kv: -kv[1][1])[:10]:
+            mine = (CUST.channel_of(an) == args.online
+                    if an != CUST.NO_MATCH else False)
+            print(f'    {an[:20]:<20} {v[0]:>8,.0f} rows {v[1]:>11,.0f} units '
+                  f'{v[2]:>16,.0f}' + ('   <- online' if mine else ''))
 
     # ── side by side ───────────────────────────────────────────────────────
     codes = set(orders) | set(sales)

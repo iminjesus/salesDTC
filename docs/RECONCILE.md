@@ -95,6 +95,12 @@ profit rows by channel (the comparison keeps E-STORE):
   OFF-LINE                    900 rows       3,970 units        4,122,891
 ```
 
+The **account name behind the channel** is printed too, because the channel
+folds every online account together and an `E-STORE_B2B` account is not a DTC
+order. `--account E-STORE` narrows the profit side to one account name exactly,
+which is the first thing to try when the profit side comes out larger than the
+orders.
+
 `--online ""` compares against every channel instead, and `--online OFF-LINE`
 against the offline half - useful for showing that an unmatched product went
 out through a different channel entirely.
