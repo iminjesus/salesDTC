@@ -58,6 +58,9 @@ NAMES = {
     'cancel':  ('Cancelled', 'Order Cancelled'),
     'cat':     ('Product Category', 'Category', 'Product Division', 'Product'),
     'division': ('Product Division', 'Division'),
+    # Finer than the portal group and carried by the order itself, so it needs
+    # no inference at all: commbank_yello_au, samsung_benefits_au, au.
+    'portal': ('Portal', 'Portal Name', 'Store Portal'),
 }
 # A rule spells its mechanic in short; the plan spells it out. Same thing.
 MECHANIC = {'DISC': 'Discount', 'DISCOUNT': 'Discount', 'PWP': 'PWP',
@@ -87,7 +90,7 @@ def mechanic_of(rules: list[dict]) -> tuple[str, str]:
             ' + '.join(dict.fromkeys(rest)) or '(no detail)')
 
 
-def portal_levels(path: Path, say=print) -> dict:
+def portal_levels(path: Path, agree: float = 80.0, say=print) -> dict:
     """The customer hierarchy, keyed by whatever the order calls its group.
 
     The order export carries a portal group, not a payer - and its vocabulary
@@ -134,11 +137,12 @@ def portal_levels(path: Path, say=print) -> dict:
             total = sum(counts.values())
             best = max(counts, key=counts.get)
             # Only assert what the accounts behind this spelling agree on.
-            if counts[best] >= total * 0.8:
+            if counts[best] >= total * agree / 100:
                 row[slot] = best
         row['channel'] = (CUST.channel_of(row['account']) if row.get('account')
                           else '')
         row['_from'] = ', '.join(sorted(where[key]))
+        row['_spread'] = t          # kept so an unset level can be explained
         out[key] = row
     say(f'  customer master indexed under {len(out):,} spelling(s) across '
         + ', '.join(sorted({head[i] for i in cols.values()})))
@@ -347,6 +351,10 @@ def main() -> int:
     ap.add_argument('--price-tolerance', type=float, default=3.0, metavar='PCT',
                     help='how far the price paid may sit from a plan price and '
                          'still count, as a percent of it (default 3)')
+    ap.add_argument('--agree', type=float, default=80.0, metavar='PCT',
+                    help='how much of the accounts behind a portal group must '
+                         'carry the same value before that level is taken as '
+                         'settled (default 80)')
     ap.add_argument('--gst', type=float, default=10.0, metavar='PCT',
                     help='added to the order amount before comparing, because '
                          'the plan quotes retail prices and the export does not '
@@ -415,6 +423,7 @@ def main() -> int:
         'group': choose(o_head, o_body, 'group', None),
         'cat': choose(o_head, o_body, 'cat', None),
         'division': choose(o_head, o_body, 'division', None),
+        'portal': choose(o_head, o_body, 'portal', None),
         'cancel': choose(o_head, o_body, 'cancel', None),
     }
     price_cols = [(c, find(p_head, c)) for c in PRICE_COLS]
@@ -435,7 +444,9 @@ def main() -> int:
                 (op.name, 'units', O['qty'], o_head, '--order-qty'),
                 (op.name, 'paid', O['amount'], o_head, '--order-amount'),
                 (op.name, 'promotion rule', O['rule'], o_head, '--order-rule'),
-                (op.name, 'voucher', O['voucher'], o_head, '--order-voucher')]
+                (op.name, 'voucher', O['voucher'], o_head, '--order-voucher'),
+                (op.name, 'portal group', O['group'], o_head, ''),
+                (op.name, 'portal', O['portal'], o_head, '')]
     for side, what, i, head, flag in rows_out:
         print(f'  {side[:18]:<18} {what:<16} '
               + (repr(head[i]) if i is not None
@@ -482,7 +493,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
     portals = {}
     cp = pick_file(Path(args.dir), 'customer_2608')
     if cp:
-        portals = portal_levels(cp)
+        portals = portal_levels(cp, args.agree)
     dated = sum(1 for r in plan_rows if r['start'] or r['end'])
     print(f'\nplan: {len(plan_rows):,} line(s) over {len(plan.by_code):,} product '
           f'code(s); {dated:,} carry a window, {len(plan.by_voucher):,} voucher '
@@ -570,7 +581,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         page.append((how,
                      c.get('channel') or unset,
                      c.get('type') or unset, c.get('type2') or unset,
-                     group, o_type, o_detail,
+                     group, cell(r, O['portal']) or '(blank)', o_type, o_detail,
                      cell(r, O['cat']) or '(blank)',
                      order['date'].isoformat() if order['date'] else '',
                      qty, amount or 0.0))
@@ -601,9 +612,18 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         for g, n in sorted(portal_hit.items(), key=lambda t: -t[1])[:8]:
             c = portals.get(g.upper()) or portals.get(code_norm(g)) or {}
             says = ' / '.join(f'{k}={v}' for k, v in c.items()
-                              if k not in ('_from', 'account') and v) or 'nothing'
-            print(f'  {g[:26]:<26} {n:>8,} line(s)  <- {c.get("_from", "")}'
-                  f'; says {says}')
+                              if not k.startswith('_') and k != 'account' and v)
+            print(f'  {g[:26]:<26} {n:>8,} line(s)  <- found in '
+                  f'{c.get("_from", "?")}; settles {says or "nothing"}')
+            # A level left unset is more useful with the reason attached.
+            for slot, counts in (c.get('_spread') or {}).items():
+                if c.get(slot) or slot == 'account':
+                    continue
+                total = sum(counts.values()) or 1
+                top = sorted(counts.items(), key=lambda kv: -kv[1])[:3]
+                print(f'      {slot} unsettled: '
+                      + ', '.join(f'{v} {n2 * 100 // total}%' for v, n2 in top)
+                      + (' ...' if len(counts) > 3 else ''))
 
     if O['division'] is not None:
         divs: dict[str, int] = {}
@@ -701,7 +721,9 @@ def write_page(path: Path, args, pp, op, page: list, reasons: list,
 
     # The drill, top first. The customer half comes from the portal group
     # folded against the customer master; the offer half is the promotion.
-    LEVELS = ['Channel', 'Type', 'Type2', 'Portal Group',
+    # Portal sits under Portal Group and comes off the order itself, so it
+    # breaks the customer down further without inferring anything.
+    LEVELS = ['Channel', 'Type', 'Type2', 'Portal Group', 'Portal',
               'Offer Type', 'Offer Detail', 'Product Category']
     sources: dict[str, int] = {}
     values: list[dict[str, int]] = [{} for _ in LEVELS]
@@ -712,7 +734,7 @@ def write_page(path: Path, args, pp, op, page: list, reasons: list,
         return d.setdefault(v, len(d))
 
     for row in page:
-        how, levels, day, qty, amt = row[0], row[1:8], row[8], row[9], row[10]
+        how, levels, day, qty, amt = row[0], row[1:9], row[9], row[10], row[11]
         days.add(day)
         key = (idx(sources, how),) + tuple(idx(values[i], v)
                                            for i, v in enumerate(levels)) + (day,)
@@ -730,7 +752,7 @@ def write_page(path: Path, args, pp, op, page: list, reasons: list,
         # Offer Type is where the page opens: it is the question this file
         # answers, and Offer Detail sits one click inside it.
         'startDim': LEVELS.index('Offer Type'),
-        'custDepth': 4,
+        'custDepth': 5,
         'levels': [{'name': n, 'values': list(v)}
                    for n, v in zip(LEVELS, values)],
         'rows': [{'s': k[0], 'k': list(k[1:1 + len(LEVELS)]), 'd': k[-1],

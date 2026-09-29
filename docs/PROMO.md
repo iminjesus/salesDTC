@@ -146,8 +146,25 @@ portal groups: 42,151 of 42,151 line(s) found their group in the customer master
 What comes back is the hierarchy the profit chart drills:
 
 ```
-Channel -> Type -> Type2 -> Portal Group -> Offer Type -> Offer Detail -> Product Category
+Channel -> Type -> Type2 -> Portal Group -> Portal -> Offer Type -> Offer Detail -> Product Category
 ```
+
+**Portal** is the order file's own finer column - `samsung_benefits_au`,
+`commbank_yello_au`, `au` - so it breaks a portal group down without inferring
+anything. Where Type2 is unsettled because one portal group spans several of
+them, Portal is usually the level that actually separates them.
+
+A level the master cannot settle is explained rather than left blank:
+
+```
+EPP     11,953 line(s)  <- found in Type; settles type=EPP / channel=E-STORE
+    type2 unsettled: EDU 46%, GOV 26%, Corporate 20% ...
+```
+
+That is the whole answer to "why is Type2 nearly empty": a single portal group
+value cannot pick between four Type2s its accounts carry. `--agree` lowers the
+bar (default 80%) if the commonest is good enough for the question being
+asked.
 
 A portal group whose accounts disagree on a level takes the value most of them
 carry, and the disagreement is printed - it is a judgement, not a lookup, so it
