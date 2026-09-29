@@ -74,8 +74,13 @@ py tools\promo_profit.py --html      # -> dashboard\promo_profit.html
 ```
 
 Bars are net sales (or operating profit - there is a toggle) per offer,
-**split by which source identified the promotion**, with a line for margin on
-the right-hand scale. So the two questions sit on one chart: which promotions
+**split by which source identified the promotion**, with a line for **operating
+profit over net sales** on the right-hand scale. Gross margin is carried too,
+in the KPI row and in the table, because "margin" on its own reads as either
+and the file holds both.
+
+A tall spike on a short bar is a small denominator, not a good promotion - the
+bar heights say which spikes are worth anything. So the two questions sit on one chart: which promotions
 carry the volume, and which carry margin away from the rest.
 
 A bar that is mostly blue was answered by the store's own rule and rests on

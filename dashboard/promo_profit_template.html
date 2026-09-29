@@ -186,14 +186,19 @@ function render() {
     cur.by[s] = (cur.by[s] || 0) + r.v[I[state.metric]];
     byName.set(name, cur);
   }
+  // Two different margins, and the page carries both rather than calling one
+  // of them "margin" and leaving the reader to work out which.
   const margin = tot[I.net] ? tot[I.profit] / tot[I.net] * 100 : null;
+  const gmPct = (I.gm !== undefined && tot[I.net])
+    ? tot[I.gm] / tot[I.net] * 100 : null;
   document.getElementById('kpis').innerHTML = [
     ['Units', fmt(tot[I.qty]), ''],
     ['Net sales', fmt(tot[I.net]), ''],
     ['COGS', fmt(tot[I.cogs]), ''],
     ['Operating cost', fmt(tot[I.opex]), ''],
     ['Op profit', fmt(tot[I.profit]), tot[I.profit] < 0 ? 'neg' : ''],
-    ['Margin', margin == null ? '-' : pct(margin), margin < 0 ? 'neg' : ''],
+    ['Op profit %', margin == null ? '-' : pct(margin), margin < 0 ? 'neg' : ''],
+    ['Gross margin %', gmPct == null ? '-' : pct(gmPct), gmPct < 0 ? 'neg' : ''],
   ].map(([k, v, cls]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
   ).join('');
@@ -235,7 +240,7 @@ function draw(all, tot) {
       backgroundColor: C[s], borderRadius:3, borderSkipped:false,
       borderWidth:1, borderColor:C.surface, maxBarThickness:34 }));
   datasets.push({
-    type:'line', label:'Margin %', yAxisID:'y1',
+    type:'line', label:'Op profit % of net sales', yAxisID:'y1',
     data: shown.map(r => (r.v[I.net] ? r.v[I.profit] / r.v[I.net] * 100 : null)),
     borderColor:C.margin, backgroundColor:C.margin, borderWidth:2,
     pointRadius:4, pointHoverRadius:7, tension:.25, fill:false, spanGaps:true,
@@ -271,7 +276,7 @@ function draw(all, tot) {
             ticks:{ color:C.ink3, callback:v => Number(v).toLocaleString() } },
         y1:{ position:'right', grid:{ drawOnChartArea:false },
              border:{ display:false }, suggestedMin:0, suggestedMax:20,
-             title:{ display:true, text:'Margin %', color:C.ink3 },
+             title:{ display:true, text:'Op profit %', color:C.ink3 },
              ticks:{ color:C.ink3, callback:v => `${v}%` } },
       },
       plugins:{
@@ -281,7 +286,7 @@ function draw(all, tot) {
           filter:c => c.dataset.type === 'line' || c.parsed.y !== 0,
           callbacks:{
             label:c => c.dataset.yAxisID === 'y1'
-              ? `Margin: ${c.parsed.y == null ? '-' : c.parsed.y.toFixed(1) + '%'}`
+              ? `Op profit %: ${c.parsed.y == null ? '-' : c.parsed.y.toFixed(1) + '%'}`
               : `${c.dataset.label}: ${fmt(c.parsed.y)}`,
             footer:items => {
               const r = shown[items[0].dataIndex];
@@ -298,15 +303,20 @@ function draw(all, tot) {
     `${shown.length} of ${all.length} ${DATA.levels[state.depth].name.toLowerCase()}(s), `
     + `biggest ${label.toLowerCase()} first. Bars are split by which source identified `
     + 'the promotion, so a bar resting on inference is not mistaken for one the '
-    + 'store’s own rule answered.'
+    + 'store’s own rule answered. The line is operating profit over net '
+    + 'sales; gross margin sits beside it in the table. A tall spike on a '
+    + 'short bar is a small denominator, not a good promotion.'
     + (canDrill ? ` Click a bar to open it by ${DATA.levels[state.depth + 1].name}.`
                 : ' This is the last level; Back steps out.');
 
   const share = k => (tot[I.net] ? k / tot[I.net] * 100 : 0);
+  const gm = (v) => (I.gm !== undefined && v[I.net])
+    ? v[I.gm] / v[I.net] * 100 : null;
   document.getElementById('tableBox').innerHTML = `<table>
     <thead><tr><th>${DATA.levels[state.depth].name}</th><th>Mostly from</th>
       <th>Units</th><th>Net sales</th><th>COGS</th><th>Operating cost</th>
-      <th>Op profit</th><th>Margin</th><th>Share of net</th></tr></thead>
+      <th>Op profit</th><th>Op profit %</th><th>Gross margin %</th>
+      <th>Share of net</th></tr></thead>
     <tbody>${shown.map(r => {
       const top = Object.entries(r.by).sort((a, b) => b[1] - a[1])[0] || ['none', 0];
       const m = r.v[I.net] ? r.v[I.profit] / r.v[I.net] * 100 : null;
@@ -316,6 +326,8 @@ function draw(all, tot) {
         <td>${fmt(r.v[I.cogs])}</td><td>${fmt(r.v[I.opex])}</td>
         <td class="${r.v[I.profit] < 0 ? 'neg' : ''}">${fmt(r.v[I.profit])}</td>
         <td class="${m < 0 ? 'neg' : ''}">${m == null ? '-' : pct(m)}</td>
+        <td class="${gm(r.v) < 0 ? 'neg' : ''}">${
+          gm(r.v) == null ? '-' : pct(gm(r.v))}</td>
         <td>${pct(share(r.v[I.net]))}</td></tr>`;
     }).join('')}</tbody>
     <tfoot><tr><td>${shown.length < all.length
@@ -324,6 +336,7 @@ function draw(all, tot) {
       <td>${fmt(tot[I.cogs])}</td><td>${fmt(tot[I.opex])}</td>
       <td class="${tot[I.profit] < 0 ? 'neg' : ''}">${fmt(tot[I.profit])}</td>
       <td>${tot[I.net] ? pct(tot[I.profit] / tot[I.net] * 100) : '-'}</td>
+      <td>${gm(tot) == null ? '-' : pct(gm(tot))}</td>
       <td></td></tr></tfoot></table>`;
 }
 
