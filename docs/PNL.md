@@ -145,6 +145,31 @@ where a zero would read as "free".
 `tools\asp.py` computes the same figures as csvs, for a spreadsheet rather
 than a page; `docs\ASP.md` covers it.
 
+### The stacked chart
+
+Underneath sits the same slice again, one bar per member of whatever level the
+first chart is on, **each split by the level below it**. The first chart says
+what a figure is made of; this one says who it came from.
+
+| Control | |
+|---|---|
+| **Customer / Product** | which chain does the splitting. On Customer the level below is the next customer level; on Product it starts the product chain |
+| **Figure** | gross sales, net sales, operating profit, quantity |
+| **Amount / % of bar** | sizes between bars, or the mix inside each one |
+| **click a bar** | open it by the level that was splitting it, which then splits by the level below that |
+
+So Type split by Portal Group, click a Type, and it becomes Portal Groups split
+by Type2 - the drill carries the stack down with it.
+
+**% of bar** normalises each bar to its own total, so the mix inside a small
+bar reads as clearly as inside a large one. The tooltip keeps the amount behind
+each share: a share with no size behind it is how a rounding error comes to
+look like a trend.
+
+The eight largest members get a colour each, in a fixed order; a ninth folds
+into **Other** rather than being handed a generated hue, so the colours mean
+the same thing from one view to the next.
+
 Clicking a bar and changing a select are the same act: narrowing to one value
 moves the bars down to the next level, and widening back to *All* brings them
 up again. The drill runs the whole chain - Channel, Type, Portal Group, Type2,

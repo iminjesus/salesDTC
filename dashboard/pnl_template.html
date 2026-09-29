@@ -14,6 +14,10 @@
      cannot repaint the rest. */
   --c-gross: #2a78d6; --c-deduction: #eb6834; --c-cogs: #1baf7a;
   --c-opex: #eda100; --c-profit: #4a3aa7;
+  /* Stack slots, in a fixed order. A ninth member folds into Other rather
+     than being handed a generated hue. */
+  --k1:#2a78d6; --k2:#eb6834; --k3:#1baf7a; --k4:#eda100;
+  --k5:#e87ba4; --k6:#008300; --k7:#4a3aa7; --k8:#e34948; --k9:#a9a8a1;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
@@ -23,6 +27,8 @@
     --accent: #3987e5; --accent-ink: #0b0b0b; --chip: #232321; --neg: #f08a7a;
     --c-gross: #3987e5; --c-deduction: #d95926; --c-cogs: #199e70;
     --c-opex: #c98500; --c-profit: #9085e9;
+    --k1:#3987e5; --k2:#d95926; --k3:#199e70; --k4:#c98500;
+    --k5:#d55181; --k6:#008300; --k7:#9085e9; --k8:#e66767; --k9:#6b6a64;
   }
 }
 :root[data-theme="dark"] {
@@ -32,6 +38,8 @@
   --accent: #3987e5; --accent-ink: #0b0b0b; --chip: #232321; --neg: #f08a7a;
   --c-gross: #3987e5; --c-deduction: #d95926; --c-cogs: #199e70;
   --c-opex: #c98500; --c-profit: #9085e9;
+  --k1:#3987e5; --k2:#d95926; --k3:#199e70; --k4:#c98500;
+  --k5:#d55181; --k6:#008300; --k7:#9085e9; --k8:#e66767; --k9:#6b6a64;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--ink);
@@ -124,6 +132,21 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="hint" id="hint"></div>
   </div>
 
+  <div class="card">
+    <div class="row" style="margin-bottom:12px">
+      <label class="f"><span>Stack by</span><span class="seg">
+        <button class="btn" id="stkCust">Customer</button
+        ><button class="btn" id="stkProd">Product</button></span></label>
+      <label class="f"><span>Figure</span><select id="stkFig"></select></label>
+      <label class="f"><span>Scale</span><span class="seg">
+        <button class="btn" id="stkAmt">Amount</button
+        ><button class="btn" id="stkPct">% of bar</button></span></label>
+    </div>
+    <div class="legend" id="stkLegend"></div>
+    <div class="chart" id="stkPlot"><canvas id="stkBars"></canvas></div>
+    <div class="hint" id="stkHint"></div>
+  </div>
+
   <div class="card" id="tableCard" hidden><div id="tableBox"></div></div>
 </div>
 
@@ -140,7 +163,8 @@ function readColours() {
   C = { ink: css('--ink'), ink2: css('--ink-2'), ink3: css('--ink-3'),
         grid: css('--grid'), surface: css('--surface'), neg: css('--neg'),
         gross: css('--c-gross'), deduction: css('--c-deduction'),
-        cogs: css('--c-cogs'), opex: css('--c-opex'), profit: css('--c-profit') };
+        cogs: css('--c-cogs'), opex: css('--c-opex'), profit: css('--c-profit'),
+        stack: [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => css('--k' + n)) };
 }
 
 const fmt = n => Math.round(n).toLocaleString();
@@ -170,7 +194,26 @@ const state = {
   // each unit costs. The profit line is a percentage either way.
   unit: 'amount',
   table: false,
+  // Which chain the second chart stacks by, and the figure it charts.
+  stack: 'customer',
+  stkFig: 'net',
+  // 'amount' compares sizes between bars; 'pct' normalises every bar to 100%
+  // and compares the mix inside them, which a tall bar otherwise drowns out.
+  stkScale: 'amount',
 };
+
+/* The two chains the page drills: the customer levels, then the product ones.
+   A chain stacks the level below whichever one the bars are on. */
+const CHAINS = {
+  customer: DATA.levels.map((_, i) => i).filter(i => i < DATA.custDepth),
+  product:  DATA.levels.map((_, i) => i).filter(i => i >= DATA.custDepth),
+};
+function stackLevel() {
+  const chain = CHAINS[state.stack] || [];
+  const at = chain.indexOf(state.dim);
+  if (at < 0) return chain.length ? chain[0] : null;   // the other chain: start it
+  return at + 1 < chain.length ? chain[at + 1] : null; // nothing below this one
+}
 
 /* Every combination of the filter values was totalled at build time, so a
    filter change is a sum over the matching combinations rather than a pass over
@@ -497,6 +540,149 @@ function draw() {
         : ' This is the last level; Back steps out.');
 
   renderTable(top, lv.name, rows.length);
+  drawStack();
+}
+
+/* The same slice again, one bar per member of the level the first chart is on,
+   each split by the level below it in the chosen chain. The first chart says
+   what a figure is made of; this one says who it came from. */
+let stkChart = null;
+function drawStack() {
+  const xl = DATA.levels[state.dim];
+  const sl = stackLevel();
+  ['stkCust', 'stkProd'].forEach((id, i) =>
+    document.getElementById(id).classList.toggle('active',
+      state.stack === (i ? 'product' : 'customer')));
+  const figSel = document.getElementById('stkFig');
+  figSel.innerHTML = DATA.series
+    .filter(x => x.key !== 'net' || has.net !== undefined)
+    .map(x => `<option value="${x.key}">${x.label}</option>`).join('');
+  figSel.value = state.stkFig;
+  const pctMode = state.stkScale === 'pct';
+  document.getElementById('stkAmt').classList.toggle('active', !pctMode);
+  document.getElementById('stkPct').classList.toggle('active', pctMode);
+
+  const plot = document.getElementById('stkPlot');
+  if (sl === null) {
+    if (stkChart) { stkChart.destroy(); stkChart = null; }
+    plot.style.height = '0px';
+    document.getElementById('stkLegend').innerHTML = '';
+    document.getElementById('stkHint').textContent =
+      `${xl.name} is the last ${state.stack} level, so there is nothing below `
+      + 'it to stack by. Pick the other chain, or step back up.';
+    return;
+  }
+
+  const fig = has[state.stkFig];
+  const slice = DATA.combos.filter(c =>
+    state.filter.every((want, i) => want < 0 || c.k[i] === want));
+  const grid = new Map();                 // x member -> stack member -> value
+  const stackTotal = new Map();
+  for (const c of slice) {
+    const x = xl.values[c.k[state.dim]];
+    const g = DATA.levels[sl].values[c.k[sl]];
+    const v = fig === undefined ? 0 : c.v[fig];
+    const row = grid.get(x) || new Map();
+    row.set(g, (row.get(g) || 0) + v);
+    grid.set(x, row);
+    stackTotal.set(g, (stackTotal.get(g) || 0) + v);
+  }
+  // Eight slots, in a fixed order by size. A ninth member folds into Other
+  // rather than being handed a generated hue.
+  const members = [...stackTotal.entries()]
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
+  const named = members.slice(0, 8);
+  const folded = members.length > 8;
+  const xs = [...grid.entries()]
+    .map(([name, row]) => ({ name, idx: xl.values.indexOf(name),
+                             total: [...row.values()].reduce((a, b) => a + b, 0),
+                             row }))
+    .filter(r => r.total)
+    .sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
+    .slice(0, 12);
+
+  // In percentage mode each bar is normalised to its own total, so the mix
+  // inside a small bar reads as clearly as the mix inside a large one. The
+  // amount is kept on the row for the tooltip - a share with no size behind
+  // it is how a rounding error comes to look like a trend.
+  const raw = g => xs.map(r => r.row.get(g) || 0);
+  const scale = (vals) => pctMode
+    ? vals.map((v, i) => (xs[i].total ? v / xs[i].total * 100 : 0))
+    : vals;
+  const series = named.map((g, i) => ({
+    label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
+    backgroundColor: C.stack[i], borderRadius: 3, borderSkipped: false,
+    borderWidth: 1, borderColor: C.surface, maxBarThickness: 54,
+  }));
+  if (folded) {
+    const rest = xs.map(r => named.reduce((a, g) => a - (r.row.get(g) || 0),
+                                          r.total));
+    series.push({
+      label: `Other (${members.length - 8})`, stack: 'a',
+      data: scale(rest), amounts: rest,
+      backgroundColor: C.stack[8], borderRadius: 3, borderSkipped: false,
+      borderWidth: 1, borderColor: C.surface, maxBarThickness: 54,
+    });
+  }
+  document.getElementById('stkLegend').innerHTML = series.map(d =>
+    `<span><i style="background:${d.backgroundColor}"></i>${d.label}</span>`).join('');
+  plot.style.height = Math.max(300, Math.min(520, xs.length * 56 + 120)) + 'px';
+
+  const canDrill = state.dim + 1 < DATA.levels.length;
+  if (stkChart) stkChart.destroy();
+  stkChart = new Chart(document.getElementById('stkBars'), {
+    type: 'bar', data: { labels: xs.map(r => r.name), datasets: series },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
+      interaction: { mode: 'index', intersect: false },
+      onHover: (e, els) => {
+        e.native.target.style.cursor = (els.length && canDrill) ? 'pointer' : '';
+      },
+      onClick: (e, els) => {
+        if (!canDrill || !els.length) return;
+        const to = sl;
+        state.filter[state.dim] = xs[els[0].index].idx;
+        state.dim = to;
+        render();
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, border: { display: false },
+             ticks: { color: C.ink2, autoSkip: false, maxRotation: 28,
+                      callback(v) { const t = this.getLabelForValue(v);
+                        return t.length > 18 ? t.slice(0, 17) + '…' : t; } } },
+        y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
+             border: { display: false },
+             max: pctMode ? 100 : undefined,
+             title: { display: true, color: C.ink3,
+                      text: pctMode ? 'Share of the bar'
+                        : DATA.series.find(x => x.key === state.stkFig).label },
+             ticks: { color: C.ink3,
+                      callback: v => pctMode ? `${v}%`
+                        : Number(v).toLocaleString() } },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: C.surface, titleColor: C.ink,
+          bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
+          filter: c => c.parsed.y !== 0,
+          callbacks: {
+            label: c => pctMode
+              ? `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%  (${
+                  fmt(c.dataset.amounts[c.dataIndex])})`
+              : `${c.dataset.label}: ${fmt(c.parsed.y)}`,
+            footer: items => [`Total: ${fmt(xs[items[0].dataIndex].total)}`,
+              ...(canDrill ? [`click to open by ${DATA.levels[sl].name}`] : [])] } },
+      },
+    },
+  });
+  document.getElementById('stkHint').textContent =
+    `${DATA.series.find(x => x.key === state.stkFig).label} by ${xl.name}, each `
+    + `split by ${DATA.levels[sl].name}`
+    + (pctMode ? ', every bar normalised to its own total - the mix, not the '
+                 + 'size. The tooltip keeps the amount behind each share' : '')
+    + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s have `
+                + `a colour of their own; the rest are folded into Other.` : '.')
+    + (canDrill ? ` Click a bar to open it by ${DATA.levels[sl].name}.` : '');
 }
 
 function renderTable(rows, dimName, ofTotal) {
@@ -556,6 +742,16 @@ document.getElementById('unitAmt').onclick = () => {
   state.unit = 'amount'; render(); };
 document.getElementById('unitPer').onclick = () => {
   state.unit = 'per'; render(); };
+document.getElementById('stkCust').onclick = () => {
+  state.stack = 'customer'; render(); };
+document.getElementById('stkProd').onclick = () => {
+  state.stack = 'product'; render(); };
+document.getElementById('stkFig').onchange = e => {
+  state.stkFig = e.target.value; render(); };
+document.getElementById('stkAmt').onclick = () => {
+  state.stkScale = 'amount'; render(); };
+document.getElementById('stkPct').onclick = () => {
+  state.stkScale = 'pct'; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 
 render();
