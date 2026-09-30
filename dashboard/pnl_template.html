@@ -42,6 +42,9 @@
   --k5:#d55181; --k6:#008300; --k7:#9085e9; --k8:#e66767; --k9:#6b6a64;
 }
 * { box-sizing: border-box; }
+/* label.f sets display, which a class selector wins with over the browser's own
+   [hidden] rule - so a hidden control would otherwise stay on screen. */
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--page); color: var(--ink);
   font: 14px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
         "Malgun Gothic", sans-serif; }
@@ -185,6 +188,10 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <label class="f"><span>Values</span><span class="seg">
         <button class="btn" id="unitAmt">Amounts</button
         ><button class="btn" id="unitPer">Per unit</button></span></label>
+      <label class="f" id="basisBox" hidden><span>Basis</span><span class="seg">
+        <button class="btn" id="bSales">Sales</button
+        ><button class="btn" id="bOrd">Aug orders</button
+        ><button class="btn" id="bAll">+ to come</button></span></label>
       <button class="btn" id="tableBtn">Table</button>
       <button class="btn" id="resetBtn">Reset</button>
     </div>
@@ -202,6 +209,12 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="legend" id="legend"></div>
     <div class="chart" id="plot"><canvas id="bars"></canvas></div>
     <div class="hint" id="hint"></div>
+  </div>
+
+  <div class="card" id="ordCard" hidden>
+    <div class="legend" id="ordLegend"></div>
+    <div class="chart" id="ordPlot"><canvas id="ordBars"></canvas></div>
+    <div class="hint" id="ordHint"></div>
   </div>
 
   <div class="card" id="tableCard" hidden><div id="tableBox"></div></div>
@@ -252,6 +265,8 @@ const state = {
   // each unit costs. The profit line is a percentage either way.
   unit: 'amount',
   table: false,
+  // Which month's business the figures describe - see basisOf().
+  basis: 'sales',
   // Which chain the stacked chart splits each bar by, and the figure it charts.
   stack: 'customer',
   stkFig: 'net',
@@ -293,21 +308,86 @@ function stackDrill() {
   if (at < 0) return stackLevel();             // the other chain: start at its top
   return at + 2 < chain.length ? chain[at + 2] : null;
 }
+/* The order half of a combination, when the build found an order export.
+   These are counts of what was ordered, so the basis never scales them. */
+const ORDERED = ['oqty', 'oamt', 'opqty', 'opamt'];
+const hasOrders = () => has.oqty !== undefined;
+const scaled = m => !ORDERED.some(k => has[k] === m);
+
+/* Which month's business a combination belongs to.
+
+   The profit export is a month of sales with no order behind it, and the order
+   export is a month of orders with no revenue behind them. Nothing joins a sale
+   to the order it came from - that link was never exported - so an order basis
+   is a share of each key, not a set of rows:
+
+     sold          units in the profit file
+     ordered       units on an August order that shipped
+     open          units on an August order that has not
+
+     from orders = min(sold, ordered)   both ordered and sold in August
+     carried in  = sold - that          sold in August, ordered before it
+     to come     = open                 ordered in August, a later month's sale
+
+   'orders' keeps the first of those, 'all' adds the open units priced at the
+   same per-unit economics. Either way the multiplier is one number per key,
+   which holds exactly as far as the units of one key being worth the same as
+   each other - the assumption the per-unit view already runs on.
+
+   A key that was ordered and never sold has no per-unit cost to price it from,
+   so it weighs nothing here. The build prints how much of the month that is. */
+function basisOf(c) {
+  if (state.basis === 'sales' || !hasOrders()) return 1;
+  const sold = Math.abs(has.qty === undefined ? 0 : c.v[has.qty]);
+  if (!sold) return 0;
+  const both = Math.min(sold, c.v[has.oqty]);
+  const want = state.basis === 'all' ? both + c.v[has.opqty] : both;
+  return want / sold;
+}
+
+/* How the two counts of a slice overlap. The minimum is taken per key and then
+   added up, never the other way round: one product shipping more than it sold
+   cannot be allowed to cover another selling more than it shipped. */
+function orderSplit(extra) {
+  const o = { sold: 0, ord: 0, both: 0, carried: 0, spare: 0, open: 0,
+              soldAmt: 0, ordAmt: 0 };
+  if (!hasOrders()) return o;
+  for (const c of DATA.combos) {
+    if (!inSlice(c, extra)) continue;
+    const sold = Math.abs(has.qty === undefined ? 0 : c.v[has.qty]);
+    const ord = c.v[has.oqty];
+    const both = Math.min(sold, ord);
+    o.sold += sold;
+    o.ord += ord;
+    o.both += both;
+    o.carried += sold - both;       // sold in August, ordered before it
+    o.spare += ord - both;          // shipped per the order file, not in sales
+    o.open += c.v[has.opqty];       // ordered in August, not yet shipped
+    o.soldAmt += has.net === undefined ? 0 : c.v[has.net];
+    o.ordAmt += c.v[has.oamt] + c.v[has.opamt];
+  }
+  return o;
+}
+
 /* Every combination of the filter values was totalled at build time, so a
    filter change is a sum over the matching combinations rather than a pass over
    the rows. */
+function inSlice(c, extra) {
+  for (let i = 0; i < state.filter.length; i++) {
+    const want = extra && extra.level === i ? extra.value : state.filter[i];
+    if (want >= 0 && c.k[i] !== want) return false;
+  }
+  return true;
+}
+
 function totals(extra) {
   const v = new Float64Array(DATA.series.length);
   let rows = 0;
   for (const c of DATA.combos) {
-    let keep = true;
-    for (let i = 0; i < state.filter.length; i++) {
-      const want = extra && extra.level === i ? extra.value : state.filter[i];
-      if (want >= 0 && c.k[i] !== want) { keep = false; break; }
-    }
-    if (!keep) continue;
-    rows += c.n;
-    for (let m = 0; m < v.length; m++) v[m] += c.v[m];
+    if (!inSlice(c, extra)) continue;
+    const f = basisOf(c);
+    rows += f ? c.n : 0;
+    for (let m = 0; m < v.length; m++) v[m] += c.v[m] * (scaled(m) ? f : 1);
   }
   const at = k => (has[k] === undefined ? 0 : v[has[k]]);
   const profit = at('profit');
@@ -590,7 +670,12 @@ function render() {
   readColours();
   document.getElementById('pageTitle').textContent = DATA.title;
   document.getElementById('pageSub').textContent =
-    `${DATA.file} · ${DATA.rows.toLocaleString()} rows`;
+    `${DATA.file} · ${DATA.rows.toLocaleString()} rows`
+    + (state.basis === 'sales' ? ''
+       : state.basis === 'orders'
+         ? ' · allocated to the units that were ordered in August and sold in it'
+         : ' · allocated to August\'s orders, the unshipped ones priced at the '
+           + 'same rates');
   buildFilters();
 
   const picked = DATA.levels
@@ -637,6 +722,11 @@ function render() {
   document.getElementById('backBtn').disabled = state.dim === 0;
 
   document.getElementById('tableBtn').classList.toggle('active', state.table);
+  // The basis only exists where an order export was read alongside the profit.
+  document.getElementById('basisBox').hidden = !hasOrders();
+  if (!hasOrders()) state.basis = 'sales';
+  [['bSales', 'sales'], ['bOrd', 'orders'], ['bAll', 'all']].forEach(([id, v]) =>
+    document.getElementById(id).classList.toggle('active', state.basis === v));
   const canUnit = has.qty !== undefined;
   if (!canUnit) state.unit = 'amount';
   document.getElementById('unitAmt').classList.toggle('active', state.unit === 'amount');
@@ -657,6 +747,12 @@ function render() {
       ['Qty (net)', fmt(all.qty), ''],
       ['ASP', all.asp == null ? '-' : unitFmt(all.asp), ''],
     ]),
+    ...(!hasOrders() ? [] : (() => {
+      const o = orderSplit();
+      return [['From Aug orders', o.sold ? (o.both / o.sold * 100).toFixed(0)
+                                           + '% of units' : '-', ''],
+              ['Not yet shipped', fmt(o.open) + ' units', '']];
+    })()),
   ].map(([k, v, cls]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
   ).join('');
@@ -813,6 +909,7 @@ function draw() {
 
   renderTable(top, lv.name, rows.length);
   drawStack();
+  drawOrders();
 }
 
 /* The same slice, one bar per member of the level above the bars, each split by
@@ -859,14 +956,16 @@ function drawStack() {
   /* Costs are carried negative in the export. The whole figure is flipped when
      its total is, so a cost stack stands up like the others - and a member that
      really does run the other way still points the other way inside it. */
+  const keep = fig !== undefined && scaled(fig);
+  const amount = c => c.v[fig] * (keep ? basisOf(c) : 1);
   const flip = fig !== undefined
-    && slice.reduce((a, c) => a + c.v[fig], 0) < 0 ? -1 : 1;
+    && slice.reduce((a, c) => a + amount(c), 0) < 0 ? -1 : 1;
   const grid = new Map();                 // x member -> stack member -> value
   const stackTotal = new Map();
   for (const c of slice) {
     const x = xl.values[c.k[xi]];
     const g = DATA.levels[sl].values[c.k[sl]];
-    const v = fig === undefined ? 0 : c.v[fig] * flip;
+    const v = fig === undefined ? 0 : amount(c) * flip;
     const row = grid.get(x) || new Map();
     row.set(g, (row.get(g) || 0) + v);
     grid.set(x, row);
@@ -969,6 +1068,154 @@ function drawStack() {
     + (canDrill ? ` Click a bar to open it by ${DATA.levels[sl].name}.` : '');
 }
 
+/* The two counts side by side, one pair per member of the level the bars are
+   on. Units, not money: both files carry a quantity that means the same thing -
+   a unit shipped - while the amounts differ by tax, by currency and by what
+   each file calls revenue. The money is in the tooltip, where a systematic
+   difference still shows without being mistaken for a reconciling one.
+
+   The overlap is drawn in one colour across both bars, because it is one set of
+   units counted twice. What sits above it on each side is what the other side
+   does not have. */
+/* Which of a pair is which, written over each bar. Two bars on one tick share
+   the tick's label, so without this the colours are the only thing saying that
+   the left one is the month's sales and the right one the month's orders. */
+const barTags = {
+  id: 'barTags',
+  afterDatasetsDraw(c) {
+    const tags = (c.options.plugins.barTags || {}).tags;
+    if (!tags) return;
+    const { ctx } = c;
+    ctx.save();
+    ctx.font = '600 10px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const done = new Set();
+    c.data.datasets.forEach((d, i) => {
+      if (!d.stack || done.has(d.stack) || !tags[d.stack]) return;
+      done.add(d.stack);
+      // The first dataset of a stack is drawn at its base, so the top of the
+      // whole bar is the smallest y of anything in it.
+      const tops = c.data.datasets.map((d2, j) => (d2.stack === d.stack
+        ? c.getDatasetMeta(j).data.map(el => el.y) : null)).filter(Boolean);
+      c.getDatasetMeta(i).data.forEach((el, n) => {
+        const y = Math.min(...tops.map(t => t[n]));
+        const text = tags[d.stack];
+        const w = ctx.measureText(text).width;
+        ctx.globalAlpha = .85;
+        ctx.fillStyle = C.surface;
+        ctx.beginPath();
+        ctx.roundRect(el.x - w / 2 - 4, y - 16, w + 8, 14, 3);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = C.ink3;
+        ctx.fillText(text, el.x, y - 4);
+      });
+    });
+    ctx.restore();
+  }
+};
+
+let ordChart = null;
+function drawOrders() {
+  const card = document.getElementById('ordCard');
+  card.hidden = !hasOrders();
+  if (card.hidden) {
+    if (ordChart) { ordChart.destroy(); ordChart = null; }
+    return;
+  }
+  const lv = DATA.levels[state.dim];
+  const rows = lv.values
+    .map((name, i) => ({ name, ...orderSplit({ level: state.dim, value: i }) }))
+    .filter(r => r.sold || r.ord || r.open)
+    .sort((a, b) => (b.sold + b.ord) - (a.sold + a.ord))
+    .slice(0, 12);
+
+  const bar = (label, stack, key, colour) => ({
+    label, stack, data: rows.map(r => r[key]), backgroundColor: colour,
+    borderRadius: 3, borderSkipped: false, borderWidth: 1,
+    borderColor: C.surface, maxBarThickness: 46,
+  });
+  const datasets = [
+    bar('Ordered in Aug and sold', 'sold', 'both', C.stack[0]),
+    bar('Sold, ordered earlier', 'sold', 'carried', C.stack[8]),
+    bar('Ordered in Aug and sold', 'ord', 'both', C.stack[0]),
+    bar('Shipped, not in the sales file', 'ord', 'spare', C.stack[1]),
+    bar('Ordered, not yet shipped', 'ord', 'open', C.stack[3]),
+  ];
+  datasets[2].hidden = false;
+  // The pair is one set of units twice, so the legend names it once.
+  const seen = new Set();
+  document.getElementById('ordLegend').innerHTML = datasets
+    .filter(d => !seen.has(d.label) && seen.add(d.label)
+                 && d.data.some(v => Math.abs(v) > 0.5))
+    .map(d => `<span><i style="background:${d.backgroundColor}"></i>${d.label}</span>`)
+    .join('');
+  datasets.push({
+    type: 'line', label: 'Sold units that came from an Aug order', yAxisID: 'y1',
+    data: rows.map(r => (r.sold ? r.both / r.sold * 100 : null)),
+    borderColor: C.profit, backgroundColor: C.profit, borderWidth: 2,
+    pointRadius: 4, pointHoverRadius: 7, tension: .25, fill: false,
+    spanGaps: true, order: -1,
+  });
+  const plot = document.getElementById('ordPlot');
+  plot.style.height = Math.max(300, Math.min(460, rows.length * 54 + 130)) + 'px';
+
+  if (ordChart) ordChart.destroy();
+  ordChart = new Chart(document.getElementById('ordBars'), {
+    type: 'bar',
+    data: { labels: rows.map(r => r.name), datasets },
+    plugins: [pointLabels, barTags],
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { stacked: true, offset: true, grid: { display: false },
+             border: { display: false },
+             ticks: { color: C.ink2, autoSkip: false, maxRotation: 28,
+                      callback(v) { const t = this.getLabelForValue(v);
+                        return t.length > 18 ? t.slice(0, 17) + '…' : t; } } },
+        y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
+             border: { display: false },
+             title: { display: true, text: 'Units', color: C.ink3 },
+             ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
+        y1: { position: 'right', beginAtZero: true, suggestedMax: 100,
+              grid: { drawOnChartArea: false }, border: { display: false },
+              title: { display: true, text: 'From Aug orders', color: C.ink3 },
+              ticks: { color: C.ink3, callback: v => `${v}%` } },
+      },
+      plugins: {
+        legend: { display: false },
+        barTags: { tags: { sold: 'sold', ord: 'ordered' } },
+        tooltip: { backgroundColor: C.surface, titleColor: C.ink,
+          bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
+          filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
+          callbacks: {
+            label: c => c.dataset.type === 'line'
+              ? `${c.dataset.label}: ${c.parsed.y.toFixed(0)}%`
+              : `${c.dataset.label}: ${fmt(c.parsed.y)} units`,
+            footer: items => {
+              const r = rows[items[0].dataIndex];
+              return [`Sold ${fmt(r.sold)} units for ${fmt(r.soldAmt)}`,
+                      `Ordered ${fmt(r.ord + r.open)} units for ${fmt(r.ordAmt)}`];
+            } } },
+      },
+    },
+  });
+
+  const all = orderSplit();
+  const pct = all.sold ? Math.round(all.both / all.sold * 100) : 0;
+  document.getElementById('ordHint').textContent =
+    `Units by ${lv.name}: what August sold, beside what August ordered. `
+    + `${pct}% of the units sold came from an August order; the rest were `
+    + `ordered earlier. ${fmt(all.open)} more are ordered and not yet shipped, `
+    + 'so they are a later month\'s revenue'
+    + (all.spare > 0.5 ? `, and ${fmt(all.spare)} unit(s) count as shipped on `
+       + 'the order file without a sale of the same customer and product behind '
+       + 'them - that gap is a reconciling difference, not a timing one' : '')
+    + '. Basis switches the figures above onto these units.';
+}
+
 function renderTable(rows, dimName, ofTotal) {
   document.getElementById('tableCard').hidden = !state.table;
   if (!state.table) return;
@@ -1016,9 +1263,13 @@ document.getElementById('backBtn').onclick = () => {
 };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
+[['bSales', 'sales'], ['bOrd', 'orders'], ['bAll', 'all']].forEach(([id, v]) => {
+  document.getElementById(id).onclick = () => { state.basis = v; render(); };
+});
 document.getElementById('resetBtn').onclick = () => {
   state.filter = DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1));
   state.dim = DATA.levels.length > 1 ? 1 : 0;
+  state.basis = 'sales';
   render();
 };
 document.getElementById('unitAmt').onclick = () => {

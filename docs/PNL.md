@@ -169,8 +169,89 @@ stack. `--find` and `--where` are what chase them down.
 | **Figure** | what the stacked chart charts |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one |
 | **Amounts / Per unit** | money, or every figure divided by the units behind it |
+| **Basis** | whose month the figures describe - see below. Only there when an order export was read |
 | **Table** | every figure behind the bars, with quantity, ASP and the margin |
 | **Reset** | back to the opening view |
+
+### Orders, and the month they belong to
+
+`profit_2608_3` is a month of **sales**. `26 DTC Aug` is a month of **orders**.
+Neither answers "what did August's orders earn", and no join can either: nothing
+in either export says which sale came from which order - that link was never
+exported. What can be done is to count units on both sides of the same key:
+
+```
+sold             units in the profit file                August revenue
+ordered, shipped units on an August order that shipped
+ordered, open    units on an August order that has not
+
+from August orders = min(sold, ordered)   ordered in August and sold in it
+carried in         = sold - that          sold in August, ordered before it
+still to come      = open                 a later month's revenue
+```
+
+The minimum is taken **per key and then added up**, never the other way round:
+one product shipping more than it sold must not cover another selling more than
+it shipped.
+
+**Basis** reads the whole page on one of those:
+
+| | |
+|---|---|
+| **Sales** | the profit file as it stands - August's revenue |
+| **Aug orders** | only the units that were both ordered in August and sold in it |
+| **+ to come** | those, plus the unshipped orders priced at the same per-unit rates |
+
+Off *Sales*, every figure on the page is an **allocation**: one multiplier per
+key, applied to the money and the units alike. It holds exactly as far as the
+units of one key being worth the same as each other - the assumption the per
+unit view already runs on - and the subtitle says so while it is on. A key that
+was ordered and never sold has no per-unit cost to price it from, so it weighs
+nothing; the build prints how much of the month that is.
+
+### How an order finds its sales
+
+The order export knows its portal group and its product. It does not know the
+payer, so it cannot say which Type2 an order belongs to when the accounts behind
+a group disagree - and keyed at full depth it would never meet the profit file
+at all.
+
+So an order is **spread across the sales it is consistent with**: the
+combinations that agree on every level the order does assert, in proportion to
+the units each one sold. An order for 100 EPP units of a SKU lands on the EPP
+rows of that SKU, in the shape those rows already have. The build prints which
+levels the match was made on, and how many units found nothing to be.
+
+The portal group is resolved through `portal_levels` in `tools/promo_match.py`,
+which indexes the customer master under every spelling of every level and
+returns only what the accounts behind a group agree on. `--agree` sets how much
+agreement that takes.
+
+### The orders chart
+
+Under the profit chart, the two counts side by side - one pair per member of the
+level the bars are on, `sold` on the left and `ordered` on the right. Units, not
+money: both files carry a quantity that means one thing, a unit shipped, while
+the amounts differ by tax, by currency and by what each file calls revenue. The
+money is in the tooltip, where a systematic difference still shows.
+
+The overlap is drawn in one colour across **both** bars, because it is one set
+of units counted twice. What sits above it is what the other side does not have:
+grey on the left for what was ordered before August, orange on the right for
+units the order file calls shipped with no sale behind them - a reconciling
+difference rather than a timing one, and what `tools/reconcile.py` exists to
+chase - and amber for what has not shipped yet. The line is the share of sold
+units that came from an August order.
+
+```
+py dashboard\build_pnl.py                          # reads 26 DTC Aug if it is there
+py dashboard\build_pnl.py --no-orders              # sales only
+py dashboard\build_pnl.py --shipped "COMPLETED,SHIPPED,PICKUP_COMPLETE"
+```
+
+A status the built-in lists do not recognise is counted as neither, and named,
+rather than guessed at. `tools/reconcile.py --statuses` lists them all with how
+each is read.
 
 ### Per unit, and ASP
 

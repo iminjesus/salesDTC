@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
 import analyze_structure as A                                  # noqa: E402
 import customer as CUST                                        # noqa: E402
+import orders as ORD                                           # noqa: E402
 from rawdata import (MASTER_RAW as RAW, find, key_norm, master,  # noqa: E402
                      parse_number, pick_file, pick_latest, read_any)
 
@@ -70,6 +71,16 @@ SERIES = [
     ('qty',       'Qty', ('Quantity(Net)', 'Net Sales Qty', 'Qty', 'Quantity')),
 ]
 
+# The order file's own figures, totalled onto the same key. They are counts of
+# what was ordered, not a share of what was sold, so they are never scaled by
+# the basis the page is read on - see ORDER_KEYS in the template.
+ORDER_SERIES = [
+    ('oqty',  'Ordered Qty (shipped)'),
+    ('oamt',  'Ordered (shipped)'),
+    ('opqty', 'Ordered Qty (open)'),
+    ('opamt', 'Ordered (open)'),
+]
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(
@@ -94,6 +105,18 @@ def main() -> int:
     ap.add_argument('--cdn', action='store_true',
                     help='link Chart.js instead of embedding it: a smaller file '
                          'that then needs a connection')
+    ap.add_argument('--orders', default='26 DTC Aug', metavar='NAME',
+                    help='the order export to read beside the profit file, so '
+                         'the page can be read on an order basis as well as a '
+                         'sales one (default: 26 DTC Aug)')
+    ap.add_argument('--no-orders', action='store_true',
+                    help='draw sales only, even when an order export is there')
+    ap.add_argument('--shipped', metavar='LIST',
+                    help='comma-separated order statuses to count as shipped, '
+                         'replacing the built-in list. Everything else is open')
+    ap.add_argument('--agree', type=float, default=80.0, metavar='PCT',
+                    help='how much of the accounts behind a portal group must '
+                         'agree before a level is asserted for it (default 80)')
     ap.add_argument('--open', action='store_true')
     args = ap.parse_args()
 
@@ -296,6 +319,84 @@ def main() -> int:
                  if theirs else f'{head[i]!r} is empty on every row')
               + f'; {keyed}')
     print(f'{len(combos):,} filter combination(s) from {len(body):,} rows')
+
+    # ── the other half of the month: what was ordered ──────────────────────
+    # The order export knows its portal group and its product; it does not know
+    # the payer, so it cannot say which Type2 an order belongs to when the
+    # accounts behind a group disagree. Keyed at full depth it would therefore
+    # never meet the profit file at all.
+    #
+    # So an order is spread across the sales that are consistent with it - the
+    # combinations that agree on every level the order does assert - in
+    # proportion to the units each one sold. An order for 100 EPP units of a SKU
+    # lands on the EPP rows of that SKU, in the shape those rows already have.
+    # That is an allocation and nothing more; it says where an order could have
+    # gone, in the proportions the month itself gives.
+    n_measures = len(keys)
+    op = None if args.no_orders else pick_file(folder, args.orders)
+    if op is not None:
+        print('\nreading orders:')
+        keep = ({t.strip().upper() for t in args.shipped.split(',') if t.strip()}
+                if args.shipped else None)
+        got = ORD.load(op, cust_levels=CUST.LEVELS, prod_levels=PRODUCT_LEVELS,
+                       customer_master=cp, products=prod, shipped=keep,
+                       agree=args.agree)
+        if got is not None:
+            ORD.report(got)
+            sold_keys = list(combos)
+            qi = keys.index('qty') if 'qty' in keys else None
+            for vals in combos.values():
+                vals.extend([0.0, 0.0, 0.0, 0.0])
+
+            # One index per distinct set of levels an order asserts. There are
+            # only a handful of those, and building them once beats walking
+            # every combination for every order.
+            index: dict[tuple, dict] = {}
+            spread_u = orphan_u = 0.0
+            orphans = 0
+            for ok, v in got.by_key.items():
+                known = tuple(j for j, x in enumerate(ok) if x != CUST.BLANK)
+                idx = index.get(known)
+                if idx is None:
+                    idx = index[known] = {}
+                    for ck in sold_keys:
+                        idx.setdefault(tuple(ck[j] for j in known), []).append(ck)
+                hits = idx.get(tuple(ok[j] for j in known)) or []
+                units = v[0] + v[2]
+                if not hits:
+                    # Ordered, with nothing in the month it could have been.
+                    # A real combination, and one the profit file never had.
+                    orphans += 1
+                    orphan_u += units
+                    combos[ok] = [0.0] * n_measures + list(v)
+                    counts.setdefault(ok, 0)
+                    continue
+                spread_u += units
+                weight = [abs(combos[ck][qi]) if qi is not None else 1.0
+                          for ck in hits]
+                total = sum(weight) or float(len(hits))
+                if not sum(weight):
+                    weight = [1.0] * len(hits)
+                for ck, w in zip(hits, weight):
+                    share = w / total
+                    row = combos[ck]
+                    for m in range(4):
+                        row[n_measures + m] += v[m] * share
+
+            keys = keys + [k for k, _ in ORDER_SERIES]
+            series += [{'key': k, 'label': lbl} for k, lbl in ORDER_SERIES]
+            shapes = ', '.join(
+                '+'.join(FILTERS[j][0] for j in k) or '(nothing)'
+                for k in sorted(index, key=len, reverse=True)[:3])
+            print(f'\n  spread onto the sales it could have been: '
+                  f'{spread_u:,.0f} unit(s) over {len(sold_keys):,} combination(s), '
+                  f'matched on {shapes}')
+            if orphans:
+                print(f'  {orphans:,} combination(s) ({orphan_u:,.0f} units) were '
+                      'ordered with nothing in the month they could be - they '
+                      'chart as orders, and an order basis leaves them out, '
+                      'because there is no sale of theirs to take a per-unit '
+                      'cost from')
 
     # ── what the filters ended up holding ──────────────────────────────────
     levels = []
