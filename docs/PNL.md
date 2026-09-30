@@ -119,7 +119,7 @@ the same levels, so there is one set of controls rather than one per chart.
 and the members are joined into a block so a level reads as one control:
 
 ```
-CUSTOMER  CHANNEL [All|E-STORE|OFF-LINE]  TYPE [All|EPP|S.com] +2  PORTAL GROUP [All|PG0|PG1] +2 ...
+CUSTOMER  CHANNEL [All|E-STORE|OFF-LINE]  TYPE [All|EPP|S.com]  PORTAL GROUP [All|PG0|PG1] ...
 PRODUCT   DIVISION [All|DA|MX|VD]  CATEGORY [All|FRIDGE|PHONE|TV]  ...  SKU [All (60) v]
 ```
 
@@ -130,9 +130,15 @@ and SKU are lists to search, not rows to scan.
 
 The levels cascade: each only offers what the levels above it leave available,
 so picking a Type leaves Portal Group listing that Type's values and nothing
-else. The **+2** chip counts what the narrowing is hiding and names the level
-doing it. *All* is marked as current without being marked as a choice - an
+else. *All* is marked as current without being marked as a choice - an
 untouched page should not read as eight selections.
+
+Where a level has no value for a row the build writes a placeholder in brackets
+- `(blank)`, `(no customer match)`. Those are somewhere to put the money, not
+somewhere to go, so they stay off the menu unless one is already what is being
+shown, in which case its button is there to step back out of. The rows behind
+them are untouched: still in every total, and still a bar and a slice of a
+stack. `--find` and `--where` are what chase them down.
 
 ### The rest of the menu
 
@@ -270,9 +276,9 @@ The build prints what it matched, and that is usually the answer:
   column holds it instead.
 
 A value missing from a level's row is one of three things, and these separate
-them: the cascade is hiding it (the row says how many and under which level), no
-row of this export carries it, or it lives in a column no level reads. The last
-one is fixed by adding the column's name to `LEVELS` in `tools/customer.py`.
+them: the cascade is hiding it because a level above is narrowed, no row of this
+export carries it, or it lives in a column no level reads. The last one is fixed
+by adding the column's name to `LEVELS` in `tools/customer.py`.
 - `N total(s) read straight off the layout, M column(s) left to place` - a large
   M means the export is not printed as totals-then-lines, and most of the work
   fell to the wider search.

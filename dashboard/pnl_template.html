@@ -90,8 +90,6 @@ select:disabled { opacity: .5; }
 .vals .btn { padding: 3px 9px; font-size: 13px; }
 .vals select { min-width: 96px; max-width: 150px; padding: 3px 6px;
   font-size: 13px; }
-.more { font-style: normal; font-size: 10px; color: var(--ink-3); cursor: help;
-  white-space: nowrap; }
 /* The view switches run beside their captions rather than under them - stacked,
    they cost the menu a line of height for every control. */
 .bar { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 11px;
@@ -309,21 +307,24 @@ function optionsFor(level) {
   const group = level < DATA.custDepth ? [0, DATA.custDepth] : [DATA.custDepth,
                                                                 DATA.levels.length];
   const seen = new Set();
-  const all = new Set();
-  const blame = [];
-  for (let i = group[0]; i < level; i++) {
-    if (state.filter[i] >= 0) blame.push(DATA.levels[i].name);
-  }
   for (const c of DATA.combos) {
-    all.add(c.k[level]);
     let ok = true;
     for (let i = group[0]; i < level; i++) {
       if (state.filter[i] >= 0 && c.k[i] !== state.filter[i]) { ok = false; break; }
     }
     if (ok) seen.add(c.k[level]);
   }
-  return { seen, hidden: all.size - seen.size, blame };
+  return seen;
 }
+
+/* Where a level has no value for a row the build writes a placeholder in
+   brackets - (blank), (no customer match). They are somewhere to put the money,
+   not somewhere to go, so they stay off the menu unless one is already what is
+   being shown. The rows behind them are still in every total, and still turn up
+   as a bar and as a slice of a stack. `--find` and `--where` chase them down. */
+const PLACEHOLDER = /^\(.*\)$/;
+const offerable = (lv, j, picked) =>
+  picked === j || !PLACEHOLDER.test(lv.values[j]);
 
 /* Narrowing to a value moves the bars down to the next level; widening back to
    All brings them up again. A click on a bar and a change of a select are the
@@ -358,8 +359,10 @@ function buildFilters() {
 
 function levelCell(i) {
   const lv = DATA.levels[i];
-  const { seen, hidden, blame } = optionsFor(i);
-  if (state.filter[i] >= 0 && !seen.has(state.filter[i])) state.filter[i] = -1;
+  const all = optionsFor(i);
+  if (state.filter[i] >= 0 && !all.has(state.filter[i])) state.filter[i] = -1;
+  const picked = state.filter[i];
+  const seen = new Set([...all].filter(j => offerable(lv, j, picked)));
   const cell = document.createElement('div');
   cell.className = 'lv';
 
@@ -403,14 +406,6 @@ function levelCell(i) {
   }
   cell.appendChild(vals);
 
-  // A value missing here is usually not missing from the file - it sits under a
-  // level above that is narrowed. Say so in the space of a chip, rather than let
-  // it read as "there are no such customers".
-  if (hidden) {
-    cell.insertAdjacentHTML('beforeend',
-      `<em class="more" title="${hidden} more under other ${blame.join(' / ')}`
-      + `">+${hidden}</em>`);
-  }
   return cell;
 }
 
