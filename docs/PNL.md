@@ -125,8 +125,25 @@ PRODUCT   DIVISION [All|DA|MX|VD]  CATEGORY [All|FRIDGE|PHONE|TV]  ...  SKU [All
 
 The **name** puts the bars on that level; the one they are on is underlined in
 the accent colour. The **members** narrow to one value, and *All* widens back.
-A level whose members outnumber `BTN_MAX` (eight) keeps a select instead - Range
-and SKU are lists to search, not rows to scan.
+
+A level whose members outnumber `BTN_MAX` (eight) gets a **search box** instead
+- Range and SKU are lists to search, not rows to scan. The search is loose on
+purpose, because these lists are zero-padded keys and half-remembered names:
+
+| Typing | Finds | |
+|---|---|---|
+| `sku023` | `SKU023` | the whole thing |
+| `sku` | `SKU023` | the start of it |
+| `23` | `SKU023` | anywhere inside |
+| `sku23` | `SKU023` | the padding is not part of the key |
+| `gs24` | `GALAXY-S 24` | the letters in order, from three characters up |
+
+Case, spaces and punctuation are ignored throughout. Two words mean both, in
+any order - `sku 23` and `23 sku` are the same search - and a word nothing
+matches drops the value, so narrowing always narrows. Matches are ranked by
+which of those lines caught them, exact first and a guess last, with the part
+that was caught picked out in the list. Enter takes the top one, the arrows
+walk them, Escape or a click outside closes.
 
 The levels cascade: each only offers what the levels above it leave available,
 so picking a Type leaves Portal Group listing that Type's values and nothing

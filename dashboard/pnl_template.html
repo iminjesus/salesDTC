@@ -88,8 +88,29 @@ select:disabled { opacity: .5; }
   border-bottom-color: var(--accent); }
 .lvName.off { opacity: .5; }
 .vals .btn { padding: 3px 9px; font-size: 13px; }
-.vals select { min-width: 96px; max-width: 150px; padding: 3px 6px;
-  font-size: 13px; }
+/* A level with too many members to line up gets a search box instead. */
+.lv { position: relative; }
+.pickBtn { max-width: 190px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.pickBtn::after { content: " \25be"; color: var(--ink-3); }
+.pop { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0;
+  min-width: 240px; padding: 8px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 9px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .22); }
+.pop.right { left: auto; right: 0; }
+.pop input { width: 100%; font: inherit; font-size: 13px; padding: 6px 8px;
+  color: var(--ink); background: var(--chip); border: 1px solid var(--line);
+  border-radius: 6px; }
+.pop input:focus { outline: none; border-color: var(--accent); }
+.opts { display: flex; flex-direction: column; gap: 1px; margin-top: 6px;
+  max-height: 264px; overflow: auto; }
+.opt { font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+  color: var(--ink); background: none; border: 0; border-radius: 6px;
+  padding: 5px 8px; white-space: nowrap; }
+.opt:hover, .opt.cur { background: var(--grid); }
+.opt.active { color: var(--accent); font-weight: 650; }
+.opt b { color: var(--accent); font-weight: 700; }
+.pop .none { font-size: 12px; color: var(--ink-3); padding: 7px 8px 3px; }
 /* The view switches run beside their captions rather than under them - stacked,
    they cost the menu a line of height for every control. */
 .bar { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 11px;
@@ -326,6 +347,168 @@ const PLACEHOLDER = /^\(.*\)$/;
 const offerable = (lv, j, picked) =>
   picked === j || !PLACEHOLDER.test(lv.values[j]);
 
+/* Searching a long level, loosely on purpose. These lists are zero-padded keys
+   and half-remembered names, so a strict substring would miss "23" in SKU023 and
+   "galaxy s" in "GALAXY-S 24". Every tier is an accent of the same idea, and the
+   tier a value matched on is what ranks it - exact first, a guess last.
+
+   Terms are ANDed: typing two words means both, in any order. A term nothing
+   matches drops the value, so narrowing always narrows. */
+const searchNorm = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+const dropPad = s => s.replace(/0+(\d)/g, '$1');   // SKU023 and SKU23 are one key
+
+function subseq(hay, needle) {
+  let i = 0;
+  for (const ch of hay) if (ch === needle[i] && ++i === needle.length) return true;
+  return false;
+}
+
+/* The tier a value matches on, or null for no match at all. */
+function looseScore(value, query) {
+  const terms = query.split(/\s+/).map(searchNorm).filter(Boolean);
+  if (!terms.length) return 0;
+  const v = searchNorm(value);
+  const vz = dropPad(v);
+  let tier = 0;
+  for (const t of terms) {
+    const tz = dropPad(t);
+    const s = v === t ? 1
+            : v.startsWith(t) ? 2
+            : v.includes(t) ? 3
+            : vz.includes(tz) ? 4
+            // A subsequence is the loosest reading there is, so it takes three
+            // characters to ask for - below that it matches half the file.
+            : (tz.length >= 3 && subseq(vz, tz)) ? 5
+            : null;
+    if (s === null) return null;
+    tier = Math.max(tier, s);
+  }
+  return tier;
+}
+
+/* One open picker at a time, and it closes on anything that is not itself. */
+let openPop = null;
+function closePicker() {
+  if (openPop) { openPop.remove(); openPop = null; }
+}
+document.addEventListener('mousedown', e => {
+  if (openPop && !openPop.contains(e.target)
+      && !e.target.classList.contains('pickBtn')) closePicker();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePicker();
+});
+
+function picker(i, lv, seen) {
+  const wrap = document.createElement('div');
+  const picked = state.filter[i];
+  const btn = document.createElement('button');
+  btn.className = 'btn pickBtn' + (picked >= 0 ? ' active' : ' on');
+  btn.textContent = picked >= 0 ? lv.values[picked] : `All (${seen.size})`;
+  btn.title = `Search ${seen.size} ${lv.name.toLowerCase()} values`;
+  wrap.appendChild(btn);
+
+  btn.onclick = () => {
+    const wasMine = openPop && openPop.parentNode === wrap;
+    closePicker();
+    if (wasMine) return;                       // a second click just closes it
+
+    const pop = document.createElement('div');
+    pop.className = 'pop';
+    const find = document.createElement('input');
+    find.placeholder = `Search ${lv.name.toLowerCase()}`;
+    find.autocomplete = 'off';
+    const opts = document.createElement('div');
+    opts.className = 'opts';
+    const none = document.createElement('div');
+    none.className = 'none';
+    none.hidden = true;
+    pop.append(find, none, opts);
+    wrap.appendChild(pop);
+    openPop = pop;
+
+    // A picker on the last level of a chain sits at the right-hand edge, where
+    // a popup hung from its left corner would run off the page.
+    if (pop.getBoundingClientRect().right > window.innerWidth - 8) {
+      pop.classList.add('right');
+    }
+
+    let rows = [];
+    const draw = () => {
+      const q = find.value.trim();
+      rows = [...seen]
+        .map(j => ({ j, tier: looseScore(lv.values[j], q) }))
+        .filter(r => r.tier !== null)
+        .sort((a, b) => a.tier - b.tier || a.j - b.j);
+      if (!q) rows.unshift({ j: -1, tier: 0 });   // All, only when not searching
+      opts.innerHTML = '';
+      rows.forEach((r, n) => {
+        const o = document.createElement('button');
+        o.className = 'opt' + (picked === r.j ? ' active' : '')
+                            + (n === 0 && q ? ' cur' : '');
+        o.innerHTML = r.j < 0 ? `All (${seen.size})` : mark(lv.values[r.j], q);
+        o.onclick = () => { closePicker(); setFilter(i, r.j); };
+        opts.appendChild(o);
+      });
+      none.hidden = rows.length > 0;
+      none.textContent = `Nothing here matches "${q}"`;
+    };
+
+    find.oninput = draw;
+    find.onkeydown = e => {
+      const cur = opts.querySelector('.cur');
+      if (e.key === 'Enter') {
+        (cur || opts.firstElementChild)?.click();
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const list = [...opts.children];
+        const at = cur ? list.indexOf(cur) : -1;
+        const to = Math.max(0, Math.min(list.length - 1,
+                                        at + (e.key === 'ArrowDown' ? 1 : -1)));
+        list.forEach(x => x.classList.remove('cur'));
+        list[to]?.classList.add('cur');
+        list[to]?.scrollIntoView({ block: 'nearest' });
+      } else { return; }
+      e.preventDefault();
+    };
+    draw();
+    find.focus();
+  };
+  return wrap;
+}
+
+/* The part of a value the search caught, so a loose hit shows why it is a hit. */
+function mark(value, query) {
+  const esc = t => t.replace(/[&<>"]/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const terms = query.split(/\s+/).map(searchNorm).filter(Boolean);
+  if (!terms.length) return esc(value);
+  // Walk the raw value and the normalised one together, so the highlight lands
+  // on the characters the user actually sees, punctuation and all.
+  const map = [];
+  let norm = '';
+  [...value].forEach((ch, n) => {
+    const c = searchNorm(ch);
+    if (c) { norm += c; map.push(n); }
+  });
+  const hit = new Set();
+  for (const t of terms) {
+    let from = 0, at;
+    while ((at = norm.indexOf(t, from)) >= 0) {
+      for (let k = at; k < at + t.length; k++) hit.add(map[k]);
+      from = at + 1;
+    }
+  }
+  if (!hit.size) return esc(value);
+  // One tag per run rather than one per character.
+  let out = '', on = false;
+  [...value].forEach((ch, n) => {
+    const want = hit.has(n);
+    if (want !== on) { out += want ? '<b>' : '</b>'; on = want; }
+    out += esc(ch);
+  });
+  return out + (on ? '</b>' : '');
+}
+
 /* Narrowing to a value moves the bars down to the next level; widening back to
    All brings them up again. A click on a bar and a change of a select are the
    same act, so they go through here. */
@@ -383,13 +566,7 @@ function levelCell(i) {
   const vals = document.createElement('div');
   vals.className = 'vals' + (seen.size > BTN_MAX ? '' : ' seg');
   if (seen.size > BTN_MAX) {
-    const sel = document.createElement('select');
-    sel.innerHTML = `<option value="-1">All (${seen.size})</option>`
-      + lv.values.map((v, j) => seen.has(j)
-          ? `<option value="${j}">${v}</option>` : '').join('');
-    sel.value = String(state.filter[i]);
-    sel.onchange = () => setFilter(i, +sel.value);
-    vals.appendChild(sel);
+    vals.appendChild(picker(i, lv, seen));
   } else {
     const add = (text, v, title) => {
       const b = document.createElement('button');
