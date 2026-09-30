@@ -147,19 +147,35 @@ than a page; `docs\ASP.md` covers it.
 
 ### The stacked chart
 
-Underneath sits the same slice again, one bar per member of whatever level the
-first chart is on, **each split by the level below it**. The first chart says
-what a figure is made of; this one says who it came from.
+It comes first on the page: the same slice, one bar per member of a level,
+**each split by the level below it**. The chart under it says what a figure is
+made of; this one says who it came from, so the page opens on the mix.
+
+It starts one level above the bars below it - a single **E-STORE** bar split
+into EPP and S.com, rather than an EPP bar and an S.com bar that have to be read
+against each other. Comparing sizes is what the chart below is for.
 
 | Control | |
 |---|---|
-| **Customer / Product** | which chain does the splitting. On Customer the level below is the next customer level; on Product it starts the product chain |
+| **Bars by — Customer / Product** | which chain is on the x axis. Switching starts that chain at its top level: Channel, or Division |
+| **Stack by — Customer / Product** | which chain does the splitting. On the same chain as the bars it takes the level below them; on the other one it starts that chain at its top |
+| **&larr; Back** | up one level, undoing the narrowing it did on the way down. Greyed out when there is nothing above to step to |
 | **Figure** | gross sales, net sales, operating profit, quantity |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one |
 | **click a bar** | open it by the level that was splitting it, which then splits by the level below that |
 
-So Type split by Portal Group, click a Type, and it becomes Portal Groups split
-by Type2 - the drill carries the stack down with it.
+So Channel split by Type, click the bar, and it becomes Types split by Portal
+Group - the drill carries the stack down with it. The crumb above the controls
+reads `All › E-STORE › by Type / Portal Group`: the path, then the bars and
+what splits them.
+
+The two charts keep their own level. The page-wide **filters** are what they
+share, so narrowing either one narrows both, and the *Showing* line at the top
+always names every filter in force - including one set by a drill on a level
+the crumb no longer lists.
+
+**Bars by Customer, Stack by Product** puts the product mix inside each
+customer, and the other way round for the customer mix inside each division.
 
 **% of bar** normalises each bar to its own total, so the mix inside a small
 bar reads as clearly as inside a large one. The tooltip keeps the amount behind

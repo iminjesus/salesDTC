@@ -118,6 +118,26 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   </div>
 
   <div class="card">
+    <div class="crumb" id="stkCrumb"></div>
+    <div class="row" style="margin-bottom:12px">
+      <label class="f"><span>Bars by</span><span class="seg">
+        <button class="btn" id="stkXCust">Customer</button
+        ><button class="btn" id="stkXProd">Product</button></span></label>
+      <label class="f"><span>Stack by</span><span class="seg">
+        <button class="btn" id="stkCust">Customer</button
+        ><button class="btn" id="stkProd">Product</button></span></label>
+      <button class="btn" id="stkBack">&larr; Back</button>
+      <label class="f"><span>Figure</span><select id="stkFig"></select></label>
+      <label class="f"><span>Scale</span><span class="seg">
+        <button class="btn" id="stkAmt">Amount</button
+        ><button class="btn" id="stkPct">% of bar</button></span></label>
+    </div>
+    <div class="legend" id="stkLegend"></div>
+    <div class="chart" id="stkPlot"><canvas id="stkBars"></canvas></div>
+    <div class="hint" id="stkHint"></div>
+  </div>
+
+  <div class="card">
     <div class="crumb" id="crumb"></div>
     <div class="row" style="margin-bottom:12px">
       <label class="f"><span>Bars by</span><select id="dimPick"></select></label>
@@ -132,21 +152,6 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="hint" id="hint"></div>
   </div>
 
-  <div class="card">
-    <div class="row" style="margin-bottom:12px">
-      <label class="f"><span>Stack by</span><span class="seg">
-        <button class="btn" id="stkCust">Customer</button
-        ><button class="btn" id="stkProd">Product</button></span></label>
-      <label class="f"><span>Figure</span><select id="stkFig"></select></label>
-      <label class="f"><span>Scale</span><span class="seg">
-        <button class="btn" id="stkAmt">Amount</button
-        ><button class="btn" id="stkPct">% of bar</button></span></label>
-    </div>
-    <div class="legend" id="stkLegend"></div>
-    <div class="chart" id="stkPlot"><canvas id="stkBars"></canvas></div>
-    <div class="hint" id="stkHint"></div>
-  </div>
-
   <div class="card" id="tableCard" hidden><div id="tableBox"></div></div>
 </div>
 
@@ -158,6 +163,7 @@ const DATA = /*__DATA__*/null;
    the stylesheet once per render - that way light and dark live in one place. */
 const css = n => getComputedStyle(document.documentElement)
                    .getPropertyValue(n).trim();
+const defer = fn => setTimeout(fn, 0);
 let C = {};
 function readColours() {
   C = { ink: css('--ink'), ink2: css('--ink-2'), ink3: css('--ink-3'),
@@ -194,7 +200,11 @@ const state = {
   // each unit costs. The profit line is a percentage either way.
   unit: 'amount',
   table: false,
-  // Which chain the second chart stacks by, and the figure it charts.
+  // The stacked chart carries its own level and chain, so the mix can be read
+  // by product while the bars below stay on the customer chain. The page-wide
+  // filters are what the two charts share.
+  stkX: 0,
+  // Which chain the stacked chart splits each bar by, and the figure it charts.
   stack: 'customer',
   stkFig: 'net',
   // 'amount' compares sizes between bars; 'pct' normalises every bar to 100%
@@ -208,11 +218,45 @@ const CHAINS = {
   customer: DATA.levels.map((_, i) => i).filter(i => i < DATA.custDepth),
   product:  DATA.levels.map((_, i) => i).filter(i => i >= DATA.custDepth),
 };
+
+/* The stacked chart starts one level above the bars below it, so the page opens
+   on a single E-STORE bar split into EPP and S.com rather than on two bars that
+   have to be read against each other - the mix is the point of a stack. */
+const xChain = () => (state.stkX < DATA.custDepth ? CHAINS.customer
+                                                  : CHAINS.product);
+/* What each bar is split by: the level below the bars in the chosen chain, or
+   that chain's top level when the bars are on the other one. */
 function stackLevel() {
   const chain = CHAINS[state.stack] || [];
-  const at = chain.indexOf(state.dim);
+  const at = chain.indexOf(state.stkX);
   if (at < 0) return chain.length ? chain[0] : null;   // the other chain: start it
   return at + 1 < chain.length ? chain[at + 1] : null; // nothing below this one
+}
+/* Opening a bar hands its stack level to the x axis, which then splits by the
+   level below that. Null when there is no such level - the end of the drill. */
+function stackDrill() {
+  const sl = stackLevel();
+  if (sl === null) return null;
+  const chain = CHAINS[state.stack];
+  return chain.indexOf(sl) + 1 < chain.length ? sl : null;
+}
+/* Where a step up lands, or null when it would change nothing - an enabled
+   button that does nothing is worse than a greyed-out one. At the top of a
+   chain there is still the narrowing below it to undo. */
+function stackBack() {
+  const chain = xChain();
+  const at = chain.indexOf(state.stkX);
+  if (at > 0) return chain[at - 1];
+  return state.filter.slice(state.stkX).some(v => v >= 0) ? state.stkX : null;
+}
+/* Stepping up is also what undoes a drill, so it clears the narrowing from the
+   level it lands on downwards. */
+function stackStepUp() {
+  const up = stackBack();
+  if (up === null) return;
+  state.stkX = up;
+  for (let j = up; j < state.filter.length; j++) state.filter[j] = -1;
+  render();
 }
 
 /* Every combination of the filter values was totalled at build time, so a
@@ -477,7 +521,9 @@ function draw() {
       onClick: (e, els) => {
         if (!canDrill || !els.length) return;
         const name = labels[els[0].index];
-        setFilter(state.dim, lv.values.indexOf(name));
+        // render() destroys this chart, and Chart.js is still inside its own
+        // event dispatch - so the redraw waits for the next task.
+        defer(() => setFilter(state.dim, lv.values.indexOf(name)));
       },
       scales: {
         // stacked:true with two stack names puts the pair side by side and
@@ -543,21 +589,28 @@ function draw() {
   drawStack();
 }
 
-/* The same slice again, one bar per member of the level the first chart is on,
-   each split by the level below it in the chosen chain. The first chart says
-   what a figure is made of; this one says who it came from. */
+/* The same slice, one bar per member of the level above the bars, each split by
+   the level the bars are on. The chart below says what a figure is made of;
+   this one says who it came from. */
 let stkChart = null;
 function drawStack() {
-  const xl = DATA.levels[state.dim];
+  const xi = state.stkX;
+  const xl = DATA.levels[xi];
   const sl = stackLevel();
   ['stkCust', 'stkProd'].forEach((id, i) =>
     document.getElementById(id).classList.toggle('active',
       state.stack === (i ? 'product' : 'customer')));
+  const onProd = xi >= DATA.custDepth;
+  document.getElementById('stkXCust').classList.toggle('active', !onProd);
+  document.getElementById('stkXProd').classList.toggle('active', onProd);
+  document.getElementById('stkXProd').disabled = !CHAINS.product.length;
+  stackCrumb();
   const figSel = document.getElementById('stkFig');
   figSel.innerHTML = DATA.series
     .filter(x => x.key !== 'net' || has.net !== undefined)
     .map(x => `<option value="${x.key}">${x.label}</option>`).join('');
   figSel.value = state.stkFig;
+  document.getElementById('stkBack').disabled = stackBack() === null;
   const pctMode = state.stkScale === 'pct';
   document.getElementById('stkAmt').classList.toggle('active', !pctMode);
   document.getElementById('stkPct').classList.toggle('active', pctMode);
@@ -569,7 +622,7 @@ function drawStack() {
     document.getElementById('stkLegend').innerHTML = '';
     document.getElementById('stkHint').textContent =
       `${xl.name} is the last ${state.stack} level, so there is nothing below `
-      + 'it to stack by. Pick the other chain, or step back up.';
+      + 'it to stack by. Stack by the other chain, or step back up.';
     return;
   }
 
@@ -579,7 +632,7 @@ function drawStack() {
   const grid = new Map();                 // x member -> stack member -> value
   const stackTotal = new Map();
   for (const c of slice) {
-    const x = xl.values[c.k[state.dim]];
+    const x = xl.values[c.k[xi]];
     const g = DATA.levels[sl].values[c.k[sl]];
     const v = fig === undefined ? 0 : c.v[fig];
     const row = grid.get(x) || new Map();
@@ -628,7 +681,8 @@ function drawStack() {
     `<span><i style="background:${d.backgroundColor}"></i>${d.label}</span>`).join('');
   plot.style.height = Math.max(300, Math.min(520, xs.length * 56 + 120)) + 'px';
 
-  const canDrill = state.dim + 1 < DATA.levels.length;
+  const to = stackDrill();
+  const canDrill = to !== null;
   if (stkChart) stkChart.destroy();
   stkChart = new Chart(document.getElementById('stkBars'), {
     type: 'bar', data: { labels: xs.map(r => r.name), datasets: series },
@@ -640,10 +694,8 @@ function drawStack() {
       },
       onClick: (e, els) => {
         if (!canDrill || !els.length) return;
-        const to = sl;
-        state.filter[state.dim] = xs[els[0].index].idx;
-        state.dim = to;
-        render();
+        const idx = xs[els[0].index].idx;
+        defer(() => { state.filter[xi] = idx; state.stkX = to; render(); });
       },
       scales: {
         x: { stacked: true, grid: { display: false }, border: { display: false },
@@ -683,6 +735,42 @@ function drawStack() {
     + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s have `
                 + `a colour of their own; the rest are folded into Other.` : '.')
     + (canDrill ? ` Click a bar to open it by ${DATA.levels[sl].name}.` : '');
+}
+
+/* The levels this chart has been drilled through, each a step back out. Its own
+   trail, since it no longer shares one with the chart below. */
+function stackCrumb() {
+  const crumb = document.getElementById('stkCrumb');
+  crumb.innerHTML = '';
+  const step = (text, onclick) => {
+    if (crumb.children.length) {
+      crumb.insertAdjacentHTML('beforeend', '<span class="sep">&rsaquo;</span>');
+    }
+    if (!onclick) {
+      crumb.insertAdjacentHTML('beforeend', `<span class="now">${text}</span>`);
+      return;
+    }
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.onclick = onclick;
+    crumb.appendChild(b);
+  };
+  step('All', () => {
+    state.stkX = xChain()[0] ?? 0;
+    state.filter = DATA.levels.map(() => -1);
+    render();
+  });
+  DATA.levels.forEach((lv, i) => {
+    if (state.filter[i] < 0 || i >= state.stkX) return;
+    step(lv.values[state.filter[i]], () => {
+      for (let j = i; j < state.filter.length; j++) state.filter[j] = -1;
+      state.stkX = i;
+      render();
+    });
+  });
+  const sl = stackLevel();
+  step(`by ${DATA.levels[state.stkX].name}`
+       + (sl === null ? '' : ` / ${DATA.levels[sl].name}`), null);
 }
 
 function renderTable(rows, dimName, ofTotal) {
@@ -746,6 +834,16 @@ document.getElementById('stkCust').onclick = () => {
   state.stack = 'customer'; render(); };
 document.getElementById('stkProd').onclick = () => {
   state.stack = 'product'; render(); };
+document.getElementById('stkBack').onclick = stackStepUp;
+/* Switching the bars to the other chain starts that chain at its top level -
+   there is no matching depth to carry across. */
+const stkChainTo = i => () => {
+  state.stkX = (i ? CHAINS.product : CHAINS.customer)[0] ?? state.stkX;
+  for (let j = state.stkX; j < state.filter.length; j++) state.filter[j] = -1;
+  render();
+};
+document.getElementById('stkXCust').onclick = stkChainTo(0);
+document.getElementById('stkXProd').onclick = stkChainTo(1);
 document.getElementById('stkFig').onchange = e => {
   state.stkFig = e.target.value; render(); };
 document.getElementById('stkAmt').onclick = () => {
