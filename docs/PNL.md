@@ -115,31 +115,24 @@ also what puts `Channel` on the x axis as two bars side by side.
 Everything that drives the page is in the card at the top - both charts read
 the same levels, so there is one set of controls rather than one per chart.
 
-Each level is **a row of buttons**, the two chains under their own heading and
-each level indented under the one above it:
+**A chain is one line.** Its levels run in order, each a name and its members,
+and the members are joined into a block so a level reads as one control:
 
 ```
-CUSTOMER
-  Channel          [All (2)] [E-STORE] [OFF-LINE]
-  Type      bars   [All (2)] [EPP] [S.com]
-  Portal Group     [All (2)] [PG0] [PG1]
-  ...
-PRODUCT
-  Division         [All (3)] [DA] [MX] [VD]
-  ...
-  SKU              [All (60) v]
+CUSTOMER  CHANNEL [All|E-STORE|OFF-LINE]  TYPE [All|EPP|S.com] +2  PORTAL GROUP [All|PG0|PG1] +2 ...
+PRODUCT   DIVISION [All|DA|MX|VD]  CATEGORY [All|FRIDGE|PHONE|TV]  ...  SKU [All (60) v]
 ```
 
-The **name** puts the bars on that level; the one they are on carries a *bars*
-tag. The **members** narrow to one value, and *All* widens back. A level whose
-members outnumber `BTN_MAX` (eight) keeps a select instead - Range and SKU are
-lists to search, not rows to scan.
+The **name** puts the bars on that level; the one they are on is underlined in
+the accent colour. The **members** narrow to one value, and *All* widens back.
+A level whose members outnumber `BTN_MAX` (eight) keeps a select instead - Range
+and SKU are lists to search, not rows to scan.
 
-The rows cascade: each only offers what the levels above it leave available, so
-picking a Type leaves Portal Group listing that Type's values and nothing else,
-with a note counting what the narrowing is hiding. *All* is marked as current
-without being marked as a choice - an untouched page should not read as eight
-selections.
+The levels cascade: each only offers what the levels above it leave available,
+so picking a Type leaves Portal Group listing that Type's values and nothing
+else. The **+2** chip counts what the narrowing is hiding and names the level
+doing it. *All* is marked as current without being marked as a choice - an
+untouched page should not read as eight selections.
 
 ### The rest of the menu
 

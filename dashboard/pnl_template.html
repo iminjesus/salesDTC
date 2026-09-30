@@ -70,25 +70,35 @@ select:disabled { opacity: .5; }
 .seg .btn:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
 .seg .btn:last-child { border-radius: 0 7px 7px 0; }
 .scope { font-size: 12px; color: var(--ink-3); margin: 10px 0 0; }
-.chain { margin-bottom: 8px; }
-.chainName { font-size: 11px; color: var(--ink-3); text-transform: uppercase;
-  letter-spacing: .04em; margin-bottom: 3px; }
-/* A level is a name and its members. The names hold one column so the members
-   line up down the page and the hierarchy reads as a hierarchy. */
-.lv { display: grid; grid-template-columns: 158px minmax(0, 1fr);
-  gap: 3px 10px; align-items: start; padding: 2px 0; }
-.lvName { background: none; border: 0; cursor: pointer; font: inherit;
-  color: var(--ink-2); text-align: left; padding: 5px 0; }
+/* A chain is one line: its levels in order, each a name and its members. The
+   members are joined into a block so a level reads as one control and four of
+   them fit across, rather than taking four rows of their own. */
+.chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+  padding: 6px 0; }
+.chain + .chain { border-top: 1px solid var(--grid); }
+.chainName { flex: none; width: 60px; font-size: 11px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .04em; }
+.lv { display: inline-flex; align-items: center; gap: 7px; }
+.lvName { background: none; border: 0; border-bottom: 2px solid transparent;
+  cursor: pointer; font: inherit; font-size: 11px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .04em; padding: 2px 0;
+  white-space: nowrap; }
 .lvName:hover { color: var(--accent); }
-.lvName.on { color: var(--ink); font-weight: 650; }
-.lvName.off { opacity: .55; }
-.lvName .tag { font-style: normal; font-weight: 600; font-size: 10px;
-  letter-spacing: .03em; margin-left: 6px; padding: 1px 6px;
-  border-radius: 999px; background: var(--accent); color: var(--accent-ink); }
-.vals { display: flex; flex-wrap: wrap; gap: 6px; }
-.vals .btn { padding: 4px 9px; }
-.lv .note { grid-column: 2; max-width: none; margin-bottom: 2px; }
-.bar { border-top: 1px solid var(--grid); margin-top: 10px; padding-top: 12px; }
+.lvName.on { color: var(--accent); font-weight: 700;
+  border-bottom-color: var(--accent); }
+.lvName.off { opacity: .5; }
+.vals .btn { padding: 3px 9px; font-size: 13px; }
+.vals select { min-width: 96px; max-width: 150px; padding: 3px 6px;
+  font-size: 13px; }
+.more { font-style: normal; font-size: 10px; color: var(--ink-3); cursor: help;
+  white-space: nowrap; }
+/* The view switches run beside their captions rather than under them - stacked,
+   they cost the menu a line of height for every control. */
+.bar { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 11px;
+  gap: 7px 14px; align-items: center; }
+.bar label.f { flex-direction: row; align-items: center; gap: 7px; }
+.bar .btn { padding: 4px 9px; font-size: 13px; }
+.bar .vals { display: inline-flex; }
 .crumb { display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
   font-size: 13px; margin-bottom: 12px; }
 .crumb button { background: none; border: 0; color: var(--accent);
@@ -126,7 +136,11 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
 @media (max-width: 640px) {
   select { min-width: 0; width: 100%; } label.f { flex: 1 1 100%; }
   .chart { height: 340px; }
-  .lv { grid-template-columns: 1fr; } .lv .note { grid-column: 1; }
+  .chainName { width: auto; flex: 1 1 100%; }
+  /* Joined corners are not worth a sideways scrollbar on a phone. */
+  .seg { flex-wrap: wrap; gap: 5px; }
+  .seg .btn, .seg .btn:first-child, .seg .btn:last-child {
+    border-radius: 7px; margin-left: 0; }
 }
 </style>
 </head>
@@ -334,38 +348,37 @@ function buildFilters() {
   [['Customer', CHAINS.customer], ['Product', CHAINS.product]]
     .filter(([, ids]) => ids.length)
     .forEach(([chainName, ids]) => {
-      const block = document.createElement('div');
-      block.className = 'chain';
-      block.innerHTML = `<div class="chainName">${chainName}</div>`;
-      ids.forEach((i, depth) => block.appendChild(levelRow(i, depth)));
-      box.appendChild(block);
+      const chain = document.createElement('div');
+      chain.className = 'chain';
+      chain.innerHTML = `<span class="chainName">${chainName}</span>`;
+      ids.forEach(i => chain.appendChild(levelCell(i)));
+      box.appendChild(chain);
     });
 }
 
-function levelRow(i, depth) {
+function levelCell(i) {
   const lv = DATA.levels[i];
   const { seen, hidden, blame } = optionsFor(i);
   if (state.filter[i] >= 0 && !seen.has(state.filter[i])) state.filter[i] = -1;
-  const row = document.createElement('div');
-  row.className = 'lv';
+  const cell = document.createElement('div');
+  cell.className = 'lv';
 
   const name = document.createElement('button');
   name.className = 'lvName' + (state.dim === i ? ' on' : '')
                  + (seen.size <= 1 ? ' off' : '');
-  name.style.paddingLeft = (depth * 11) + 'px';
-  name.innerHTML = lv.name
-    + (state.dim === i ? '<i class="tag">bars</i>' : '');
-  name.title = `Put the bars on ${lv.name}`;
+  name.textContent = lv.name;
+  name.title = state.dim === i ? `The bars are on ${lv.name}`
+                               : `Put the bars on ${lv.name}`;
   name.onclick = () => {
     state.dim = i;
     // Moving the bars up to a level undoes the narrowing done at and below it.
     for (let j = i; j < state.filter.length; j++) state.filter[j] = -1;
     render();
   };
-  row.appendChild(name);
+  cell.appendChild(name);
 
   const vals = document.createElement('div');
-  vals.className = 'vals';
+  vals.className = 'vals' + (seen.size > BTN_MAX ? '' : ' seg');
   if (seen.size > BTN_MAX) {
     const sel = document.createElement('select');
     sel.innerHTML = `<option value="-1">All (${seen.size})</option>`
@@ -375,28 +388,30 @@ function levelRow(i, depth) {
     sel.onchange = () => setFilter(i, +sel.value);
     vals.appendChild(sel);
   } else {
-    const add = (text, v) => {
+    const add = (text, v, title) => {
       const b = document.createElement('button');
       b.className = 'btn' + (state.filter[i] !== v ? ''
                              : v < 0 ? ' on' : ' active');
       b.textContent = text;
+      if (title) b.title = title;
       b.disabled = seen.size <= 1 && v < 0;
       b.onclick = () => setFilter(i, v);
       vals.appendChild(b);
     };
-    add(`All (${seen.size})`, -1);
+    add('All', -1, `All ${seen.size} ${lv.name.toLowerCase()}s`);
     lv.values.forEach((v, j) => { if (seen.has(j)) add(v, j); });
   }
-  row.appendChild(vals);
+  cell.appendChild(vals);
 
-  // A value missing from this row is usually not missing from the file - it
-  // sits under a level above that is narrowed. Say so, rather than let it read
-  // as "there are no such customers".
+  // A value missing here is usually not missing from the file - it sits under a
+  // level above that is narrowed. Say so in the space of a chip, rather than let
+  // it read as "there are no such customers".
   if (hidden) {
-    row.insertAdjacentHTML('beforeend',
-      `<em class="note">${hidden} more under other ${blame.join(' / ')}</em>`);
+    cell.insertAdjacentHTML('beforeend',
+      `<em class="more" title="${hidden} more under other ${blame.join(' / ')}`
+      + `">+${hidden}</em>`);
   }
-  return row;
+  return cell;
 }
 
 function render() {
@@ -642,6 +657,7 @@ function drawStack() {
     b.disabled = !(i ? CHAINS.product : CHAINS.customer).length;
   });
   const figBox = document.getElementById('stkFig');
+  figBox.className = 'vals seg';
   figBox.innerHTML = '';
   DATA.series.filter(x => has[x.key] !== undefined).forEach(x => {
     const b = document.createElement('button');
