@@ -62,11 +62,33 @@ select:disabled { opacity: .5; }
 .btn:hover { border-color: var(--accent); }
 .btn.active { background: var(--accent); border-color: var(--accent);
   color: var(--accent-ink); }
+/* "All" is where a level starts, so it is marked as current without being
+   marked as a choice - otherwise an untouched page reads as eight selections. */
+.btn.on { background: var(--grid); color: var(--ink-2); font-weight: 600; }
 .seg { display: inline-flex; }
 .seg .btn { border-radius: 0; margin-left: -1px; }
 .seg .btn:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
 .seg .btn:last-child { border-radius: 0 7px 7px 0; }
 .scope { font-size: 12px; color: var(--ink-3); margin: 10px 0 0; }
+.chain { margin-bottom: 8px; }
+.chainName { font-size: 11px; color: var(--ink-3); text-transform: uppercase;
+  letter-spacing: .04em; margin-bottom: 3px; }
+/* A level is a name and its members. The names hold one column so the members
+   line up down the page and the hierarchy reads as a hierarchy. */
+.lv { display: grid; grid-template-columns: 158px minmax(0, 1fr);
+  gap: 3px 10px; align-items: start; padding: 2px 0; }
+.lvName { background: none; border: 0; cursor: pointer; font: inherit;
+  color: var(--ink-2); text-align: left; padding: 5px 0; }
+.lvName:hover { color: var(--accent); }
+.lvName.on { color: var(--ink); font-weight: 650; }
+.lvName.off { opacity: .55; }
+.lvName .tag { font-style: normal; font-weight: 600; font-size: 10px;
+  letter-spacing: .03em; margin-left: 6px; padding: 1px 6px;
+  border-radius: 999px; background: var(--accent); color: var(--accent-ink); }
+.vals { display: flex; flex-wrap: wrap; gap: 6px; }
+.vals .btn { padding: 4px 9px; }
+.lv .note { grid-column: 2; max-width: none; margin-bottom: 2px; }
+.bar { border-top: 1px solid var(--grid); margin-top: 10px; padding-top: 12px; }
 .crumb { display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
   font-size: 13px; margin-bottom: 12px; }
 .crumb button { background: none; border: 0; color: var(--accent);
@@ -104,6 +126,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
 @media (max-width: 640px) {
   select { min-width: 0; width: 100%; } label.f { flex: 1 1 100%; }
   .chart { height: 340px; }
+  .lv { grid-template-columns: 1fr; } .lv .note { grid-column: 1; }
 }
 </style>
 </head>
@@ -112,40 +135,36 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   <h1 id="pageTitle">Profit</h1>
   <div class="sub" id="pageSub"></div>
 
+  <!-- One menu for the page: the levels, then how they are drawn. -->
   <div class="card">
-    <div class="row" id="filters"></div>
+    <div class="crumb" id="crumb"></div>
+    <div id="filters"></div>
+    <div class="row bar">
+      <button class="btn" id="backBtn">&larr; Back</button>
+      <label class="f"><span>Stack by</span><span class="seg">
+        <button class="btn" id="stkCust">Customer</button
+        ><button class="btn" id="stkProd">Product</button></span></label>
+      <label class="f"><span>Figure</span>
+        <span class="vals" id="stkFig"></span></label>
+      <label class="f"><span>Scale</span><span class="seg">
+        <button class="btn" id="stkAmt">Amount</button
+        ><button class="btn" id="stkPct">% of bar</button></span></label>
+      <label class="f"><span>Values</span><span class="seg">
+        <button class="btn" id="unitAmt">Amounts</button
+        ><button class="btn" id="unitPer">Per unit</button></span></label>
+      <button class="btn" id="tableBtn">Table</button>
+      <button class="btn" id="resetBtn">Reset</button>
+    </div>
     <div class="scope" id="scope"></div>
   </div>
 
   <div class="card">
-    <div class="crumb" id="stkCrumb"></div>
-    <div class="row" style="margin-bottom:12px">
-      <label class="f"><span>Bars by</span><span class="seg">
-        <button class="btn" id="stkXCust">Customer</button
-        ><button class="btn" id="stkXProd">Product</button></span></label>
-      <label class="f"><span>Stack by</span><span class="seg">
-        <button class="btn" id="stkCust">Customer</button
-        ><button class="btn" id="stkProd">Product</button></span></label>
-      <button class="btn" id="stkBack">&larr; Back</button>
-      <label class="f"><span>Figure</span><select id="stkFig"></select></label>
-      <label class="f"><span>Scale</span><span class="seg">
-        <button class="btn" id="stkAmt">Amount</button
-        ><button class="btn" id="stkPct">% of bar</button></span></label>
-    </div>
     <div class="legend" id="stkLegend"></div>
     <div class="chart" id="stkPlot"><canvas id="stkBars"></canvas></div>
     <div class="hint" id="stkHint"></div>
   </div>
 
   <div class="card">
-    <div class="crumb" id="crumb"></div>
-    <div class="row" style="margin-bottom:12px">
-      <label class="f"><span>Bars by</span><select id="dimPick"></select></label>
-      <button class="btn" id="backBtn">&larr; Back</button>
-      <span class="seg"><button class="btn" id="unitAmt">Amounts</button
-        ><button class="btn" id="unitPer">Per unit</button></span>
-      <button class="btn" id="tableBtn">Table</button>
-    </div>
     <div class="kpis" id="kpis"></div>
     <div class="legend" id="legend"></div>
     <div class="chart" id="plot"><canvas id="bars"></canvas></div>
@@ -200,10 +219,6 @@ const state = {
   // each unit costs. The profit line is a percentage either way.
   unit: 'amount',
   table: false,
-  // The stacked chart carries its own level and chain, so the mix can be read
-  // by product while the bars below stay on the customer chain. The page-wide
-  // filters are what the two charts share.
-  stkX: 0,
   // Which chain the stacked chart splits each bar by, and the figure it charts.
   stack: 'customer',
   stkFig: 'net',
@@ -219,46 +234,32 @@ const CHAINS = {
   product:  DATA.levels.map((_, i) => i).filter(i => i >= DATA.custDepth),
 };
 
-/* The stacked chart starts one level above the bars below it, so the page opens
-   on a single E-STORE bar split into EPP and S.com rather than on two bars that
-   have to be read against each other - the mix is the point of a stack. */
-const xChain = () => (state.stkX < DATA.custDepth ? CHAINS.customer
-                                                  : CHAINS.product);
-/* What each bar is split by: the level below the bars in the chosen chain, or
-   that chain's top level when the bars are on the other one. */
+/* The stacked chart sits one level above the bars: it puts the parent on the x
+   axis and splits it by the level the bars are on, so the page opens on a single
+   E-STORE bar split into EPP and S.com rather than on two bars that have to be
+   read against each other. Comparing sizes is the other chart's job. One level
+   drives both, which is why there is one Back button and one set of names. */
+function stackX(dim = state.dim) {
+  const chain = dim < DATA.custDepth ? CHAINS.customer : CHAINS.product;
+  const at = chain.indexOf(dim);
+  return at > 0 ? chain[at - 1] : dim;         // already at the top: no lag
+}
+/* What each bar is split by: the level below the x axis in the chosen chain, or
+   that chain's top level when the x axis is on the other one. */
 function stackLevel() {
   const chain = CHAINS[state.stack] || [];
-  const at = chain.indexOf(state.stkX);
+  const at = chain.indexOf(stackX());
   if (at < 0) return chain.length ? chain[0] : null;   // the other chain: start it
   return at + 1 < chain.length ? chain[at + 1] : null; // nothing below this one
 }
 /* Opening a bar hands its stack level to the x axis, which then splits by the
-   level below that. Null when there is no such level - the end of the drill. */
+   level below that - so the bars move down one. Null at the end of the drill. */
 function stackDrill() {
-  const sl = stackLevel();
-  if (sl === null) return null;
-  const chain = CHAINS[state.stack];
-  return chain.indexOf(sl) + 1 < chain.length ? sl : null;
+  const chain = CHAINS[state.stack] || [];
+  const at = chain.indexOf(stackX());
+  if (at < 0) return stackLevel();             // the other chain: start at its top
+  return at + 2 < chain.length ? chain[at + 2] : null;
 }
-/* Where a step up lands, or null when it would change nothing - an enabled
-   button that does nothing is worse than a greyed-out one. At the top of a
-   chain there is still the narrowing below it to undo. */
-function stackBack() {
-  const chain = xChain();
-  const at = chain.indexOf(state.stkX);
-  if (at > 0) return chain[at - 1];
-  return state.filter.slice(state.stkX).some(v => v >= 0) ? state.stkX : null;
-}
-/* Stepping up is also what undoes a drill, so it clears the narrowing from the
-   level it lands on downwards. */
-function stackStepUp() {
-  const up = stackBack();
-  if (up === null) return;
-  state.stkX = up;
-  for (let j = up; j < state.filter.length; j++) state.filter[j] = -1;
-  render();
-}
-
 /* Every combination of the filter values was totalled at build time, so a
    filter change is a sum over the matching combinations rather than a pass over
    the rows. */
@@ -320,40 +321,82 @@ function setFilter(i, v) {
   render();
 }
 
+/* One row per level: the name puts the bars on it, the members narrow to one.
+   The rows run in hierarchy order and each only offers what the levels above it
+   leave available, so the buttons read as the tree they come from.
+
+   A level with more members than fit on a row keeps a select - Range and SKU
+   are lists to search, not rows to scan. */
+const BTN_MAX = 8;
 function buildFilters() {
   const box = document.getElementById('filters');
   box.innerHTML = '';
-  DATA.levels.forEach((lv, i) => {
-    const { seen, hidden, blame } = optionsFor(i);
-    if (state.filter[i] >= 0 && !seen.has(state.filter[i])) state.filter[i] = -1;
-    const wrap = document.createElement('label');
-    wrap.className = 'f' + (seen.size <= 1 ? ' off' : '');
-    wrap.innerHTML = `<span>${lv.name}</span>`;
+  [['Customer', CHAINS.customer], ['Product', CHAINS.product]]
+    .filter(([, ids]) => ids.length)
+    .forEach(([chainName, ids]) => {
+      const block = document.createElement('div');
+      block.className = 'chain';
+      block.innerHTML = `<div class="chainName">${chainName}</div>`;
+      ids.forEach((i, depth) => block.appendChild(levelRow(i, depth)));
+      box.appendChild(block);
+    });
+}
+
+function levelRow(i, depth) {
+  const lv = DATA.levels[i];
+  const { seen, hidden, blame } = optionsFor(i);
+  if (state.filter[i] >= 0 && !seen.has(state.filter[i])) state.filter[i] = -1;
+  const row = document.createElement('div');
+  row.className = 'lv';
+
+  const name = document.createElement('button');
+  name.className = 'lvName' + (state.dim === i ? ' on' : '')
+                 + (seen.size <= 1 ? ' off' : '');
+  name.style.paddingLeft = (depth * 11) + 'px';
+  name.innerHTML = lv.name
+    + (state.dim === i ? '<i class="tag">bars</i>' : '');
+  name.title = `Put the bars on ${lv.name}`;
+  name.onclick = () => {
+    state.dim = i;
+    // Moving the bars up to a level undoes the narrowing done at and below it.
+    for (let j = i; j < state.filter.length; j++) state.filter[j] = -1;
+    render();
+  };
+  row.appendChild(name);
+
+  const vals = document.createElement('div');
+  vals.className = 'vals';
+  if (seen.size > BTN_MAX) {
     const sel = document.createElement('select');
     sel.innerHTML = `<option value="-1">All (${seen.size})</option>`
       + lv.values.map((v, j) => seen.has(j)
           ? `<option value="${j}">${v}</option>` : '').join('');
     sel.value = String(state.filter[i]);
-    sel.disabled = seen.size <= 1 && state.filter[i] < 0;
     sel.onchange = () => setFilter(i, +sel.value);
-    wrap.appendChild(sel);
-    // A value missing from this list is usually not missing from the file - it
-    // sits under a level above that is narrowed. Say so, rather than let it
-    // read as "there are no such customers".
-    if (hidden) {
-      wrap.insertAdjacentHTML('beforeend',
-        `<em class="note">${hidden} more under other ${blame.join(' / ')}</em>`);
-    }
-    box.appendChild(wrap);
-  });
-  const reset = document.createElement('button');
-  reset.className = 'btn';
-  reset.textContent = 'Reset';
-  reset.onclick = () => {
-    state.filter = DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1));
-    render();
-  };
-  box.appendChild(reset);
+    vals.appendChild(sel);
+  } else {
+    const add = (text, v) => {
+      const b = document.createElement('button');
+      b.className = 'btn' + (state.filter[i] !== v ? ''
+                             : v < 0 ? ' on' : ' active');
+      b.textContent = text;
+      b.disabled = seen.size <= 1 && v < 0;
+      b.onclick = () => setFilter(i, v);
+      vals.appendChild(b);
+    };
+    add(`All (${seen.size})`, -1);
+    lv.values.forEach((v, j) => { if (seen.has(j)) add(v, j); });
+  }
+  row.appendChild(vals);
+
+  // A value missing from this row is usually not missing from the file - it
+  // sits under a level above that is narrowed. Say so, rather than let it read
+  // as "there are no such customers".
+  if (hidden) {
+    row.insertAdjacentHTML('beforeend',
+      `<em class="note">${hidden} more under other ${blame.join(' / ')}</em>`);
+  }
+  return row;
 }
 
 function render() {
@@ -406,10 +449,6 @@ function render() {
   step(`by ${DATA.levels[state.dim].name}`, null);
   document.getElementById('backBtn').disabled = state.dim === 0;
 
-  const dimSel = document.getElementById('dimPick');
-  dimSel.innerHTML = DATA.levels.map((lv, i) =>
-    `<option value="${i}">${lv.name}</option>`).join('');
-  dimSel.value = state.dim;
   document.getElementById('tableBtn').classList.toggle('active', state.table);
   const canUnit = has.qty !== undefined;
   if (!canUnit) state.unit = 'amount';
@@ -594,23 +633,23 @@ function draw() {
    this one says who it came from. */
 let stkChart = null;
 function drawStack() {
-  const xi = state.stkX;
+  const xi = stackX();
   const xl = DATA.levels[xi];
   const sl = stackLevel();
-  ['stkCust', 'stkProd'].forEach((id, i) =>
-    document.getElementById(id).classList.toggle('active',
-      state.stack === (i ? 'product' : 'customer')));
-  const onProd = xi >= DATA.custDepth;
-  document.getElementById('stkXCust').classList.toggle('active', !onProd);
-  document.getElementById('stkXProd').classList.toggle('active', onProd);
-  document.getElementById('stkXProd').disabled = !CHAINS.product.length;
-  stackCrumb();
-  const figSel = document.getElementById('stkFig');
-  figSel.innerHTML = DATA.series
-    .filter(x => x.key !== 'net' || has.net !== undefined)
-    .map(x => `<option value="${x.key}">${x.label}</option>`).join('');
-  figSel.value = state.stkFig;
-  document.getElementById('stkBack').disabled = stackBack() === null;
+  ['stkCust', 'stkProd'].forEach((id, i) => {
+    const b = document.getElementById(id);
+    b.classList.toggle('active', state.stack === (i ? 'product' : 'customer'));
+    b.disabled = !(i ? CHAINS.product : CHAINS.customer).length;
+  });
+  const figBox = document.getElementById('stkFig');
+  figBox.innerHTML = '';
+  DATA.series.filter(x => has[x.key] !== undefined).forEach(x => {
+    const b = document.createElement('button');
+    b.className = 'btn' + (state.stkFig === x.key ? ' active' : '');
+    b.textContent = x.label;
+    b.onclick = () => { state.stkFig = x.key; render(); };
+    figBox.appendChild(b);
+  });
   const pctMode = state.stkScale === 'pct';
   document.getElementById('stkAmt').classList.toggle('active', !pctMode);
   document.getElementById('stkPct').classList.toggle('active', pctMode);
@@ -629,12 +668,17 @@ function drawStack() {
   const fig = has[state.stkFig];
   const slice = DATA.combos.filter(c =>
     state.filter.every((want, i) => want < 0 || c.k[i] === want));
+  /* Costs are carried negative in the export. The whole figure is flipped when
+     its total is, so a cost stack stands up like the others - and a member that
+     really does run the other way still points the other way inside it. */
+  const flip = fig !== undefined
+    && slice.reduce((a, c) => a + c.v[fig], 0) < 0 ? -1 : 1;
   const grid = new Map();                 // x member -> stack member -> value
   const stackTotal = new Map();
   for (const c of slice) {
     const x = xl.values[c.k[xi]];
     const g = DATA.levels[sl].values[c.k[sl]];
-    const v = fig === undefined ? 0 : c.v[fig];
+    const v = fig === undefined ? 0 : c.v[fig] * flip;
     const row = grid.get(x) || new Map();
     row.set(g, (row.get(g) || 0) + v);
     grid.set(x, row);
@@ -695,7 +739,7 @@ function drawStack() {
       onClick: (e, els) => {
         if (!canDrill || !els.length) return;
         const idx = xs[els[0].index].idx;
-        defer(() => { state.filter[xi] = idx; state.stkX = to; render(); });
+        defer(() => { state.filter[xi] = idx; state.dim = to; render(); });
       },
       scales: {
         x: { stacked: true, grid: { display: false }, border: { display: false },
@@ -737,42 +781,6 @@ function drawStack() {
     + (canDrill ? ` Click a bar to open it by ${DATA.levels[sl].name}.` : '');
 }
 
-/* The levels this chart has been drilled through, each a step back out. Its own
-   trail, since it no longer shares one with the chart below. */
-function stackCrumb() {
-  const crumb = document.getElementById('stkCrumb');
-  crumb.innerHTML = '';
-  const step = (text, onclick) => {
-    if (crumb.children.length) {
-      crumb.insertAdjacentHTML('beforeend', '<span class="sep">&rsaquo;</span>');
-    }
-    if (!onclick) {
-      crumb.insertAdjacentHTML('beforeend', `<span class="now">${text}</span>`);
-      return;
-    }
-    const b = document.createElement('button');
-    b.textContent = text;
-    b.onclick = onclick;
-    crumb.appendChild(b);
-  };
-  step('All', () => {
-    state.stkX = xChain()[0] ?? 0;
-    state.filter = DATA.levels.map(() => -1);
-    render();
-  });
-  DATA.levels.forEach((lv, i) => {
-    if (state.filter[i] < 0 || i >= state.stkX) return;
-    step(lv.values[state.filter[i]], () => {
-      for (let j = i; j < state.filter.length; j++) state.filter[j] = -1;
-      state.stkX = i;
-      render();
-    });
-  });
-  const sl = stackLevel();
-  step(`by ${DATA.levels[state.stkX].name}`
-       + (sl === null ? '' : ` / ${DATA.levels[sl].name}`), null);
-}
-
 function renderTable(rows, dimName, ofTotal) {
   document.getElementById('tableCard').hidden = !state.table;
   if (!state.table) return;
@@ -812,12 +820,6 @@ function renderTable(rows, dimName, ofTotal) {
     <tfoot><tr>${line(tot)}</tr></tfoot></table>`;
 }
 
-document.getElementById('dimPick').onchange = e => {
-  state.dim = +e.target.value;
-  // Moving the bars back up to a level undoes the narrowing done below it.
-  for (let j = state.dim; j < state.filter.length; j++) state.filter[j] = -1;
-  render();
-};
 document.getElementById('backBtn').onclick = () => {
   if (state.dim === 0) return;
   state.dim -= 1;
@@ -826,6 +828,11 @@ document.getElementById('backBtn').onclick = () => {
 };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
+document.getElementById('resetBtn').onclick = () => {
+  state.filter = DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1));
+  state.dim = DATA.levels.length > 1 ? 1 : 0;
+  render();
+};
 document.getElementById('unitAmt').onclick = () => {
   state.unit = 'amount'; render(); };
 document.getElementById('unitPer').onclick = () => {
@@ -834,18 +841,6 @@ document.getElementById('stkCust').onclick = () => {
   state.stack = 'customer'; render(); };
 document.getElementById('stkProd').onclick = () => {
   state.stack = 'product'; render(); };
-document.getElementById('stkBack').onclick = stackStepUp;
-/* Switching the bars to the other chain starts that chain at its top level -
-   there is no matching depth to carry across. */
-const stkChainTo = i => () => {
-  state.stkX = (i ? CHAINS.product : CHAINS.customer)[0] ?? state.stkX;
-  for (let j = state.stkX; j < state.filter.length; j++) state.filter[j] = -1;
-  render();
-};
-document.getElementById('stkXCust').onclick = stkChainTo(0);
-document.getElementById('stkXProd').onclick = stkChainTo(1);
-document.getElementById('stkFig').onchange = e => {
-  state.stkFig = e.target.value; render(); };
 document.getElementById('stkAmt').onclick = () => {
   state.stkScale = 'amount'; render(); };
 document.getElementById('stkPct').onclick = () => {

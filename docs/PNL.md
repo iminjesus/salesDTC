@@ -110,20 +110,51 @@ setting Channel to *All* steps up and brings them back for comparison, which is
 also what puts `Channel` on the x axis as two bars side by side.
 `--start-channel ""` opens on everything instead.
 
-The selects cascade - picking a Type leaves Portal Group listing only that
-Type's values, and a level with nothing left to choose greys out.
+### One menu
 
-### The chart itself
+Everything that drives the page is in the card at the top - both charts read
+the same levels, so there is one set of controls rather than one per chart.
+
+Each level is **a row of buttons**, the two chains under their own heading and
+each level indented under the one above it:
+
+```
+CUSTOMER
+  Channel          [All (2)] [E-STORE] [OFF-LINE]
+  Type      bars   [All (2)] [EPP] [S.com]
+  Portal Group     [All (2)] [PG0] [PG1]
+  ...
+PRODUCT
+  Division         [All (3)] [DA] [MX] [VD]
+  ...
+  SKU              [All (60) v]
+```
+
+The **name** puts the bars on that level; the one they are on carries a *bars*
+tag. The **members** narrow to one value, and *All* widens back. A level whose
+members outnumber `BTN_MAX` (eight) keeps a select instead - Range and SKU are
+lists to search, not rows to scan.
+
+The rows cascade: each only offers what the levels above it leave available, so
+picking a Type leaves Portal Group listing that Type's values and nothing else,
+with a note counting what the narrowing is hiding. *All* is marked as current
+without being marked as a choice - an untouched page should not read as eight
+selections.
+
+### The rest of the menu
 
 | Control | What it does |
 |---|---|
 | **click a bar** | open that member, and move the bars to the next level |
 | the breadcrumb | go back to any step of the path; **All** returns to the top |
 | **← Back** | step out one level |
-| the selects | Channel, Type, Portal Group, Type2, Division, Category, Range, SKU |
-| **Bars by** | which of those is on the x axis |
+| a level name | put the bars on it, clearing what was narrowed at and below it |
+| **Stack by** | which chain splits each bar of the stacked chart |
+| **Figure** | what the stacked chart charts |
+| **Amount / % of bar** | sizes between bars, or the mix inside each one |
 | **Amounts / Per unit** | money, or every figure divided by the units behind it |
 | **Table** | every figure behind the bars, with quantity, ASP and the margin |
+| **Reset** | back to the opening view |
 
 ### Per unit, and ASP
 
@@ -155,27 +186,18 @@ It starts one level above the bars below it - a single **E-STORE** bar split
 into EPP and S.com, rather than an EPP bar and an S.com bar that have to be read
 against each other. Comparing sizes is what the chart below is for.
 
-| Control | |
-|---|---|
-| **Bars by — Customer / Product** | which chain is on the x axis. Switching starts that chain at its top level: Channel, or Division |
-| **Stack by — Customer / Product** | which chain does the splitting. On the same chain as the bars it takes the level below them; on the other one it starts that chain at its top |
-| **&larr; Back** | up one level, undoing the narrowing it did on the way down. Greyed out when there is nothing above to step to |
-| **Figure** | gross sales, net sales, operating profit, quantity |
-| **Amount / % of bar** | sizes between bars, or the mix inside each one |
-| **click a bar** | open it by the level that was splitting it, which then splits by the level below that |
+**Stack by** picks the chain that splits each bar. On the same chain as the
+bars it takes the level below them; on the other one it starts that chain at
+its top - so **Stack by Product** while the bars are on Type puts the division
+mix inside each customer.
 
 So Channel split by Type, click the bar, and it becomes Types split by Portal
-Group - the drill carries the stack down with it. The crumb above the controls
-reads `All › E-STORE › by Type / Portal Group`: the path, then the bars and
-what splits them.
+Group - the drill carries the stack down with it, and the chart below moves
+with it, since one level drives both.
 
-The two charts keep their own level. The page-wide **filters** are what they
-share, so narrowing either one narrows both, and the *Showing* line at the top
-always names every filter in force - including one set by a drill on a level
-the crumb no longer lists.
-
-**Bars by Customer, Stack by Product** puts the product mix inside each
-customer, and the other way round for the customer mix inside each division.
+A cost is carried negative in the export, so the whole figure is flipped when
+its total is: a **Operating Cost** stack stands up like the others, and a
+member that really does run the other way still points the other way inside it.
 
 **% of bar** normalises each bar to its own total, so the mix inside a small
 bar reads as clearly as inside a large one. The tooltip keeps the amount behind
@@ -186,7 +208,7 @@ The eight largest members get a colour each, in a fixed order; a ninth folds
 into **Other** rather than being handed a generated hue, so the colours mean
 the same thing from one view to the next.
 
-Clicking a bar and changing a select are the same act: narrowing to one value
+Clicking a bar and clicking a member button are the same act: narrowing to one value
 moves the bars down to the next level, and widening back to *All* brings them
 up again. The drill runs the whole chain - Channel, Type, Portal Group, Type2,
 then Division and Category - so it carries on into the product side once the
@@ -254,8 +276,8 @@ The build prints what it matched, and that is usually the answer:
   carry that value and how many rows, and, when no level does, which master
   column holds it instead.
 
-A value missing from a select is one of three things, and these separate them:
-the cascade is hiding it (the select says how many and under which level), no
+A value missing from a level's row is one of three things, and these separate
+them: the cascade is hiding it (the row says how many and under which level), no
 row of this export carries it, or it lives in a column no level reads. The last
 one is fixed by adding the column's name to `LEVELS` in `tools/customer.py`.
 - `N total(s) read straight off the layout, M column(s) left to place` - a large
