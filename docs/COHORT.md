@@ -21,9 +21,25 @@ word. Every order line goes into a bucket by which file it came from and what
 its status says, several readings of the month are built out of those buckets,
 and each one's predicted units are compared with the profit file's.
 
-Units are the comparator, never money: both files carry a quantity that means
-one thing - a unit shipped - while the amounts differ by tax, by currency and by
-what each file counts as revenue.
+## What is actually compared
+
+**Units against units**, product by product:
+
+| | |
+|---|---|
+| order side | `Quantity` in `26 DTC <month>` |
+| profit side | `Quantity(Net)` in `profit_<month>` |
+
+Nothing else is scored. Both files mean the same thing by one unit - a unit
+shipped - while the amounts do not: they differ by tax, by currency, and by what
+each file counts as revenue. Every money figure in the output is **reported and
+never compared**, and the run says so where it prints them.
+
+An order export can carry revenue in more than one currency. The run names the
+column it read and the ones it did not, `--currency USD` picks another, and when
+the two sides name different currencies it says that too - which costs the
+comparison nothing, since it is on units, but means no money read across the two
+is comparable.
 
 ## Read the output in this order
 

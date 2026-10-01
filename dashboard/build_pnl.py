@@ -140,6 +140,10 @@ def main() -> int:
                          'cancelled and returned are dropped, the rest carry. '
                          'py tools\\cohort.py scores the two against the month '
                          'they claim to explain')
+    ap.add_argument('--currency', metavar='CODE',
+                    help='which money column to read from an order export that '
+                         'carries several, e.g. USD. The unit figures - and the '
+                         'basis, which is built on them - are unaffected')
     ap.add_argument('--skip-sku', metavar='PREFIX', default='',
                     help='product-code prefixes to leave out of the order side, '
                          'e.g. SMC-AU- for service plans that are ordered but '
@@ -391,7 +395,7 @@ def main() -> int:
                      if t.strip())
         load = dict(cust_levels=CUST.LEVELS, prod_levels=PRODUCT_LEVELS,
                     customer_master=cp, products=prod, agree=args.agree,
-                    signed=args.booked is None,
+                    currency=args.currency, signed=args.booked is None,
                     positive=tuple(t.strip().upper()
                                    for t in args.positive.split(',') if t.strip()),
                     negative=tuple(t.strip().upper()
@@ -512,7 +516,14 @@ def main() -> int:
             sold = abs(sum(v[qi] for k, v in combos.items()
                            if k[0] == CUST.ONLINE)) if qi is not None else 0
             model = own + came
-            print(f'\n  the month as the orders model it: {own:,.0f} booked on '
+            # The basis is built on units; money rides along for the tooltips
+            # and the stacked chart, so where it comes from is worth saying.
+            print(f'\n  units from the order exports, money from '
+                  + (repr(this.amount_col) if this.amount_col else 'nowhere')
+                  + f'; the profit side is {head[pos_of["qty"]]!r} and '
+                  + (repr(head[pos_of['net']]) if 'net' in pos_of
+                     else repr(head[pos_of['gross']])))
+            print(f'  the month as the orders model it: {own:,.0f} booked on '
                   f'its own orders + {came:,.0f} carried in = {model:,.0f} units')
             if sold:
                 print(f'  the month as sold, {CUST.ONLINE} only: {sold:,.0f} '

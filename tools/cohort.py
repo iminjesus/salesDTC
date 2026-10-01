@@ -33,9 +33,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
 from promo_match import NAMES as O_NAMES, to_date              # noqa: E402
-from rawdata import (MONTHS, find, key_norm, master,           # noqa: E402
-                     month_before, month_name, month_of, parse_number,
-                     pick_file, pick_latest, read_any)
+from rawdata import (MONTHS, currency_of, find, key_norm,      # noqa: E402
+                     master, month_before, month_name, month_of, parse_number,
+                     pick_amount, pick_file, pick_latest, read_any)
 from reconcile import (O_AMT, O_QTY, O_SKU, O_STATUS, P_AMT,   # noqa: E402
                        P_CUST, P_QTY, P_SKU, classify)
 
@@ -101,6 +101,7 @@ class Side:
         self.dates: list = []
         self.has_order_no = False
         self.has_ship_date = None
+        self.amount_col = None
 
     def month(self):
         """The month this export covers, as YYYYMM, or None if it spans more."""
@@ -113,21 +114,30 @@ class Side:
         return (min(self.dates), max(self.dates)) if self.dates else (None, None)
 
 
-def read_side(name, path, say=print) -> Side:
+def read_side(name, path, prefer=None, say=print) -> Side:
     rows, info = read_any(path)
     head = [h.strip() for h in rows[0]]
     body = rows[1:]
     s = Side(name, path)
     say(f'  {path.name}: {info["format"]}, {len(body):,} rows, {len(head)} columns')
 
+    amt_i, amt_all = pick_amount(head, O_AMT, prefer)
     col = {'sku': find(head, *O_SKU), 'qty': find(head, *O_QTY),
-           'amt': find(head, *O_AMT), 'status': find(head, *O_STATUS),
+           'amt': amt_i, 'status': find(head, *O_STATUS),
            'order': find(head, *O_ORDER), 'line': find(head, *O_LINE),
            'date': find(head, *O_DATE), 'ship': find(head, *O_SHIP)}
     for what in ('sku', 'qty', 'status', 'order', 'date', 'ship'):
         i = col[what]
         say(f'    {what:<6} ' + (repr(head[i]) if i is not None
                                  else '-- not found --'))
+    # Printed, never scored: the comparison below is units. It is here so a
+    # money figure in the status table can be read for what it is.
+    say(f'    {"amt":<6} ' + (repr(head[amt_i]) if amt_i is not None
+                              else '-- not found --')
+        + (f'   (also here: {", ".join(a for a in amt_all if a != head[amt_i])})'
+           if amt_i is not None and len(amt_all) > 1 else '')
+        + '   - reported, not compared')
+    s.amount_col = head[amt_i] if amt_i is not None else None
     s.has_order_no = col['order'] is not None
     s.has_ship_date = head[col['ship']] if col['ship'] is not None else None
 
@@ -202,6 +212,10 @@ def main() -> int:
                     help='statuses that take money back this month. The profit '
                          'file counts quantity net of returns, so these are '
                          f'subtracted, not dropped (default {", ".join(NEGATIVE)})')
+    ap.add_argument('--currency', metavar='CODE',
+                    help='which money column to report from an order export '
+                         'that carries several, e.g. USD. The comparison is on '
+                         'units either way; this only steers what is printed')
     ap.add_argument('--online', default=CUST.ONLINE, metavar='NAME',
                     help=f'the channel the profit side is kept to '
                          f'(default {CUST.ONLINE}); "" keeps every channel')
@@ -260,8 +274,8 @@ def main() -> int:
 
     done = {t.strip().upper() for t in args.completed.split(',') if t.strip()}
     print('reading:')
-    before = read_side(want['before'], paths['before'])
-    after = read_side(want['after'], paths['after'])
+    before = read_side(want['before'], paths['before'], args.currency)
+    after = read_side(want['after'], paths['after'], args.currency)
     # An order export holding another month explains nothing about this one,
     # and every number below it would be arithmetic on the wrong rows.
     if ym and not args.any_month:
@@ -407,6 +421,22 @@ def main() -> int:
     print(f'  {args.online or "every channel"}: {actual:,.0f} units over '
           f'{len(sales):,} product(s), {sales_amt:,.0f}'
           + (f'   ({off:,.0f} units left out as not {args.online})' if off else ''))
+    p_amt_col = n_head_amt = (p_head[p_i['amt']] if p_i['amt'] is not None
+                              else None)
+    print(f'  quantity from {p_head[p_i["qty"]]!r}, money from '
+          + (repr(p_amt_col) if p_amt_col else '-- not found --'))
+    print(f'\nwhat is being compared: {after.name} {O_QTY[0]!r} against '
+          f'{pp.name} {p_head[p_i["qty"]]!r} - units, product by product.')
+    print('  Units are the comparator because both files mean the same thing by '
+          'one: a unit\n  shipped. The amounts do not - they differ by tax, by '
+          'currency, and by what each\n  file counts as revenue - so every '
+          'money figure here is reported and none is scored.')
+    cur = {currency_of(after.amount_col), currency_of(p_amt_col)} - {None}
+    if len(cur) > 1:
+        print(f'  (the two sides name different currencies - {after.amount_col} '
+              f'and {p_amt_col}.\n  That costs the comparison nothing, since it '
+              'is on units, but any money read\n  across the two is not '
+              'comparable. --currency picks the other column.)')
 
     # ── the buckets every rule is built from ───────────────────────────────
     def bucket(side, want_done):

@@ -310,6 +310,36 @@ def month_before(ym: int) -> int:
     return ym - 1 if ym % 100 > 1 else (ym // 100 - 1) * 100 + 12
 
 
+def pick_amount(head: list[str], names: tuple, prefer: str | None = None):
+    """Which money column to read, when the export carries several currencies.
+
+    An order export can hold both `AUD Revenue excl. GST` and `USD Revenue excl.
+    GST`, and taking whichever is listed first would pair one currency against
+    another without a word. So the choice can be steered by the currency the
+    other side is in, and the caller is handed the alternatives to print.
+    """
+    hits = [(n, find(head, n)) for n in names]
+    hits = [(n, i) for n, i in hits if i is not None]
+    if not hits:
+        return None, []
+    if prefer:
+        want = prefer.strip().upper()
+        for n, i in hits:
+            if want in head[i].upper():
+                return i, [head[j] for _, j in hits]
+    return hits[0][1], [head[j] for _, j in hits]
+
+
+def currency_of(column: str | None) -> str | None:
+    """'USD' from 'USD Revenue excl. GST', when the name says so at all."""
+    if not column:
+        return None
+    for code in ('AUD', 'USD', 'KRW', 'EUR', 'GBP', 'JPY', 'NZD', 'SGD'):
+        if re.search(rf'(?<![A-Z]){code}(?![A-Z])', column.upper()):
+            return code
+    return None
+
+
 def pick_file(folder: Path, *stems: str):
     """The file named like one of these stems, exact match first."""
     for stem in stems:

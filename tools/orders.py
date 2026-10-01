@@ -35,7 +35,8 @@ import customer as CUST                                        # noqa: E402
 from cohort import NEGATIVE, POSITIVE, booking, is_dead        # noqa: E402
 from promo_match import NAMES as O_NAMES                       # noqa: E402
 from promo_match import code_norm, portal_levels, to_date      # noqa: E402
-from rawdata import find, key_norm, parse_number, read_any     # noqa: E402
+from rawdata import (find, key_norm, parse_number,             # noqa: E402
+                     pick_amount, read_any)
 from reconcile import O_AMT, O_QTY, O_SKU, O_STATUS, classify  # noqa: E402
 
 # What the order export calls the customer. Its vocabulary is the master's
@@ -65,6 +66,7 @@ class Orders:
         self.unknown: dict[str, float] = {}
         self.no_product = 0
         self.back = 0.0            # units taken back by a return this month
+        self.amount_col = None
         self.dates: list = []
 
     def month(self):
@@ -100,7 +102,8 @@ class Orders:
 def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
          products: dict, shipped: set | None = None, booked: set | None = None,
          positive: tuple = POSITIVE, negative: tuple = NEGATIVE,
-         signed: bool = True, agree: float = 80.0, say=print) -> Orders | None:
+         signed: bool = True, currency: str | None = None,
+         agree: float = 80.0, say=print) -> Orders | None:
     """Read the order export and total it onto the profit file's key.
 
     `cust_levels` and `prod_levels` are the level lists in the order the key is
@@ -115,15 +118,27 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
     body = rows[1:]
     say(f'  {path.name}: {info["format"]}, {len(body):,} rows')
 
+    amt_i, amt_all = pick_amount(head, O_AMT, currency)
     col = {'sku': find(head, *O_SKU), 'qty': find(head, *O_QTY),
-           'amt': find(head, *O_AMT), 'status': find(head, *O_STATUS),
+           'amt': amt_i, 'status': find(head, *O_STATUS),
            'group': find(head, *O_GROUP), 'portal': find(head, *O_PORTAL),
            'date': find(head, *O_NAMES['date'])}
     say('  order columns:')
-    for what in ('sku', 'qty', 'amt', 'status', 'group'):
+    for what in ('sku', 'qty', 'status', 'group'):
         i = col[what]
         say(f'    {what:<7} ' + (repr(head[i]) if i is not None
                                  else '-- not found --'))
+    say(f'    {"amt":<7} ' + (repr(head[amt_i]) if amt_i is not None
+                              else '-- not found --')
+        + (f'   (also here: {", ".join(a for a in amt_all if a != head[amt_i])}'
+           '; --currency picks)' if amt_i is not None and len(amt_all) > 1
+           else ''))
+    if amt_i is None:
+        # The page charts an order amount beside the sales one. Silently
+        # charting zero is the failure that looks like a business finding.
+        say('    no money column matched, so every order amount on the page '
+            'would be zero.\n    Name it with --order-amount; the unit figures '
+            'are unaffected.')
     if col['sku'] is None or col['qty'] is None:
         say('  without a product code and a quantity there is nothing to count '
             'against the profit file')
@@ -136,6 +151,7 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
             'the order side')
 
     out = Orders(path)
+    out.amount_col = head[amt_i] if amt_i is not None else None
 
     def cell(r, i):
         return (r[i].strip() if i is not None and i < len(r) else '')

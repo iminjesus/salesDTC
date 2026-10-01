@@ -49,7 +49,11 @@ RETURNED = 'RETURN'
 
 O_SKU = ('Product Code', 'SKU', 'Material', 'Model Code', 'Product Number')
 O_QTY = ('Quantity', 'Qty', 'Units')
-O_AMT = ('AUD Revenue excl. GST', 'Net Amount', 'Amount', 'Revenue')
+# The order export carries revenue in more than one currency. Which one is
+# wanted depends on what the profit file is in, so every spelling is listed and
+# the tools say which they picked rather than taking the first quietly.
+O_AMT = ('AUD Revenue excl. GST', 'USD Revenue excl. GST', 'Revenue excl. GST',
+         'AUD Revenue', 'USD Revenue', 'Net Amount', 'Amount', 'Revenue')
 O_STATUS = ('order_status', 'Order Status', 'Status')
 P_SKU = ('Material', 'Product Number', 'SKU', 'Material Code', 'Model Code')
 P_CUST = ('Customer', 'Payer', 'sold To', 'Sold-To')
