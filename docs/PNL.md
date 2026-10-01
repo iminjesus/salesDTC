@@ -175,33 +175,40 @@ stack. `--find` and `--where` are what chase them down.
 
 ### Orders, and the month they belong to
 
-`profit_2608_3` is a month of **sales**. `26 DTC Aug` and `26 DTC Jul` are months
-of **orders**. Nothing joins a sale to the order it came from - that link was
-never exported, and the two order files share not one order number - so the
-month is **modelled** from the order statuses instead:
+The page needs to know which month a unit's revenue fell in. There are two ways
+to find that out, and it prefers the one that does not guess.
+
+**Measured - where SAP's sales-order exports are there.** `orders_<month>`
+carries `Created On` and `Goods Issue Date`, so the month a unit earned in is
+**read** rather than argued for. It also carries the **payer** - the same
+`Sold-to Party` the profit file is keyed on - so a line lands on one customer at
+full depth with nothing spread anywhere. Only the lines whose customer reference
+carries the store's own stamp (`AU260930-46262020`) count: Amazon, Myer, MyDeal
+and eBay carry something else, so the shape of the reference separates the
+business with nothing to configure.
 
 ```
-booked       what this month's own orders settled, net   its own demand, earned
-carried in   what last month left unsettled              earned here, ordered there
-carried out  what this month leaves unsettled            a later month's revenue
+booked       left in this month, ordered in this month    its own demand, earned
+carried in   left in this month, ordered before it        earned here, ordered there
+carried out  ordered in this month, leaves after it       a later month's revenue
 
 the month's revenue    = booked + carried in
 the month's own demand = booked + carried out
 ```
 
-**booked** is signed: `COMPLETED` and `PICKUP_COMPLETE` add, the four finished
-return statuses subtract. Returns are subtracted rather than dropped because the
-profit file counts quantity net of them - dropping them would leave the two
-sides counting different things. Everything else waits for a later month,
-cancellations included. `--positive`, `--negative` and `--booked` change that
-reading; `docs/COHORT.md` is where it gets scored.
+**Inferred - where they are not.** The store's own export has no despatch date,
+so which month a unit belongs to has to be argued from its status; and the
+portal group it carries cannot settle a customer at full depth, so each order
+has to be spread across the sales it is consistent with. `docs/COHORT.md` is
+where that reading gets scored against the month it claims to explain.
+`--no-sap` forces it.
 
-**That reading was tested, not assumed.** `tools/cohort.py` scores it against
-every rival on the month it claims to explain, product by product. On the real
-August it comes back at **99% of the units with 11% per-product error**, where
-August's own completed orders alone give 61%/44% and the next best rival 75%/38%.
-`docs/COHORT.md` is the test; run it again whenever a new month lands, and
-whenever `--booked` is changed.
+`docs/DESPATCH.md` puts the two side by side. On September the measured answer
+came back at **99.8%** of the month against the inferred answer's **96%**, with
+less per-product error - which is why the measured one goes first. The build
+says which basis it used and how it came out against the month as sold.
+
+A cancelled or rejected order belongs to no month and is in none of the three.
 
 **Basis** reads the whole page on one of those:
 
