@@ -71,15 +71,23 @@ SERIES = [
     ('qty',       'Qty', ('Quantity(Net)', 'Net Sales Qty', 'Qty', 'Quantity')),
 ]
 
-# The order file's own figures, totalled onto the same key. They are counts of
-# what was ordered, not a share of what was sold, so they are never scaled by
-# the basis the page is read on - see ORDER_KEYS in the template.
+# The order files' own figures, totalled onto the same key. They are counts of
+# what was ordered, not a share of what was sold, so the basis never scales
+# them - see ORDERED in the template.
+#
+# The month is modelled as: what its own orders booked, plus what the month
+# before carried into it, less what it carries on. `tools/cohort.py` tested that
+# reading against the month it claims to explain and it came back at 99% of the
+# units, so it is the one the page runs on.
 ORDER_SERIES = [
-    ('oqty',  'Ordered Qty (shipped)'),
-    ('oamt',  'Ordered (shipped)'),
-    ('opqty', 'Ordered Qty (open)'),
-    ('opamt', 'Ordered (open)'),
+    ('oqty', 'Booked Qty (this month\'s orders)'),
+    ('oamt', 'Booked (this month\'s orders)'),
+    ('iqty', 'Carried-in Qty'),
+    ('iamt', 'Carried in'),
+    ('xqty', 'Carried-out Qty'),
+    ('xamt', 'Carried out'),
 ]
+N_ORDER = len(ORDER_SERIES)
 
 
 def main() -> int:
@@ -106,9 +114,22 @@ def main() -> int:
                     help='link Chart.js instead of embedding it: a smaller file '
                          'that then needs a connection')
     ap.add_argument('--orders', default='26 DTC Aug', metavar='NAME',
-                    help='the order export to read beside the profit file, so '
-                         'the page can be read on an order basis as well as a '
-                         'sales one (default: 26 DTC Aug)')
+                    help='the order export for the month the profit file covers '
+                         '(default: 26 DTC Aug)')
+    ap.add_argument('--orders-before', default='26 DTC Jul', metavar='NAME',
+                    help='the month before, whose unfinished orders became this '
+                         "month's revenue (default: 26 DTC Jul). Without it the "
+                         'page cannot say what was carried in')
+    ap.add_argument('--booked', default='COMPLETED', metavar='LIST',
+                    help='the order status(es) that book the money (default '
+                         'COMPLETED). Everything else still in flight is carried '
+                         'to a later month; cancelled and returned are carried '
+                         'nowhere. py tools\\cohort.py tests this against the '
+                         'month it claims to explain')
+    ap.add_argument('--skip-sku', metavar='PREFIX', default='',
+                    help='product-code prefixes to leave out of the order side, '
+                         'e.g. SMC-AU- for service plans that are ordered but '
+                         'never reach the profit file')
     ap.add_argument('--no-orders', action='store_true',
                     help='draw sales only, even when an order export is there')
     ap.add_argument('--shipped', metavar='LIST',
@@ -334,19 +355,43 @@ def main() -> int:
     # gone, in the proportions the month itself gives.
     n_measures = len(keys)
     op = None if args.no_orders else pick_file(folder, args.orders)
+    bp = None if args.no_orders else pick_file(folder, args.orders_before)
     if op is not None:
         print('\nreading orders:')
-        keep = ({t.strip().upper() for t in args.shipped.split(',') if t.strip()}
-                if args.shipped else None)
-        got = ORD.load(op, cust_levels=CUST.LEVELS, prod_levels=PRODUCT_LEVELS,
-                       customer_master=cp, products=prod, shipped=keep,
-                       agree=args.agree)
-        if got is not None:
-            ORD.report(got)
+        booked = {t.strip().upper() for t in args.booked.split(',') if t.strip()}
+        drop = tuple(t.strip().upper() for t in args.skip_sku.split(',')
+                     if t.strip())
+        load = dict(cust_levels=CUST.LEVELS, prod_levels=PRODUCT_LEVELS,
+                    customer_master=cp, products=prod, booked=booked,
+                    agree=args.agree)
+        this = ORD.load(op, **load)
+        before = ORD.load(bp, **load) if bp is not None else None
+        if bp is None:
+            print(f'  no file named like {args.orders_before!r}, so the page '
+                  'cannot say what was carried into this month')
+        if this is not None:
+            ORD.report(this)
+            if before is not None:
+                ORD.report(before)
+
+            # Six slots per key: what this month's own orders booked, what the
+            # month before carried in, and what this month carries on.
+            def slots(key):
+                own = this.by_key.get(key) or [0.0] * 4
+                came = (before.by_key.get(key) or [0.0] * 4) if before else [0.0] * 4
+                # own booked, own booked $, carried in, carried in $,
+                # carried out, carried out $
+                return [own[0], own[1], came[2], came[3], own[2], own[3]]
+
+            wanted = set(this.by_key) | (set(before.by_key) if before else set())
+            if drop:
+                sku_at = len(FILTERS) - 1
+                wanted = {k for k in wanted
+                          if not str(k[sku_at]).upper().startswith(drop)}
             sold_keys = list(combos)
             qi = keys.index('qty') if 'qty' in keys else None
             for vals in combos.values():
-                vals.extend([0.0, 0.0, 0.0, 0.0])
+                vals.extend([0.0] * N_ORDER)
 
             # One index per distinct set of levels an order asserts. There are
             # only a handful of those, and building them once beats walking
@@ -354,7 +399,8 @@ def main() -> int:
             index: dict[tuple, dict] = {}
             spread_u = orphan_u = 0.0
             orphans = 0
-            for ok, v in got.by_key.items():
+            for ok in wanted:
+                v = slots(ok)
                 known = tuple(j for j, x in enumerate(ok) if x != CUST.BLANK)
                 idx = index.get(known)
                 if idx is None:
@@ -362,25 +408,26 @@ def main() -> int:
                     for ck in sold_keys:
                         idx.setdefault(tuple(ck[j] for j in known), []).append(ck)
                 hits = idx.get(tuple(ok[j] for j in known)) or []
-                units = v[0] + v[2]
+                units = v[0] + v[2] + v[4]
                 if not hits:
                     # Ordered, with nothing in the month it could have been.
                     # A real combination, and one the profit file never had.
                     orphans += 1
                     orphan_u += units
-                    combos[ok] = [0.0] * n_measures + list(v)
+                    combos[ok] = [0.0] * n_measures + v
                     counts.setdefault(ok, 0)
                     continue
                 spread_u += units
                 weight = [abs(combos[ck][qi]) if qi is not None else 1.0
                           for ck in hits]
-                total = sum(weight) or float(len(hits))
-                if not sum(weight):
+                total = sum(weight)
+                if not total:
                     weight = [1.0] * len(hits)
+                    total = float(len(hits))
                 for ck, w in zip(hits, weight):
                     share = w / total
                     row = combos[ck]
-                    for m in range(4):
+                    for m in range(N_ORDER):
                         row[n_measures + m] += v[m] * share
 
             keys = keys + [k for k, _ in ORDER_SERIES]
@@ -389,14 +436,39 @@ def main() -> int:
                 '+'.join(FILTERS[j][0] for j in k) or '(nothing)'
                 for k in sorted(index, key=len, reverse=True)[:3])
             print(f'\n  spread onto the sales it could have been: '
-                  f'{spread_u:,.0f} unit(s) over {len(sold_keys):,} combination(s), '
-                  f'matched on {shapes}')
+                  f'{spread_u:,.0f} unit(s) over {len(sold_keys):,} '
+                  f'combination(s), matched on {shapes}')
             if orphans:
                 print(f'  {orphans:,} combination(s) ({orphan_u:,.0f} units) were '
                       'ordered with nothing in the month they could be - they '
-                      'chart as orders, and an order basis leaves them out, '
-                      'because there is no sale of theirs to take a per-unit '
-                      'cost from')
+                      'chart as orders, and a basis other than Sales leaves them '
+                      'out, because there is no sale of theirs to take a '
+                      'per-unit cost from')
+
+            # The month as the orders model it, beside the month as sold. A
+            # wide gap between them means the booking rule does not describe
+            # this export, and py tools\cohort.py is where to find out why.
+            oi = n_measures
+            own = sum(v[oi] for v in combos.values())
+            came = sum(v[oi + 2] for v in combos.values())
+            goes = sum(v[oi + 4] for v in combos.values())
+            # The orders are the online store's, so the only sales they can
+            # account for are the online ones. Comparing against the whole file
+            # would charge them with the offline business as well.
+            sold = abs(sum(v[qi] for k, v in combos.items()
+                           if k[0] == CUST.ONLINE)) if qi is not None else 0
+            model = own + came
+            print(f'\n  the month as the orders model it: {own:,.0f} booked on '
+                  f'its own orders + {came:,.0f} carried in = {model:,.0f} units')
+            if sold:
+                print(f'  the month as sold, {CUST.ONLINE} only: {sold:,.0f} '
+                      f'units  ({model / sold * 100:.0f}% of it modelled)')
+                if abs(model - sold) > sold * 0.15:
+                    print('  that is a wide gap. The booking rule may not '
+                          'describe this export - run py tools\\cohort.py, '
+                          'which scores it against the alternatives')
+            print(f'  carried on to the month after: {goes:,.0f} units'
+                  + (f'  ({goes / sold * 100:.0f}% of the month)' if sold else ''))
 
     # ── what the filters ended up holding ──────────────────────────────────
     levels = []

@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
 from promo_match import code_norm, portal_levels               # noqa: E402
 from rawdata import find, key_norm, parse_number, read_any     # noqa: E402
+from cohort import is_dead                                     # noqa: E402
 from reconcile import O_AMT, O_QTY, O_SKU, O_STATUS, classify  # noqa: E402
 
 # What the order export calls the customer. Its vocabulary is the master's
@@ -42,11 +43,17 @@ from reconcile import O_AMT, O_QTY, O_SKU, O_STATUS, classify  # noqa: E402
 O_GROUP = ('Portal Group', 'portal_group', 'Portal_Group')
 O_PORTAL = ('Portal', 'Portal Name', 'Store Portal')
 
-SHIPPED, OPEN = 0, 1          # which half of a value vector a count lands in
+DONE, OPEN = 0, 1             # which half of a value vector a count lands in
 
 
 class Orders:
-    """Per key: [shipped units, shipped amount, open units, open amount]."""
+    """Per key: [done units, done amount, open units, open amount].
+
+    What counts as done depends on how the file is being read. On the booking
+    rule it is the status that books the money - COMPLETED - and open is
+    everything still in flight; `tools/cohort.py` is where that rule was tested
+    against the month it claims to explain.
+    """
 
     def __init__(self, path):
         self.path = path
@@ -73,8 +80,8 @@ class Orders:
 
 
 def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
-         products: dict, shipped: set | None = None, agree: float = 80.0,
-         say=print) -> Orders | None:
+         products: dict, shipped: set | None = None, booked: set | None = None,
+         agree: float = 80.0, say=print) -> Orders | None:
     """Read the order export and total it onto the profit file's key.
 
     `cust_levels` and `prod_levels` are the level lists in the order the key is
@@ -116,8 +123,16 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
     for r in body:
         out.lines += 1
         status = cell(r, col['status']) or '(blank)'
-        verdict = ('shipped' if status.upper() in shipped else 'not shipped') \
-            if shipped is not None else classify(status)
+        if booked is not None:
+            # The booking rule: one set of statuses books the money, everything
+            # still in flight is carried to a later month, and an order that was
+            # called off or came back is carried nowhere.
+            verdict = ('shipped' if status.upper() in booked
+                       else 'returned' if is_dead(status) else 'not shipped')
+        elif shipped is not None:
+            verdict = 'shipped' if status.upper() in shipped else 'not shipped'
+        else:
+            verdict = classify(status)
         if verdict == 'returned':
             # The order shipped and came back. The profit file counts quantity
             # net of returns, so it nets to nothing there too; counting it as a
@@ -125,6 +140,8 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
             out.skipped += 1
             continue
         if verdict == 'unknown':
+            # Only the shipped reading leaves a status unread; the booking rule
+            # has somewhere for every one of them.
             out.skipped += 1
             out.unknown[status] = out.unknown.get(status, 0.0) + 1
             continue
@@ -160,7 +177,7 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
             key.append(sku or CUST.BLANK if slot == 'sku'
                        else p.get(slot) or CUST.BLANK)
 
-        which = SHIPPED if verdict == 'shipped' else OPEN
+        which = DONE if verdict == 'shipped' else OPEN
         out.kept += verdict == 'shipped'
         out.open += verdict != 'shipped'
         out.add(tuple(key), qty, amt, which)
@@ -171,8 +188,8 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
 def report(o: Orders, say=print) -> None:
     """What the read made of the file, in the shape the other tools print."""
     sq, sa, oq, oa = o.totals()
-    say(f'\norders: {o.lines:,} line(s) - {o.kept:,} shipped ({sq:,.0f} units, '
-        f'{sa:,.0f}), {o.open:,} still open ({oq:,.0f} units, {oa:,.0f})')
+    say(f'\n{o.path.name}: {o.lines:,} line(s) - {o.kept:,} booked ({sq:,.0f} '
+        f'units, {sa:,.0f}), {o.open:,} carried ({oq:,.0f} units, {oa:,.0f})')
     if o.skipped:
         say(f'  {o.skipped:,} line(s) left out: returns, and statuses that say '
             'neither one thing nor the other')

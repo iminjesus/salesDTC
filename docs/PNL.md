@@ -175,39 +175,46 @@ stack. `--find` and `--where` are what chase them down.
 
 ### Orders, and the month they belong to
 
-`profit_2608_3` is a month of **sales**. `26 DTC Aug` is a month of **orders**.
-Neither answers "what did August's orders earn", and no join can either: nothing
-in either export says which sale came from which order - that link was never
-exported. What can be done is to count units on both sides of the same key:
+`profit_2608_3` is a month of **sales**. `26 DTC Aug` and `26 DTC Jul` are months
+of **orders**. Nothing joins a sale to the order it came from - that link was
+never exported, and the two order files share not one order number - so the
+month is **modelled** from the order statuses instead:
 
 ```
-sold             units in the profit file                August revenue
-ordered, shipped units on an August order that shipped
-ordered, open    units on an August order that has not
+booked       units this month's own orders completed     its own demand, earned
+carried in   units last month left unfinished            earned here, ordered there
+carried out  units this month leaves unfinished          a later month's revenue
 
-from August orders = min(sold, ordered)   ordered in August and sold in it
-carried in         = sold - that          sold in August, ordered before it
-still to come      = open                 a later month's revenue
+the month's revenue    = booked + carried in
+the month's own demand = booked + carried out
 ```
 
-The minimum is taken **per key and then added up**, never the other way round:
-one product shipping more than it sold must not cover another selling more than
-it shipped.
+A cancelled or returned order is carried nowhere and is in none of the three.
+
+**That reading was tested, not assumed.** `tools/cohort.py` scores it against
+every rival on the month it claims to explain, product by product. On the real
+August it comes back at **99% of the units with 11% per-product error**, where
+August's own completed orders alone give 61%/44% and the next best rival 75%/38%.
+`docs/COHORT.md` is the test; run it again whenever a new month lands, and
+whenever `--booked` is changed.
 
 **Basis** reads the whole page on one of those:
 
 | | |
 |---|---|
-| **Sales** | the profit file as it stands - August's revenue |
-| **Aug orders** | only the units that were both ordered in August and sold in it |
-| **+ to come** | those, plus the unshipped orders priced at the same per-unit rates |
+| **Sales** | the month as the profit file reports it |
+| **Own demand** | `booked / (booked + carried in)` - last month's carry-over stripped out, leaving the revenue this month's own orders earned |
+| **Demand + to come** | `(booked + carried out) / (booked + carried in)` - what this month's orders will earn in the end, the unshipped part priced at the same per-unit rates |
 
-Off *Sales*, every figure on the page is an **allocation**: one multiplier per
-key, applied to the money and the units alike. It holds exactly as far as the
-units of one key being worth the same as each other - the assumption the per
-unit view already runs on - and the subtitle says so while it is on. A key that
-was ordered and never sold has no per-unit cost to price it from, so it weighs
-nothing; the build prints how much of the month that is.
+Off *Sales*, every figure is an **allocation**: one multiplier per key, applied
+to the money and the units alike. It holds exactly as far as the units of one
+key being worth the same as each other - the assumption the per-unit view
+already runs on - and the subtitle says so while it is on. Both ratios are
+modelled over modelled, so the model's own fit against the month does not leak
+into the figures; what it changes is the **mix**, which is the point of asking.
+
+A key the orders never reached weighs nothing, and the build says how much of
+the month that leaves out.
 
 ### How an order finds its sales
 
@@ -227,31 +234,44 @@ which indexes the customer master under every spelling of every level and
 returns only what the accounts behind a group agree on. `--agree` sets how much
 agreement that takes.
 
+The build then says what the model makes of the month beside what was sold. A
+gap wider than 15% means the booking rule does not describe this export, and it
+says to go and run `tools/cohort.py` rather than leave the page quietly wrong.
+
 ### The orders chart
 
-Under the profit chart, the two counts side by side - one pair per member of the
-level the bars are on, `sold` on the left and `ordered` on the right. Units, not
+Under the profit chart, the month's two sides - one pair per member of the level
+the bars are on, `earned` on the left and `ordered` on the right. Units, not
 money: both files carry a quantity that means one thing, a unit shipped, while
-the amounts differ by tax, by currency and by what each file calls revenue. The
-money is in the tooltip, where a systematic difference still shows.
+the amounts differ by tax, by currency and by what each file calls revenue.
 
-The overlap is drawn in one colour across **both** bars, because it is one set
-of units counted twice. What sits above it is what the other side does not have:
-grey on the left for what was ordered before August, orange on the right for
-units the order file calls shipped with no sale behind them - a reconciling
-difference rather than a timing one, and what `tools/reconcile.py` exists to
-chase - and amber for what has not shipped yet. The line is the share of sold
-units that came from an August order.
+`booked` is drawn in one colour across **both** bars, because it is one set of
+units: the orders this month both took and earned. What sits above it is what
+the other bar does not have - last month's leftovers on the revenue side, next
+month's on the demand one. The line is the share of the month's revenue its own
+orders earned.
+
+When a month takes in more than it hands on, its revenue is **flattered by the
+difference** - a backlog cleared, not demand earned - and the hint says so in
+those words, with the number.
 
 ```
-py dashboard\build_pnl.py                          # reads 26 DTC Aug if it is there
-py dashboard\build_pnl.py --no-orders              # sales only
-py dashboard\build_pnl.py --shipped "COMPLETED,SHIPPED,PICKUP_COMPLETE"
+py dashboard\build_pnl.py                    # reads both order exports if they are there
+py dashboard\build_pnl.py --no-orders        # sales only
+py dashboard\build_pnl.py --booked "COMPLETED,DELIVERED"
+py dashboard\build_pnl.py --skip-sku SMC-AU-
 ```
 
-A status the built-in lists do not recognise is counted as neither, and named,
-rather than guessed at. `tools/reconcile.py --statuses` lists them all with how
-each is read.
+`--orders` and `--orders-before` name the two exports. `--booked` names the
+status(es) that book the money; everything else in flight is carried forward and
+`tools/cohort.py` is what says whether that reading holds. `--skip-sku` drops
+product codes that are ordered but never reach the profit file - service plans,
+subscriptions, bundle headers - which otherwise charge the model with units it
+could never have sold.
+
+Under the booking rule every status has somewhere to go, so none is left
+unread. `tools/reconcile.py --statuses` still lists them all with how its own
+shipped/not-shipped reading takes each one.
 
 ### Per unit, and ASP
 

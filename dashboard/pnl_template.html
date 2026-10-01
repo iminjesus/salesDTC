@@ -189,9 +189,9 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         <button class="btn" id="unitAmt">Amounts</button
         ><button class="btn" id="unitPer">Per unit</button></span></label>
       <label class="f" id="basisBox" hidden><span>Basis</span><span class="seg">
-        <button class="btn" id="bSales">Sales</button
-        ><button class="btn" id="bOrd">Aug orders</button
-        ><button class="btn" id="bAll">+ to come</button></span></label>
+        <button class="btn" id="bSales" title="the month as the profit file reports it">Sales</button
+        ><button class="btn" id="bOrd" title="only the revenue this month's own orders earned - last month's carry-over stripped out">Own demand</button
+        ><button class="btn" id="bAll" title="what this month's own orders will earn in the end, including what has not shipped">Demand + to come</button></span></label>
       <button class="btn" id="tableBtn">Table</button>
       <button class="btn" id="resetBtn">Reset</button>
     </div>
@@ -310,62 +310,74 @@ function stackDrill() {
 }
 /* The order half of a combination, when the build found an order export.
    These are counts of what was ordered, so the basis never scales them. */
-const ORDERED = ['oqty', 'oamt', 'opqty', 'opamt'];
+const ORDERED = ['oqty', 'oamt', 'iqty', 'iamt', 'xqty', 'xamt'];
 const hasOrders = () => has.oqty !== undefined;
 const scaled = m => !ORDERED.some(k => has[k] === m);
 
+/* The month as the orders model it, per combination:
+
+     booked      units this month's own orders completed - its own demand
+     carried in  units the month before left unfinished, which completed here
+     carried out units this month leaves unfinished for the month after
+
+   so the month's revenue is booked + carried in, and the month's own demand is
+   booked + carried out. `tools/cohort.py` scored that reading against the month
+   it claims to explain, product by product; it came back at 99% of the units
+   with every rival above 38% out, which is why the page runs on it.
+
+   A cancelled or returned order is carried nowhere and is in none of the three.
+*/
+const bookedOf = c => c.v[has.oqty];
+const cameIn = c => c.v[has.iqty];
+const goesOut = c => c.v[has.xqty];
+
 /* Which month's business a combination belongs to.
 
-   The profit export is a month of sales with no order behind it, and the order
-   export is a month of orders with no revenue behind them. Nothing joins a sale
-   to the order it came from - that link was never exported - so an order basis
-   is a share of each key, not a set of rows:
+   Nothing joins a sale to the order it came from - that link was never
+   exported - so a basis other than Sales is a share of each key rather than a
+   set of rows. The share comes from the model above:
 
-     sold          units in the profit file
-     ordered       units on an August order that shipped
-     open          units on an August order that has not
+     Sales    the month as the profit file reports it
+     Own      booked / (booked + carried in)
+              strip out what the month before handed over, and what is left is
+              the revenue this month's own orders earned
+     Demand   (booked + carried out) / (booked + carried in)
+              what this month's orders will earn in the end, the unshipped part
+              priced at the same per-unit rates
 
-     from orders = min(sold, ordered)   both ordered and sold in August
-     carried in  = sold - that          sold in August, ordered before it
-     to come     = open                 ordered in August, a later month's sale
+   The multiplier is one number per key, which holds exactly as far as the units
+   of one key being worth the same as each other - the assumption the per-unit
+   view already runs on. Both ratios are modelled over modelled, so the fit the
+   model has against the month does not leak into the figures; what it changes
+   is the mix, which is the whole point of asking.
 
-   'orders' keeps the first of those, 'all' adds the open units priced at the
-   same per-unit economics. Either way the multiplier is one number per key,
-   which holds exactly as far as the units of one key being worth the same as
-   each other - the assumption the per-unit view already runs on.
-
-   A key that was ordered and never sold has no per-unit cost to price it from,
-   so it weighs nothing here. The build prints how much of the month that is. */
+   A key the orders never reached weighs nothing, and the build says how much of
+   the month that leaves out. */
 function basisOf(c) {
   if (state.basis === 'sales' || !hasOrders()) return 1;
-  const sold = Math.abs(has.qty === undefined ? 0 : c.v[has.qty]);
-  if (!sold) return 0;
-  const both = Math.min(sold, c.v[has.oqty]);
-  const want = state.basis === 'all' ? both + c.v[has.opqty] : both;
-  return want / sold;
+  const month = bookedOf(c) + cameIn(c);
+  if (!month) return 0;
+  const want = state.basis === 'all' ? bookedOf(c) + goesOut(c) : bookedOf(c);
+  return want / month;
 }
 
 /* How the two counts of a slice overlap. The minimum is taken per key and then
    added up, never the other way round: one product shipping more than it sold
    cannot be allowed to cover another selling more than it shipped. */
 function orderSplit(extra) {
-  const o = { sold: 0, ord: 0, both: 0, carried: 0, spare: 0, open: 0,
-              soldAmt: 0, ordAmt: 0 };
+  const o = { booked: 0, came: 0, goes: 0, sold: 0, soldAmt: 0, ordAmt: 0 };
   if (!hasOrders()) return o;
   for (const c of DATA.combos) {
     if (!inSlice(c, extra)) continue;
-    const sold = Math.abs(has.qty === undefined ? 0 : c.v[has.qty]);
-    const ord = c.v[has.oqty];
-    const both = Math.min(sold, ord);
-    o.sold += sold;
-    o.ord += ord;
-    o.both += both;
-    o.carried += sold - both;       // sold in August, ordered before it
-    o.spare += ord - both;          // shipped per the order file, not in sales
-    o.open += c.v[has.opqty];       // ordered in August, not yet shipped
+    o.booked += bookedOf(c);
+    o.came += cameIn(c);
+    o.goes += goesOut(c);
+    o.sold += Math.abs(has.qty === undefined ? 0 : c.v[has.qty]);
     o.soldAmt += has.net === undefined ? 0 : c.v[has.net];
-    o.ordAmt += c.v[has.oamt] + c.v[has.opamt];
+    o.ordAmt += c.v[has.oamt] + c.v[has.xamt];
   }
+  o.month = o.booked + o.came;        // what the model says the month earned
+  o.demand = o.booked + o.goes;       // what the month's own orders will earn
   return o;
 }
 
@@ -673,9 +685,10 @@ function render() {
     `${DATA.file} · ${DATA.rows.toLocaleString()} rows`
     + (state.basis === 'sales' ? ''
        : state.basis === 'orders'
-         ? ' · allocated to the units that were ordered in August and sold in it'
-         : ' · allocated to August\'s orders, the unshipped ones priced at the '
-           + 'same rates');
+         ? ' · allocated to the revenue this month\'s own orders earned, with '
+           + 'last month\'s carry-over stripped out'
+         : ' · allocated to what this month\'s own orders will earn, the '
+           + 'unshipped part priced at the same rates');
   buildFilters();
 
   const picked = DATA.levels
@@ -749,9 +762,10 @@ function render() {
     ]),
     ...(!hasOrders() ? [] : (() => {
       const o = orderSplit();
-      return [['From Aug orders', o.sold ? (o.both / o.sold * 100).toFixed(0)
-                                           + '% of units' : '-', ''],
-              ['Not yet shipped', fmt(o.open) + ' units', '']];
+      return [['Own demand', o.month ? (o.booked / o.month * 100).toFixed(0)
+                                       + '% of units' : '-', ''],
+              ['Carried in', fmt(o.came) + ' units', ''],
+              ['Carried out', fmt(o.goes) + ' units', '']];
     })()),
   ].map(([k, v, cls]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
@@ -1127,8 +1141,8 @@ function drawOrders() {
   const lv = DATA.levels[state.dim];
   const rows = lv.values
     .map((name, i) => ({ name, ...orderSplit({ level: state.dim, value: i }) }))
-    .filter(r => r.sold || r.ord || r.open)
-    .sort((a, b) => (b.sold + b.ord) - (a.sold + a.ord))
+    .filter(r => r.month || r.demand)
+    .sort((a, b) => (b.month + b.demand) - (a.month + a.demand))
     .slice(0, 12);
 
   const bar = (label, stack, key, colour) => ({
@@ -1136,15 +1150,15 @@ function drawOrders() {
     borderRadius: 3, borderSkipped: false, borderWidth: 1,
     borderColor: C.surface, maxBarThickness: 46,
   });
+  // 'booked' is one set of units in both bars - the month's own orders, which
+  // it both took and earned. What sits above it is what the other bar has not:
+  // last month's leftovers on the revenue side, next month's on the demand one.
   const datasets = [
-    bar('Ordered in Aug and sold', 'sold', 'both', C.stack[0]),
-    bar('Sold, ordered earlier', 'sold', 'carried', C.stack[8]),
-    bar('Ordered in Aug and sold', 'ord', 'both', C.stack[0]),
-    bar('Shipped, not in the sales file', 'ord', 'spare', C.stack[1]),
-    bar('Ordered, not yet shipped', 'ord', 'open', C.stack[3]),
+    bar('Booked on this month\'s own orders', 'month', 'booked', C.stack[0]),
+    bar('Carried in from last month', 'month', 'came', C.stack[8]),
+    bar('Booked on this month\'s own orders', 'demand', 'booked', C.stack[0]),
+    bar('Carried out to next month', 'demand', 'goes', C.stack[3]),
   ];
-  datasets[2].hidden = false;
-  // The pair is one set of units twice, so the legend names it once.
   const seen = new Set();
   document.getElementById('ordLegend').innerHTML = datasets
     .filter(d => !seen.has(d.label) && seen.add(d.label)
@@ -1152,8 +1166,9 @@ function drawOrders() {
     .map(d => `<span><i style="background:${d.backgroundColor}"></i>${d.label}</span>`)
     .join('');
   datasets.push({
-    type: 'line', label: 'Sold units that came from an Aug order', yAxisID: 'y1',
-    data: rows.map(r => (r.sold ? r.both / r.sold * 100 : null)),
+    type: 'line', label: 'Revenue earned by this month\'s own orders',
+    yAxisID: 'y1',
+    data: rows.map(r => (r.month ? r.booked / r.month * 100 : null)),
     borderColor: C.profit, backgroundColor: C.profit, borderWidth: 2,
     pointRadius: 4, pointHoverRadius: 7, tension: .25, fill: false,
     spanGaps: true, order: -1,
@@ -1181,12 +1196,12 @@ function drawOrders() {
              ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
         y1: { position: 'right', beginAtZero: true, suggestedMax: 100,
               grid: { drawOnChartArea: false }, border: { display: false },
-              title: { display: true, text: 'From Aug orders', color: C.ink3 },
+              title: { display: true, text: 'Own demand', color: C.ink3 },
               ticks: { color: C.ink3, callback: v => `${v}%` } },
       },
       plugins: {
         legend: { display: false },
-        barTags: { tags: { sold: 'sold', ord: 'ordered' } },
+        barTags: { tags: { month: 'earned', demand: 'ordered' } },
         tooltip: { backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
           filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
@@ -1196,24 +1211,30 @@ function drawOrders() {
               : `${c.dataset.label}: ${fmt(c.parsed.y)} units`,
             footer: items => {
               const r = rows[items[0].dataIndex];
-              return [`Sold ${fmt(r.sold)} units for ${fmt(r.soldAmt)}`,
-                      `Ordered ${fmt(r.ord + r.open)} units for ${fmt(r.ordAmt)}`];
+              return [`Earned ${fmt(r.month)} units, ${fmt(r.sold)} in the `
+                      + `profit file (${fmt(r.soldAmt)})`,
+                      `Its own orders: ${fmt(r.demand)} units, ${fmt(r.ordAmt)}`];
             } } },
       },
     },
   });
 
   const all = orderSplit();
-  const pct = all.sold ? Math.round(all.both / all.sold * 100) : 0;
+  const pct = all.month ? Math.round(all.booked / all.month * 100) : 0;
+  const net = all.came - all.goes;
   document.getElementById('ordHint').textContent =
-    `Units by ${lv.name}: what August sold, beside what August ordered. `
-    + `${pct}% of the units sold came from an August order; the rest were `
-    + `ordered earlier. ${fmt(all.open)} more are ordered and not yet shipped, `
-    + 'so they are a later month\'s revenue'
-    + (all.spare > 0.5 ? `, and ${fmt(all.spare)} unit(s) count as shipped on `
-       + 'the order file without a sale of the same customer and product behind '
-       + 'them - that gap is a reconciling difference, not a timing one' : '')
-    + '. Basis switches the figures above onto these units.';
+    `Units by ${lv.name}: what the month earned, beside what its own orders `
+    + `took. ${pct}% of the revenue came from orders placed in the month; the `
+    + `rest, ${fmt(all.came)} units, was carried in from the month before. `
+    + `${fmt(all.goes)} units are carried out to the next one`
+    + (Math.abs(net) > all.month * 0.05
+       ? `, so the month ${net > 0 ? 'took in' : 'handed on'} `
+         + `${fmt(Math.abs(net))} units more than it ${net > 0 ? 'handed on'
+            : 'took in'} - its revenue is ${net > 0 ? 'flattered' : 'understated'}`
+         + ` by that difference, which is a backlog ${net > 0 ? 'cleared'
+            : 'built'} rather than demand ${net > 0 ? 'earned' : 'lost'}`
+       : '')
+    + '. Basis switches the figures above between the two.';
 }
 
 function renderTable(rows, dimName, ofTotal) {
