@@ -314,19 +314,23 @@ const ORDERED = ['oqty', 'oamt', 'iqty', 'iamt', 'xqty', 'xamt'];
 const hasOrders = () => has.oqty !== undefined;
 const scaled = m => !ORDERED.some(k => has[k] === m);
 
-/* The month as the orders model it, per combination:
+/* Where the month's units came from and where they go, per combination:
 
-     booked      units this month's own orders completed - its own demand
-     carried in  units the month before left unfinished, which completed here
-     carried out units this month leaves unfinished for the month after
+     booked      left in this month, ordered in this month - its own demand
+     carried in  left in this month, ordered before it
+     carried out ordered in this month, leaves after it
 
    so the month's revenue is booked + carried in, and the month's own demand is
-   booked + carried out. `tools/cohort.py` scored that reading against the month
-   it claims to explain, product by product; it came back at 99% of the units
-   with every rival above 38% out, which is why the page runs on it.
+   booked + carried out.
 
-   A cancelled or returned order is carried nowhere and is in none of the three.
-*/
+   Where SAP's sales-order export is there, none of that is inferred: the export
+   carries a despatch date, so the month a unit earned in is read rather than
+   argued for, and it carries the payer, so a line lands on one customer at full
+   depth. Where it is not, the store export stands in and the months come from
+   its statuses instead - which `tools/cohort.py` scores, and `docs/DESPATCH.md`
+   compares against the measured answer. The build says which it used.
+
+   A cancelled or rejected order is in none of the three. */
 const bookedOf = c => c.v[has.oqty];
 const cameIn = c => c.v[has.iqty];
 const goesOut = c => c.v[has.xqty];

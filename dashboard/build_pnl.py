@@ -29,9 +29,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
 import analyze_structure as A                                  # noqa: E402
 import customer as CUST                                        # noqa: E402
 import orders as ORD                                           # noqa: E402
+import sap as SAP                                              # noqa: E402
 from rawdata import (MASTER_RAW as RAW, find, key_norm, master,  # noqa: E402
                      month_before, month_name, month_of, parse_number,
-                     pick_file, pick_latest, read_any)
+                     pick_file, pick_latest, pick_series, read_any)
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -122,6 +123,13 @@ def main() -> int:
                     help='the month before, whose unfinished orders became this '
                          "month's revenue. By default the one named for it. "
                          'Without it the page cannot say what was carried in')
+    ap.add_argument('--sap', default='orders', metavar='STEM',
+                    help="SAP's sales-order exports, which carry a despatch "
+                         'date and so need no inference at all (default: the '
+                         'orders_* files). This is the basis the page prefers')
+    ap.add_argument('--no-sap', action='store_true',
+                    help="fall back to the store export and its statuses, "
+                         'which has to infer which month a unit belongs to')
     ap.add_argument('--any-month', action='store_true',
                     help='model the month with whatever order exports were '
                          'named, even when their dates say they are other '
@@ -376,13 +384,129 @@ def main() -> int:
     # That is an allocation and nothing more; it says where an order could have
     # gone, in the proportions the month itself gives.
     n_measures = len(keys)
+
+    def merge_orders(by_key, drop=()):
+        """Add an order side onto the combinations, spreading only what has to be.
+
+        A SAP key is already at full depth - it came from the payer and the
+        material, the same two things the profit file is keyed on - so it lands
+        on its own combination. A store-export key carries blanks where the
+        portal group could not settle a level, and those are spread across the
+        sales they are consistent with, in proportion to what each one sold.
+        """
+        nonlocal keys, series
+        wanted = set(by_key)
+        if drop:
+            sku_at = len(FILTERS) - 1
+            wanted = {k for k in wanted
+                      if not str(k[sku_at]).upper().startswith(drop)}
+        sold_keys = list(combos)
+        qi = keys.index('qty') if 'qty' in keys else None
+        for vals in combos.values():
+            vals.extend([0.0] * N_ORDER)
+
+        # One index per distinct set of levels a key asserts. There are only a
+        # handful, and building them once beats walking every combination.
+        index: dict[tuple, dict] = {}
+        exact = spread_u = orphan_u = 0.0
+        orphans = 0
+        for ok in wanted:
+            v = list(by_key[ok])
+            units = v[0] + v[2] + v[4]
+            known = tuple(j for j, x in enumerate(ok) if x != CUST.BLANK)
+            idx = index.get(known)
+            if idx is None:
+                idx = index[known] = {}
+                for ck in sold_keys:
+                    idx.setdefault(tuple(ck[j] for j in known), []).append(ck)
+            hits = idx.get(tuple(ok[j] for j in known)) or []
+            if len(hits) == 1 and hits[0] == ok:
+                exact += units
+            if not hits:
+                orphans += 1
+                orphan_u += units
+                combos[ok] = [0.0] * n_measures + v
+                counts.setdefault(ok, 0)
+                continue
+            spread_u += units if len(hits) > 1 else 0
+            weight = [abs(combos[ck][qi]) if qi is not None else 1.0
+                      for ck in hits]
+            total = sum(weight)
+            if not total:
+                weight = [1.0] * len(hits)
+                total = float(len(hits))
+            for ck, w in zip(hits, weight):
+                share = w / total
+                row = combos[ck]
+                for m in range(N_ORDER):
+                    row[n_measures + m] += v[m] * share
+
+        keys = keys + [k for k, _ in ORDER_SERIES]
+        series = series + [{'key': k, 'label': lbl} for k, lbl in ORDER_SERIES]
+        print(f'\n  onto the sales: {exact:,.0f} unit(s) landed on one '
+              f'combination exactly, {spread_u:,.0f} had to be\n  spread over '
+              'the combinations they were consistent with')
+        if orphans:
+            print(f'  {orphans:,} combination(s) ({orphan_u:,.0f} units) have no '
+                  'sale in the month at all -\n  they chart as orders, and a '
+                  'basis other than Sales leaves them out, because there\n  is '
+                  'no sale of theirs to take a per-unit cost from')
+
+
+    # ── the measured basis, where SAP's exports are there ──────────────────
+    # SAP carries a despatch date, so which month a unit earned in is read
+    # rather than argued for, and it carries the payer, so the key comes out at
+    # full depth with nothing spread. Both beat the store export, so it goes
+    # first and the store export is the fallback.
+    got_sap = None
+    if not args.no_orders and not args.no_sap and ym:
+        sap_files = pick_series(folder, args.sap)
+        seen_stem = set()
+        sap_files = [f for f in sap_files
+                     if not (f.stem.lower() in seen_stem
+                             or seen_stem.add(f.stem.lower()))]
+        if sap_files:
+            print('\nreading SAP orders:')
+            got_sap = SAP.load(
+                sap_files, month=ym, cust_levels=CUST.LEVELS,
+                prod_levels=PRODUCT_LEVELS, customers=cust, products=prod,
+                currency=args.currency,
+                skip_sku=tuple(t.strip().upper()
+                               for t in args.skip_sku.split(',') if t.strip()))
+            if got_sap:
+                SAP.report(got_sap, ym)
+                if not any(f for f in sap_files
+                           if month_before(ym) == month_of(
+                               [], [], f.stem, say=lambda *a: None)):
+                    print(f'  no {month_before(ym)} export, so what that month '
+                          'carried into this one is missing')
+                merge_orders(got_sap.by_key)
+                oi = n_measures
+                own = sum(v[oi] for k, v in combos.items())
+                came = sum(v[oi + 2] for v in combos.values())
+                sold = (abs(sum(v[keys.index('qty')] for k, v in combos.items()
+                                if k[0] == CUST.ONLINE))
+                        if 'qty' in keys else 0)
+                model = own + came
+                print(f'\n  the month off SAP: {own:,.0f} booked + {came:,.0f} '
+                      f'carried in = {model:,.0f} units')
+                if sold:
+                    print(f'  the month as sold, {CUST.ONLINE} only: '
+                          f'{sold:,.0f} units  ({model / sold * 100:.0f}% of it '
+                          'accounted for)')
+                    if abs(model - sold) > sold * 0.2:
+                        print('  that is a wide gap - py tools\\link.py scores '
+                              'the same figures product by product')
+
     # Which two exports model this month: the one named for it, and the one
     # named for the month before, unless both were named on the command line.
     want_now = args.orders or (month_name(ym) if ym else None)
     want_was = args.orders_before or (month_name(month_before(ym)) if ym else None)
-    op = None if args.no_orders or not want_now else pick_file(folder, want_now)
-    bp = None if args.no_orders or not want_was else pick_file(folder, want_was)
-    if not args.no_orders and op is None and want_now:
+    op = (None if args.no_orders or got_sap or not want_now
+          else pick_file(folder, want_now))
+    bp = (None if args.no_orders or got_sap or not want_was
+          else pick_file(folder, want_was))
+    if not args.no_orders and not got_sap and op is None and want_now:
         print(f'\nno order export named like {want_now!r}, so the page is sales '
               'only. Name one with --orders.')
         here = sorted(q.name for q in folder.iterdir()
@@ -434,75 +558,16 @@ def main() -> int:
 
             # Six slots per key: what this month's own orders booked, what the
             # month before carried in, and what this month carries on.
-            def slots(key):
+            by_key_store = {}
+            for key in set(this.by_key) | (set(before.by_key) if before else set()):
                 own = this.by_key.get(key) or [0.0] * 4
-                came = (before.by_key.get(key) or [0.0] * 4) if before else [0.0] * 4
-                # own booked, own booked $, carried in, carried in $,
-                # carried out, carried out $
-                return [own[0], own[1], came[2], came[3], own[2], own[3]]
-
-            wanted = set(this.by_key) | (set(before.by_key) if before else set())
-            if drop:
-                sku_at = len(FILTERS) - 1
-                wanted = {k for k in wanted
-                          if not str(k[sku_at]).upper().startswith(drop)}
-            sold_keys = list(combos)
-            qi = keys.index('qty') if 'qty' in keys else None
-            for vals in combos.values():
-                vals.extend([0.0] * N_ORDER)
-
-            # One index per distinct set of levels an order asserts. There are
-            # only a handful of those, and building them once beats walking
-            # every combination for every order.
-            index: dict[tuple, dict] = {}
-            spread_u = orphan_u = 0.0
-            orphans = 0
-            for ok in wanted:
-                v = slots(ok)
-                known = tuple(j for j, x in enumerate(ok) if x != CUST.BLANK)
-                idx = index.get(known)
-                if idx is None:
-                    idx = index[known] = {}
-                    for ck in sold_keys:
-                        idx.setdefault(tuple(ck[j] for j in known), []).append(ck)
-                hits = idx.get(tuple(ok[j] for j in known)) or []
-                units = v[0] + v[2] + v[4]
-                if not hits:
-                    # Ordered, with nothing in the month it could have been.
-                    # A real combination, and one the profit file never had.
-                    orphans += 1
-                    orphan_u += units
-                    combos[ok] = [0.0] * n_measures + v
-                    counts.setdefault(ok, 0)
-                    continue
-                spread_u += units
-                weight = [abs(combos[ck][qi]) if qi is not None else 1.0
-                          for ck in hits]
-                total = sum(weight)
-                if not total:
-                    weight = [1.0] * len(hits)
-                    total = float(len(hits))
-                for ck, w in zip(hits, weight):
-                    share = w / total
-                    row = combos[ck]
-                    for m in range(N_ORDER):
-                        row[n_measures + m] += v[m] * share
-
-            keys = keys + [k for k, _ in ORDER_SERIES]
-            series += [{'key': k, 'label': lbl} for k, lbl in ORDER_SERIES]
-            shapes = ', '.join(
-                '+'.join(FILTERS[j][0] for j in k) or '(nothing)'
-                for k in sorted(index, key=len, reverse=True)[:3])
-            print(f'\n  spread onto the sales it could have been: '
-                  f'{spread_u:,.0f} unit(s) over {len(sold_keys):,} '
-                  f'combination(s), matched on {shapes}')
-            if orphans:
-                print(f'  {orphans:,} combination(s) ({orphan_u:,.0f} units) were '
-                      'ordered with nothing in the month they could be - they '
-                      'chart as orders, and a basis other than Sales leaves them '
-                      'out, because there is no sale of theirs to take a '
-                      'per-unit cost from')
-
+                came = ((before.by_key.get(key) or [0.0] * 4) if before
+                        else [0.0] * 4)
+                by_key_store[key] = [own[0], own[1], came[2], came[3],
+                                     own[2], own[3]]
+            merge_orders(by_key_store,
+                         tuple(t.strip().upper()
+                               for t in args.skip_sku.split(',') if t.strip()))
             # The month as the orders model it, beside the month as sold. A
             # wide gap between them means the booking rule does not describe
             # this export, and py tools\cohort.py is where to find out why.
