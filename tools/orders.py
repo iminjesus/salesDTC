@@ -32,7 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
-from cohort import is_dead                                     # noqa: E402
+from cohort import NEGATIVE, POSITIVE, booking, is_dead        # noqa: E402
 from promo_match import NAMES as O_NAMES                       # noqa: E402
 from promo_match import code_norm, portal_levels, to_date      # noqa: E402
 from rawdata import find, key_norm, parse_number, read_any     # noqa: E402
@@ -64,6 +64,7 @@ class Orders:
         self.group_hit: dict[str, int] = {}
         self.unknown: dict[str, float] = {}
         self.no_product = 0
+        self.back = 0.0            # units taken back by a return this month
         self.dates: list = []
 
     def month(self):
@@ -98,7 +99,8 @@ class Orders:
 
 def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
          products: dict, shipped: set | None = None, booked: set | None = None,
-         agree: float = 80.0, say=print) -> Orders | None:
+         positive: tuple = POSITIVE, negative: tuple = NEGATIVE,
+         signed: bool = True, agree: float = 80.0, say=print) -> Orders | None:
     """Read the order export and total it onto the profit file's key.
 
     `cust_levels` and `prod_levels` are the level lists in the order the key is
@@ -145,7 +147,13 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
             if d:
                 out.dates.append(d)
         status = cell(r, col['status']) or '(blank)'
-        if booked is not None:
+        if signed:
+            # The status list read in full: a status books money, takes money
+            # back, or has not happened yet. Returns are subtracted rather than
+            # dropped, because the profit file counts quantity net of them.
+            verdict = {'+': 'shipped', '-': 'refund',
+                       'carry': 'not shipped'}[booking(status, positive, negative)]
+        elif booked is not None:
             # The booking rule: one set of statuses books the money, everything
             # still in flight is carried to a later month, and an order that was
             # called off or came back is carried nowhere.
@@ -161,6 +169,12 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
             # shipment on this side would invent a gap.
             out.skipped += 1
             continue
+        # A refund is booked in the month that refunded it, with the sign that
+        # makes it a refund, rather than dropped as the shipped reading does.
+        sign = -1 if verdict == 'refund' else 1
+        if verdict == 'refund':
+            out.back += parse_number(cell(r, col['qty'])) or 0.0
+            verdict = 'shipped'
         if verdict == 'unknown':
             # Only the shipped reading leaves a status unread; the booking rule
             # has somewhere for every one of them.
@@ -168,8 +182,8 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
             out.unknown[status] = out.unknown.get(status, 0.0) + 1
             continue
 
-        qty = parse_number(cell(r, col['qty'])) or 0.0
-        amt = parse_number(cell(r, col['amt'])) or 0.0
+        qty = sign * (parse_number(cell(r, col['qty'])) or 0.0)
+        amt = sign * (parse_number(cell(r, col['amt'])) or 0.0)
 
         # The customer half. Every online order is on the online channel by
         # definition - that much needs no join - and the levels under it come
@@ -212,7 +226,10 @@ def report(o: Orders, say=print) -> None:
     sq, sa, oq, oa = o.totals()
     lo, hi = o.span()
     say(f'\n{o.path.name}: {o.lines:,} line(s) - {o.kept:,} booked ({sq:,.0f} '
-        f'units, {sa:,.0f}), {o.open:,} carried ({oq:,.0f} units, {oa:,.0f})')
+        f'units net, {sa:,.0f}), {o.open:,} carried ({oq:,.0f} units, {oa:,.0f})')
+    if o.back:
+        say(f'  {o.back:,.0f} unit(s) of that are returns, subtracted rather '
+            'than dropped - the profit file is already net of them')
     if lo:
         say(f'  order dates {lo} .. {hi}'
             + ('' if o.month() else '   <- more than one month in this file'))

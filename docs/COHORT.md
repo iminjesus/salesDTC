@@ -59,6 +59,32 @@ units in flight. A file re-exported months later has almost nothing left open -
 and then it cannot say when anything moved, only that it eventually did. The run
 prints the percentage so the file can be judged rather than assumed.
 
+## How a status is read
+
+A status does one of three things, and which list it is in is the whole model:
+
+| | |
+|---|---|
+| **books this month** `+` | `COMPLETED`, `PICKUP_COMPLETE` |
+| **takes money back this month** `-` | `RETURN_COMPLETED`, `RETURN_REFUNDED`, `PARTIAL_RETURN_COMPLETED`, `PARTIAL_RETURN_REFUNDED` |
+| **waits for a later month** | everything else - `SHIPPED`, `SHIPPING_REQUESTED`, `READY_FOR_PICKUP`, `RETURN_SHIPPING_PREPARATION`, `CANCELLED`, the `WAITING_*` family |
+
+Returns are **subtracted, not dropped**. The profit file counts quantity net of
+returns, so a return completed in September is already taken out there; dropping
+it on the order side would leave the two counting different things.
+
+Matching is on the **whole status**, never a word inside it: `RETURN_REFUNDED`
+is money back and `RETURN_SHIPPING_PREPARATION` is a return that has not landed
+yet, and nothing but the exact name separates them.
+
+`--positive` and `--negative` move a status between the lists. A status in
+neither waits, so a new one that appears in a later export is carried forward
+rather than silently booked.
+
+The run prints **the status list read two ways** - the signed reading beside the
+COMPLETED-only one it replaced - so the difference between them is a number
+rather than an argument.
+
 ## The readings it scores
 
 | Rule | What it would mean |

@@ -181,15 +181,20 @@ never exported, and the two order files share not one order number - so the
 month is **modelled** from the order statuses instead:
 
 ```
-booked       units this month's own orders completed     its own demand, earned
-carried in   units last month left unfinished            earned here, ordered there
-carried out  units this month leaves unfinished          a later month's revenue
+booked       what this month's own orders settled, net   its own demand, earned
+carried in   what last month left unsettled              earned here, ordered there
+carried out  what this month leaves unsettled            a later month's revenue
 
 the month's revenue    = booked + carried in
 the month's own demand = booked + carried out
 ```
 
-A cancelled or returned order is carried nowhere and is in none of the three.
+**booked** is signed: `COMPLETED` and `PICKUP_COMPLETE` add, the four finished
+return statuses subtract. Returns are subtracted rather than dropped because the
+profit file counts quantity net of them - dropping them would leave the two
+sides counting different things. Everything else waits for a later month,
+cancellations included. `--positive`, `--negative` and `--booked` change that
+reading; `docs/COHORT.md` is where it gets scored.
 
 **That reading was tested, not assumed.** `tools/cohort.py` scores it against
 every rival on the month it claims to explain, product by product. On the real

@@ -127,12 +127,19 @@ def main() -> int:
                          'named, even when their dates say they are other '
                          'months. Off by default, because modelling a month '
                          'with the wrong orders is worse than not modelling it')
-    ap.add_argument('--booked', default='COMPLETED', metavar='LIST',
-                    help='the order status(es) that book the money (default '
-                         'COMPLETED). Everything else still in flight is carried '
-                         'to a later month; cancelled and returned are carried '
-                         'nowhere. py tools\\cohort.py tests this against the '
-                         'month it claims to explain')
+    ap.add_argument('--positive', default=','.join(ORD.POSITIVE), metavar='LIST',
+                    help='order status(es) that book money this month '
+                         f'(default {", ".join(ORD.POSITIVE)})')
+    ap.add_argument('--negative', default=','.join(ORD.NEGATIVE), metavar='LIST',
+                    help='status(es) that take money back this month. The '
+                         'profit file counts quantity net of returns, so these '
+                         'are subtracted rather than dropped (default '
+                         f'{", ".join(ORD.NEGATIVE)})')
+    ap.add_argument('--booked', default=None, metavar='LIST',
+                    help='read the statuses the old way instead: these book, '
+                         'cancelled and returned are dropped, the rest carry. '
+                         'py tools\\cohort.py scores the two against the month '
+                         'they claim to explain')
     ap.add_argument('--skip-sku', metavar='PREFIX', default='',
                     help='product-code prefixes to leave out of the order side, '
                          'e.g. SMC-AU- for service plans that are ordered but '
@@ -380,12 +387,17 @@ def main() -> int:
             print('  order-looking files in the folder: ' + ', '.join(here))
     if op is not None:
         print('\nreading orders:')
-        booked = {t.strip().upper() for t in args.booked.split(',') if t.strip()}
         drop = tuple(t.strip().upper() for t in args.skip_sku.split(',')
                      if t.strip())
         load = dict(cust_levels=CUST.LEVELS, prod_levels=PRODUCT_LEVELS,
-                    customer_master=cp, products=prod, booked=booked,
-                    agree=args.agree)
+                    customer_master=cp, products=prod, agree=args.agree,
+                    signed=args.booked is None,
+                    positive=tuple(t.strip().upper()
+                                   for t in args.positive.split(',') if t.strip()),
+                    negative=tuple(t.strip().upper()
+                                   for t in args.negative.split(',') if t.strip()),
+                    booked=({t.strip().upper() for t in args.booked.split(',')
+                             if t.strip()} if args.booked else None))
         this = ORD.load(op, **load)
         before = ORD.load(bp, **load) if bp is not None else None
         if bp is None:

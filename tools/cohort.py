@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import sys
 from pathlib import Path
 
@@ -49,6 +50,34 @@ O_DATE = O_NAMES['date']
 O_SHIP = ('Shipping Date', 'Ship Date', 'Shipped Date', 'Delivery Date',
           'Delivered Date', 'Dispatch Date', 'Completion Date', 'Completed Date',
           'Invoice Date', 'Billing Date', 'Actual Delivery Date')
+
+
+# The booking rule as the store's own status list reads it. A status either
+# books money this month, takes money back this month, or has not happened yet
+# and belongs to a later one.
+#
+# The returns are negative rather than excluded because the profit file counts
+# quantity **net of returns**: a return completed in September is already
+# subtracted there, so the order side has to subtract it too or the two are
+# counting different things.
+POSITIVE = ('COMPLETED', 'PICKUP_COMPLETE')
+NEGATIVE = ('RETURN_COMPLETED', 'RETURN_REFUNDED',
+            'PARTIAL_RETURN_COMPLETED', 'PARTIAL_RETURN_REFUNDED')
+
+
+def booking(status, positive=POSITIVE, negative=NEGATIVE) -> str:
+    """'+' books, '-' takes back, 'carry' has not happened yet.
+
+    Matched on the whole status, not on a word inside it: RETURN_REFUNDED is
+    money back and RETURN_SHIPPING_PREPARATION is a return that has not landed,
+    and nothing but the exact name separates them.
+    """
+    t = re.sub(r'[^A-Z0-9]+', '_', str(status or '').upper()).strip('_')
+    if t in positive:
+        return '+'
+    if t in negative:
+        return '-'
+    return 'carry'
 
 
 def is_dead(status: str) -> bool:
@@ -164,8 +193,15 @@ def main() -> int:
     ap.add_argument('--profit', default=None,
                     help='default: the highest-numbered profit_* file')
     ap.add_argument('--completed', default='COMPLETED', metavar='LIST',
-                    help='the status(es) that mean the money was booked '
-                         '(default COMPLETED, comma-separated)')
+                    help='the status(es) that mean the money was booked, for '
+                         'the COMPLETED-only readings (default COMPLETED)')
+    ap.add_argument('--positive', default=','.join(POSITIVE), metavar='LIST',
+                    help='statuses that book money this month '
+                         f'(default {", ".join(POSITIVE)})')
+    ap.add_argument('--negative', default=','.join(NEGATIVE), metavar='LIST',
+                    help='statuses that take money back this month. The profit '
+                         'file counts quantity net of returns, so these are '
+                         f'subtracted, not dropped (default {", ".join(NEGATIVE)})')
     ap.add_argument('--online', default=CUST.ONLINE, metavar='NAME',
                     help=f'the channel the profit side is kept to '
                          f'(default {CUST.ONLINE}); "" keeps every channel')
@@ -387,6 +423,35 @@ def main() -> int:
             out[sku] = out.get(sku, 0.0) + qty
         return out
 
+    # The signed reading: a status either books, takes back, or waits. Returns
+    # come out negative because the profit file is already net of them.
+    pos = tuple(t.strip().upper() for t in args.positive.split(',') if t.strip())
+    neg = tuple(t.strip().upper() for t in args.negative.split(',') if t.strip())
+
+    def signed(side, want, drop_cancelled=False):
+        """want '+-' for the month's own booking, 'carry' for what it hands on."""
+        out: dict[str, float] = {}
+        for ident, sku, st, qty, amt, d in side.lines:
+            if skipped(sku):
+                continue
+            verdict = booking(st, pos, neg)
+            if want == 'carry':
+                if verdict != 'carry':
+                    continue
+                if drop_cancelled and 'CANCEL' in st.upper():
+                    continue
+                out[sku] = out.get(sku, 0.0) + qty
+            else:
+                if verdict == 'carry':
+                    continue
+                out[sku] = out.get(sku, 0.0) + (qty if verdict == '+' else -qty)
+        return out
+
+    aug_signed = signed(after, '+-')
+    aug_carry = signed(after, 'carry')
+    jul_carry = signed(before, 'carry')
+    jul_carry_live = signed(before, 'carry', drop_cancelled=True)
+
     aug_done = bucket(after, True)
     aug_rest = bucket(after, False)
     jul_done = bucket(before, True)
@@ -435,6 +500,14 @@ def main() -> int:
           ((sku, sum(qty for i2, s2, st2, qty, a2, d2 in after.lines
                      if s2 == sku and classify(st2) == 'shipped'))
            for sku in {s2 for _, s2, _, _, _, _ in after.lines})}),
+        (f'{now} signed + everything {was} had not finished',
+         'the status list read in full: completed and picked up add, returns '
+         'subtract, everything else waits for a later month',
+         merge(aug_signed, jul_carry)),
+        (f'{now} signed + {was} unfinished, cancelled dropped',
+         'the same, except a cancelled order is carried nowhere rather than '
+         'into the next month',
+         merge(aug_signed, jul_carry_live)),
     ]
 
     print('\nhow well each reading reproduces the month')
@@ -509,10 +582,37 @@ def main() -> int:
               'not merchandise -\n  a service plan, a subscription, a bundle '
               'header. --skip-sku PREFIX leaves them out.')
 
+    # ── how the two readings of the status list differ ─────────────────────
+    # Gross, off the lines: the per-product buckets are already netted, so a
+    # product with a sale and a return against it would hide both.
+    def gross(side, sign):
+        return sum(qty for _, sku, st, qty, _, _ in side.lines
+                   if not skipped(sku) and booking(st, pos, neg) == sign)
+
+    print('\nthe status list, read two ways')
+    print(f'  {"":<34} {now:>12} {was:>12}')
+    for what, a, b in (
+            ('books this month (+)', gross(after, '+'), gross(before, '+')),
+            ('takes back this month (-)', gross(after, '-'), gross(before, '-')),
+            ('waits for a later month', sum(aug_carry.values()),
+             sum(jul_carry.values())),
+            ('  of which cancelled',
+             sum(aug_carry.values()) - sum(signed(after, 'carry', True).values()),
+             sum(jul_carry.values()) - sum(jul_carry_live.values())),
+            ('COMPLETED only, for comparison', sum(aug_done.values()),
+             sum(jul_done.values())),
+            ('not COMPLETED, returns dropped', sum(aug_rest.values()),
+             sum(jul_open.values()))):
+        print(f'  {what:<34} {a:>12,.0f} '
+              + (f'{b:>12,.0f}' if b is not None else f'{"":>12}'))
+
     # ── the month's timing, which is what all of this was for ──────────────
-    carry_in = sum(jul_open.values())
-    carry_out = sum(aug_rest.values())
-    own = sum(aug_done.values())
+    best_signed = best[1].endswith('had not finished') or 'cancelled dropped' in best[1]
+    carry_in = sum((jul_carry if best[1].endswith('had not finished')
+                    else jul_carry_live if 'cancelled dropped' in best[1]
+                    else jul_open).values())
+    carry_out = sum((aug_carry if best_signed else aug_rest).values())
+    own = sum((aug_signed if best_signed else aug_done).values())
     print(f'\nthe month in and out, on the winning reading')
     print(f'  {after.name} completed in its own month   {own:>10,.0f} units '
           f'{own / actual * 100:>5.0f}% of what was sold')
