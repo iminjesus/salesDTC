@@ -35,9 +35,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                         # noqa: E402
-from rawdata import (find, key_norm, master, month_name,        # noqa: E402
-                     month_of, norm_stem, parse_number, pick_file,
-                     pick_series, read_any)
+from rawdata import (find, key_norm, master, month_before,      # noqa: E402
+                     month_name, month_of, norm_stem, parse_number,
+                     pick_file, pick_series, read_any)
 from reconcile import P_CUST, P_QTY, P_SKU                      # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -388,26 +388,45 @@ def settle(folder, args, done):
     def skipped(code):
         return bool(drop) and str(code).upper().startswith(drop)
 
+    # Two buckets per month, kept apart. An export taken at the end of its own
+    # month records next month's despatches as scheduled, because they have not
+    # happened yet - so a month's revenue is what left in it plus what was due
+    # to leave in it, and only the first of those is a measurement.
     by_month: dict[str, dict] = {}
-    due_month: dict[str, float] = collections.Counter()
+    due_by_month: dict[str, dict] = {}
     for got in done:
         for order, sku, qty, doc, gid, m, state, status in got['rows']:
-            if not m or skipped(sku):
+            if not m or skipped(sku) or state not in ('left', 'due'):
                 continue
-            if state == 'left':
-                by_month.setdefault(m, {})
-                k = key_norm(sku)
-                by_month[m][k] = by_month[m].get(k, 0.0) + qty
-            elif state == 'due':
-                due_month[m] += qty
+            into = by_month if state == 'left' else due_by_month
+            into.setdefault(m, {})
+            k = key_norm(sku)
+            into[m][k] = into[m].get(k, 0.0) + qty
+    due_month = {m: sum(v.values()) for m, v in due_by_month.items()}
 
     print('\n' + '=' * 72)
     print('revenue by the month the goods actually left, pooled over '
           + ', '.join(g['sap'] for g in done))
-    print(f'  {"":<10} {"left":>12} {"still only due":>16}')
+    print(f'  {"":<10} {"left":>12} {"still only due":>16} {"both":>12}')
     for m in sorted(set(by_month) | set(due_month)):
-        print(f'  {m:<10} {sum(by_month.get(m, {}).values()):>12,.0f} '
-              f'{due_month.get(m, 0):>16,.0f}')
+        a = sum(by_month.get(m, {}).values())
+        b = due_month.get(m, 0)
+        print(f'  {m:<10} {a:>12,.0f} {b:>16,.0f} {a + b:>12,.0f}')
+
+    # A month is only accounted for when the exports cover the orders that could
+    # ship into it: its own, and the month before's. Nothing here reaches back
+    # further, so a month whose predecessor is missing will come up short by
+    # whatever that month was still shipping.
+    have = {g['ym'] for g in done if g['ym']}
+    covered = {ym for ym in have if month_before(ym) in have}
+    if have:
+        print('\n  order exports read: '
+              + ', '.join(str(y) for y in sorted(have)))
+        print('  months whose carry-in is also covered: '
+              + (', '.join(str(y) for y in sorted(covered)) if covered else 'none')
+              + '\n  - a month needs its own export and the one before it. '
+              'Without the earlier one\n  it is short by whatever that month '
+              'was still shipping into it.')
 
     # A month is complete only if an export exists that was taken after it ended.
     asofs = [g['asof'] for g in done if g['asof']]
@@ -416,15 +435,19 @@ def settle(folder, args, done):
           'that\n  cannot have all of its despatches in hand yet.')
 
     # ── against the profit file ────────────────────────────────────────────
-    cust = {}
-    cp = pick_file(folder, 'customer') or None
+    cust, cp = {}, None
     for cand in pick_series(folder, 'customer'):
-        cust = master(cand, ('Sold-To', 'sold To', 'sold_to'),
-                      {'account': CUST.ACCOUNT_NAMES}, say=lambda *a: None)
-        cp = cand
-        break
-    if cust:
-        print(f'  customer master: {cp.name}, {len(cust):,} accounts')
+        try:
+            cust = master(cand, ('Sold-To', 'sold To', 'sold_to'),
+                          {'account': CUST.ACCOUNT_NAMES}, say=lambda *a: None)
+        except (ValueError, OSError) as e:
+            print(f'  {cand.name}: {e} - trying the next customer export')
+            continue
+        if cust:
+            cp = cand
+            break
+    print(f'  customer master: {cp.name}, {len(cust):,} accounts' if cp else
+          '  no customer master could be read, so the channel is not filtered')
 
     wanted = ([pick_file(folder, args.profit)] if args.profit
               else pick_series(folder, 'profit'))
@@ -455,23 +478,37 @@ def settle(folder, args, done):
                 continue
             sold[code] = sold.get(code, 0.0) + q
         actual = sum(sold.values())
-        pred = by_month.get(m, {})
-        total = sum(pred.values())
-        err = sum(abs(pred.get(k, 0.0) - sold.get(k, 0.0))
-                  for k in set(pred) | set(sold))
+        if not actual:
+            continue
+        both = {}
+        for src in (by_month.get(m, {}), due_by_month.get(m, {})):
+            for k, v in src.items():
+                both[k] = both.get(k, 0.0) + v
+
+        def score(pred):
+            return (sum(pred.values()),
+                    sum(abs(pred.get(k, 0.0) - sold.get(k, 0.0))
+                        for k in set(pred) | set(sold)))
+
+        gone_u, gone_e = score(by_month.get(m, {}))
+        both_u, both_e = score(both)
         print(f'\n{pp.name} - {m}, {args.online or "every channel"}: '
               f'{actual:,.0f} units over {len(sold):,} product(s)')
-        print(f'  goods issue in {m}: {total:,.0f} units over {len(pred):,} '
-              f'product(s)')
-        if actual:
-            print(f'  {total / actual * 100:.1f}% of the month, '
-                  f'{err / actual * 100:.1f}% per-product error')
-            if due_month.get(m):
-                print(f'  ({due_month[m]:,.0f} more are scheduled for {m} and '
-                      'have not gone - they are not counted above)')
-            print('  No status was read and no carry-over was inferred: a unit '
-                  'is in the month\n  its goods issue fell in. Compare these '
-                  'two numbers with docs/COHORT.md\'s.')
+        print(f'  {"goods issue in " + m:<34} {"units":>10} {"vs sales":>9} '
+              f'{"per-product err":>16}')
+        print(f'  {"left - measured":<34} {gone_u:>10,.0f} '
+              f'{gone_u / actual * 100:>8.1f}% {gone_e / actual * 100:>15.1f}%')
+        if both_u != gone_u:
+            print(f'  {"left + due to leave":<34} {both_u:>10,.0f} '
+                  f'{both_u / actual * 100:>8.1f}% '
+                  f'{both_e / actual * 100:>15.1f}%')
+        print('  No status was read and no carry-over was inferred: a unit is in '
+              'the month its\n  goods issue fell in. Compare with '
+              "docs/COHORT.md's figures for the same month.")
+        if ym and month_before(ym) not in have:
+            print(f'  This month is short its carry-in: there is no '
+                  f'{month_before(ym)} order export, so\n  whatever that month '
+                  'was still shipping into this one is missing from both rows.')
     return 0
 
 

@@ -119,8 +119,13 @@ def read_xlsx(path: Path) -> tuple[list[list[str]], dict]:
             xml = z.read('xl/sharedStrings.xml').decode('utf-8', 'replace')
             shared = [unescape(''.join(INLINE.findall(si)))
                       for si in re.findall(r'<si>(.*?)</si>', xml, re.S)]
-        sheet = sorted(n for n in names if re.match(r'xl/worksheets/sheet\d+\.xml$', n))[0]
-        xml = z.read(sheet).decode('utf-8', 'replace')
+        sheets = sorted(n for n in names
+                        if re.match(r'xl/worksheets/sheet\d+\.xml$', n))
+        if not sheets:
+            raise ValueError('a zip, but no worksheet inside - not a workbook. '
+                             'If it is a csv saved under an .xlsx name, rename '
+                             'it; if it is a real workbook, re-save it')
+        xml = z.read(sheets[0]).decode('utf-8', 'replace')
 
     rows = []
     for row_xml in ROW.findall(xml):
