@@ -50,6 +50,16 @@ O_SHIP = ('Shipping Date', 'Ship Date', 'Shipped Date', 'Delivery Date',
           'Invoice Date', 'Billing Date', 'Actual Delivery Date')
 
 
+def is_dead(status: str) -> bool:
+    """A status that can never become a later month's revenue.
+
+    Cancelled, and every flavour of return. An order still in flight is carried
+    forward; one that was called off or came back is not carried anywhere.
+    """
+    t = str(status or '').upper()
+    return 'CANCEL' in t or 'RETURN' in t or 'NOT_AUTHORIZED' in t
+
+
 class Side:
     """One order export, read into lines and tallied."""
 
@@ -146,6 +156,14 @@ def main() -> int:
     ap.add_argument('--profile', action='store_true',
                     help='describe the two order files and stop')
     ap.add_argument('--out', default=str(ROOT / 'docs' / 'cohort_sku.csv'))
+    ap.add_argument('--keep-dead', action='store_true',
+                    help='count cancelled and returned orders as carry-over. '
+                         'They never become a later month, so by default they '
+                         'are left out of the open buckets')
+    ap.add_argument('--skip-sku', metavar='PREFIX', default='',
+                    help='comma-separated product-code prefixes to leave out '
+                         'of the comparison, e.g. SMC-AU- for service plans '
+                         'that are ordered but never appear in the profit file')
     ap.add_argument('--top', type=int, default=12)
     args = ap.parse_args()
 
@@ -239,6 +257,11 @@ def main() -> int:
     def cell(r, i):
         return (r[i].strip() if i is not None and i < len(r) else '')
 
+    drop = tuple(t.strip().upper() for t in args.skip_sku.split(',') if t.strip())
+
+    def skipped(code):
+        return bool(drop) and str(code).upper().startswith(drop)
+
     cust = {}
     cp = pick_latest(folder, 'customer')
     if cp and p_i['cust'] is not None and args.online:
@@ -256,6 +279,8 @@ def main() -> int:
                 off += qty
                 continue
         code = key_norm(cell(r, p_i['sku']))
+        if skipped(code):
+            continue
         sales[code] = sales.get(code, 0.0) + qty
         sales_amt += parse_number(cell(r, p_i['amt'])) or 0.0
     actual = sum(sales.values())
@@ -268,6 +293,12 @@ def main() -> int:
         out: dict[str, float] = {}
         for ident, sku, st, qty, amt, d in side.lines:
             if (st in done) != want_done:
+                continue
+            if skipped(sku):
+                continue
+            # An open order is carried forward; a cancelled or returned one is
+            # not carried anywhere, so it is no part of a later month.
+            if not want_done and not args.keep_dead and is_dead(st):
                 continue
             out[sku] = out.get(sku, 0.0) + qty
         return out
@@ -363,6 +394,50 @@ def main() -> int:
                  'explain the month as well or better on their own, so either '
                  'there is little carry-over or the status is not what decides '
                  'it'))
+
+    # ── where the miss actually lives ──────────────────────────────────────
+    # A product the orders have and the profit file does not is a different
+    # thing from a product both have and disagree about. Lumped together they
+    # read as one error; apart, one of them is usually not merchandise at all.
+    groups = {'in both': [0.0, 0], 'ordered, never sold': [0.0, 0],
+              'sold, never ordered': [0.0, 0]}
+    for k in set(pred) | set(sales):
+        miss = abs(pred.get(k, 0.0) - sales.get(k, 0.0))
+        where = ('in both' if k in pred and k in sales
+                 else 'ordered, never sold' if k in pred
+                 else 'sold, never ordered')
+        groups[where][0] += miss
+        groups[where][1] += 1
+    print('\nwhere that miss sits')
+    for g, (miss, n) in groups.items():
+        print(f'  {g:<22} {n:>6,} product(s) {miss:>10,.0f} unit(s) '
+              f'{miss / actual * 100 if actual else 0:>6.0f}% of the month')
+    if groups['ordered, never sold'][0] > actual * 0.02:
+        print('  a product that is ordered every month and never sold is usually '
+              'not merchandise -\n  a service plan, a subscription, a bundle '
+              'header. --skip-sku PREFIX leaves them out.')
+
+    # ── the month's timing, which is what all of this was for ──────────────
+    carry_in = sum(jul_open.values())
+    carry_out = sum(aug_rest.values())
+    own = sum(aug_done.values())
+    print(f'\nthe month in and out, on the winning reading')
+    print(f'  {after.name} completed in its own month   {own:>10,.0f} units '
+          f'{own / actual * 100:>5.0f}% of what was sold')
+    print(f'  carried in from {before.name:<22} {carry_in:>10,.0f} units '
+          f'{carry_in / actual * 100:>5.0f}%')
+    print(f'  carried out, still open at month end   {carry_out:>10,.0f} units '
+          f'{carry_out / actual * 100:>5.0f}%')
+    net = carry_in - carry_out
+    print(f'  net                                    {net:>+10,.0f} units '
+          f'{net / actual * 100:>+5.0f}%')
+    if abs(net) > actual * 0.05:
+        print('  the month took in more than it handed on, so its revenue is '
+              'flattered by that\n  difference - a backlog cleared, not demand '
+              'earned in the month' if net > 0 else
+              '  the month handed on more than it took in, so its revenue is '
+              'understated by that\n  difference - demand it earned and has '
+              'not yet booked')
 
     # ── the detail, per product ────────────────────────────────────────────
     out = Path(args.out)

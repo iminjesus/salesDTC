@@ -66,6 +66,28 @@ Two numbers score each one:
 `--completed` renames the status(es) that mean the money was booked; the default
 is `COMPLETED` alone. `--before` and `--after` name the two exports.
 
+A **cancelled or returned** order is left out of the open buckets: it was called
+off or came back, so it is no part of a later month. `--keep-dead` counts them
+anyway, which is worth one run to see how much they were worth.
+
+## Where the miss sits
+
+The per-product error is split three ways, because they are three different
+problems:
+
+| | |
+|---|---|
+| **in both** | the orders and the profit file disagree about a product both have - the real fit |
+| **ordered, never sold** | a product ordered every month that never reaches the profit file. Usually not merchandise at all: a service plan, a subscription, a bundle header. `--skip-sku PREFIX` leaves them out |
+| **sold, never ordered** | sold with no online order behind it - an offline row that slipped the channel filter, or a code the two files spell differently |
+
+## The month in and out
+
+The last block is what the test was for: how much of the month was its own, how
+much came in from the month before, and how much it hands on. When a month takes
+in more than it hands on, its revenue is **flattered by the difference** - a
+backlog cleared, not demand earned in the month - and the run says so.
+
 ## What comes out
 
 A ranked table, a verdict on the hypothesis in one sentence, the worst-fitting
