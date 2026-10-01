@@ -34,8 +34,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rawdata import (find, month_before, month_name, month_of,   # noqa: E402
-                     parse_number, pick_file, pick_latest, read_any)
+from rawdata import (find, month_name, month_of, parse_number,  # noqa: E402
+                     pick_file, pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -111,31 +111,46 @@ def main() -> int:
     if not folder.is_dir():
         print(f'no such folder: {folder.resolve()}', file=sys.stderr)
         return 2
-    sp = pick_file(folder, args.sap) if args.sap else pick_latest(folder, 'orders')
-    if sp is None:
+    want = ([pick_file(folder, args.sap)] if args.sap
+            else pick_series(folder, 'orders'))
+    want = [p for p in want if p]
+    if not want:
         print(f'no SAP order export in {folder.resolve()} - looked for '
               f'{args.sap or "orders_*"}', file=sys.stderr)
         return 2
 
+    # The same export is often in the folder twice, as a csv and as a workbook,
+    # and a spreadsheet round-trip renames headers. So the candidates are tried
+    # in turn and the first one that actually carries the columns is used,
+    # rather than the newest name winning and the run failing on it.
     print('reading:')
-    s_rows, s_info = read_any(sp)
-    s_head = [h.strip() for h in s_rows[0]]
-    s_body = s_rows[1:]
-    print(f'  {sp.name}: {s_info["format"]}, {len(s_body):,} rows, '
-          f'{len(s_head)} columns')
-    S = {k: find(s_head, *v) for k, v in
-         {'ref': S_REF, 'doc': S_DOC, 'sku': S_SKU, 'qty': S_QTY, 'amt': S_AMT,
-          'gi': S_GI, 'del': S_DEL, 'made': S_MADE, 'who': S_WHO,
-          'status': S_STATUS}.items()}
+    sp = s_head = s_body = S = None
+    for cand in want:
+        rows, info = read_any(cand)
+        head = [h.strip() for h in rows[0]]
+        got = {k: find(head, *v) for k, v in
+               {'ref': S_REF, 'doc': S_DOC, 'sku': S_SKU, 'qty': S_QTY,
+                'amt': S_AMT, 'gi': S_GI, 'del': S_DEL, 'made': S_MADE,
+                'who': S_WHO, 'status': S_STATUS}.items()}
+        missing = [k for k in ('ref', 'gi', 'made') if got[k] is None]
+        print(f'  {cand.name}: {info["format"]}, {len(rows) - 1:,} rows, '
+              f'{len(head)} columns'
+              + ('' if not missing else
+                 f'   - no {", ".join(missing)}, so another candidate is tried'))
+        if missing:
+            continue
+        sp, s_head, s_body, S = cand, head, rows[1:], got
+        break
+    if sp is None:
+        print('\nNone of those exports carries both a customer reference and a '
+              'goods issue date.\nWithout the reference there is nothing to join '
+              'on; without the date there is\nnothing worth joining for. Name '
+              'one with --sap.', file=sys.stderr)
+        return 1
     for what in ('ref', 'doc', 'sku', 'qty', 'gi', 'made'):
         i = S[what]
         print(f'    {what:<6} ' + (repr(s_head[i]) if i is not None
                                    else '-- not found --'))
-    if S['ref'] is None or S['gi'] is None:
-        print('\nWithout the customer reference there is nothing to join on, and '
-              'without the\ngoods issue date there is nothing worth joining for.',
-              file=sys.stderr)
-        return 1
 
     # The month: from Created On, which is the only date in this export that
     # means "when did SAP record this" - Document Date is copied from whatever

@@ -29,7 +29,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rawdata import find, norm_stem, parse_number, read_any     # noqa: E402
+from rawdata import (find, norm_stem, parse_number,             # noqa: E402
+                     pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -127,9 +128,19 @@ def main() -> int:
         want = [p for p in folder.iterdir()
                 if p.is_file() and norm_stem(p.stem) == norm_stem(args.file)]
     else:
-        want = sorted(p for p in folder.iterdir()
-                      if p.is_file() and p.suffix.lower() != '.db'
-                      and norm_stem(p.stem).startswith(norm_stem(args.prefix)))
+        # One export per month. The same one often sits in the folder twice, as
+        # a csv and as a workbook, and a spreadsheet round-trip renames headers
+        # - so the csv wins and the duplicate is named rather than read.
+        want, seen = [], {}
+        for cand in pick_series(folder, args.prefix):   # best format first
+            key = norm_stem(cand.stem)
+            if key in seen:
+                print(f'  {cand.name}: the same export as {seen[key].name}, '
+                      'skipped')
+                continue
+            seen[key] = cand
+            want.append(cand)
+        want.reverse()                                  # oldest month first
     if not want:
         print(f'no export named like {args.file or args.prefix + "_*"!r} in '
               f'{folder.resolve()}', file=sys.stderr)

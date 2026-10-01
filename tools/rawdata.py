@@ -367,9 +367,31 @@ def pick_latest(folder: Path, prefix: str):
             and p.suffix.lower() != '.db']
     if not hits:
         return None
+    return pick_series(folder, prefix)[0]
+
+
+# Where the same export sits in the folder twice, the csv is the one to read.
+# A spreadsheet round-trip renames headers, merges cells and turns a number into
+# text, and nothing downstream can tell that apart from a column that moved.
+FORMAT_ORDER = ('.csv', '.tsv', '.txt', '.xlsx', '.xlsb', '.xls')
+
+
+def pick_series(folder: Path, prefix: str) -> list:
+    """Every export of a series, newest first, csv ahead of the spreadsheet.
+
+    A caller that needs particular columns can walk the list and take the first
+    file that actually has them, rather than failing on a duplicate that does
+    not.
+    """
+    hits = [p for p in folder.iterdir()
+            if p.is_file() and norm_stem(p.stem).startswith(norm_stem(prefix))
+            and p.suffix.lower() != '.db']
+
     def rank(p):
-        return ([int(n) for n in re.findall(r'\d+', p.stem)], p.name)
-    return max(hits, key=rank)
+        fmt = (FORMAT_ORDER.index(p.suffix.lower())
+               if p.suffix.lower() in FORMAT_ORDER else len(FORMAT_ORDER))
+        return ([-int(n) for n in re.findall(r'\d+', p.stem)], fmt, p.name)
+    return sorted(hits, key=rank)
 
 
 def parse_number(v) -> float | None:

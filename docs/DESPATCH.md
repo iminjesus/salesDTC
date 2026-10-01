@@ -41,6 +41,15 @@ To settle a month, re-export it after it has had the runway: same `Created On`
 filter, pulled two months later. The run prints each export's runway and marks
 the short ones.
 
+## One export per month
+
+The same export often sits in the folder twice, as a csv and as a workbook. A
+spreadsheet round-trip renames headers and turns a number into text, and nothing
+downstream can tell that apart from a column that moved - so **the csv wins**,
+the duplicate is named rather than read, and `tools/link.py` walks the
+candidates and takes the first that actually carries the columns it needs
+instead of failing on the newest name.
+
 ## What it is worth
 
 The status-based inference in `docs/COHORT.md` put September's carry-out at 27%
