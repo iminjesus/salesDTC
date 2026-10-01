@@ -30,7 +30,8 @@ import analyze_structure as A                                  # noqa: E402
 import customer as CUST                                        # noqa: E402
 import orders as ORD                                           # noqa: E402
 from rawdata import (MASTER_RAW as RAW, find, key_norm, master,  # noqa: E402
-                     parse_number, pick_file, pick_latest, read_any)
+                     month_before, month_name, month_of, parse_number,
+                     pick_file, pick_latest, read_any)
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -88,46 +89,6 @@ ORDER_SERIES = [
     ('xamt', 'Carried out'),
 ]
 N_ORDER = len(ORDER_SERIES)
-
-# The order exports are named by month. Knowing the profit file's month means
-# the right pair can be reached for without being told which they are.
-MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
-
-
-def month_of(head, body, name):
-    """The month an export covers, as YYYYMM.
-
-    From the export's own column where it has one, since that is the month the
-    rows are in; from the digits in the file name otherwise, which is what the
-    person who exported it meant.
-    """
-    i = find(head, 'YYYYMM', 'Year Month', 'Period', 'Fiscal Period')
-    if i is not None:
-        seen: dict[int, int] = {}
-        for r in body:
-            v = re.sub(r'\D', '', r[i] if i < len(r) else '')
-            if len(v) == 6:
-                n = int(v)
-                seen[n] = seen.get(n, 0) + 1
-        if seen:
-            best = max(seen, key=seen.get)
-            if len(seen) > 1:
-                print(f'  {len(seen)} different months in {head[i]!r}; '
-                      f'{best} holds {seen[best] / len(body) * 100:.0f}% of the '
-                      'rows and is taken as the month')
-            return best
-    digits = re.findall(r'\d{4}', name)
-    return 2000 * 100 + int(digits[0]) if digits else None
-
-
-def month_name(ym, series='26 DTC'):
-    """'26 DTC Sep' for 202609 - how these exports have been named."""
-    return f'{str(ym // 100)[-2:]} DTC {MONTHS[(ym % 100) - 1]}'
-
-
-def month_before(ym):
-    return ym - 1 if ym % 100 > 1 else (ym // 100 - 1) * 100 + 12
 
 
 def main() -> int:

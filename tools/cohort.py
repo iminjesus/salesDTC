@@ -32,7 +32,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
 from promo_match import NAMES as O_NAMES, to_date              # noqa: E402
-from rawdata import (find, key_norm, master, parse_number,     # noqa: E402
+from rawdata import (MONTHS, find, key_norm, master,           # noqa: E402
+                     month_before, month_name, month_of, parse_number,
                      pick_file, pick_latest, read_any)
 from reconcile import (O_AMT, O_QTY, O_SKU, O_STATUS, P_AMT,   # noqa: E402
                        P_CUST, P_QTY, P_SKU, classify)
@@ -71,6 +72,16 @@ class Side:
         self.dates: list = []
         self.has_order_no = False
         self.has_ship_date = None
+
+    def month(self):
+        """The month this export covers, as YYYYMM, or None if it spans more."""
+        if not self.dates:
+            return None
+        months = {d.year * 100 + d.month for d in self.dates}
+        return months.pop() if len(months) == 1 else None
+
+    def span(self):
+        return (min(self.dates), max(self.dates)) if self.dates else (None, None)
 
 
 def read_side(name, path, say=print) -> Side:
@@ -141,10 +152,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata')
-    ap.add_argument('--before', default='26 DTC Jul', metavar='NAME',
-                    help='the earlier order export (default: 26 DTC Jul)')
-    ap.add_argument('--after', default='26 DTC Aug', metavar='NAME',
-                    help='the month being explained (default: 26 DTC Aug)')
+    ap.add_argument('--before', default=None, metavar='NAME',
+                    help='the earlier order export. By default the one named '
+                         'for the month before the profit file covers')
+    ap.add_argument('--after', default=None, metavar='NAME',
+                    help='the month being explained. By default the one named '
+                         'for the month the profit file covers')
+    ap.add_argument('--any-month', action='store_true',
+                    help='test the orders that were named even when their dates '
+                         'say they are other months')
     ap.add_argument('--profit', default=None,
                     help='default: the highest-numbered profit_* file')
     ap.add_argument('--completed', default='COMPLETED', metavar='LIST',
@@ -176,27 +192,54 @@ def main() -> int:
     if not folder.is_dir():
         print(f'no such folder: {folder.resolve()}', file=sys.stderr)
         return 2
-    paths = {'before': pick_file(folder, args.before),
-             'after': pick_file(folder, args.after)}
-    for what, p in paths.items():
-        if p is None:
-            name = args.before if what == 'before' else args.after
-            print(f'no file named like {name!r} in {folder.resolve()}',
-                  file=sys.stderr)
-            print('  files there: '
-                  + ', '.join(sorted(q.name for q in folder.iterdir()
-                                     if q.is_file())[:20]), file=sys.stderr)
-            return 2
+    # Which month is being explained decides which two order exports explain
+    # it. Reading them off the profit file beats remembering to name them, and
+    # beats comparing August's orders with September's sales by default.
     pp = (pick_file(folder, args.profit) if args.profit
           else pick_latest(folder, 'profit'))
     if pp is None:
         print(f'no profit export in {folder.resolve()}', file=sys.stderr)
         return 2
+    p_rows, p_info = read_any(pp)
+    p_head = [h.strip() for h in p_rows[0]]
+    p_body = p_rows[1:]
+    ym = month_of(p_head, p_body, pp.stem, say=lambda *a: None)
+    want = {'after': args.after or (month_name(ym) if ym else None),
+            'before': args.before or (month_name(month_before(ym)) if ym else None)}
+    if ym:
+        print(f'{pp.name} covers {ym}, so the orders that explain it are '
+              f'{want["before"]} and {want["after"]}')
+    paths = {}
+    for what, name in want.items():
+        hit = pick_file(folder, name) if name else None
+        if hit is None:
+            print(f'no file named like {name!r} in {folder.resolve()}',
+                  file=sys.stderr)
+            print('  order-looking files there: '
+                  + ', '.join(sorted(q.name for q in folder.iterdir()
+                                     if q.is_file() and 'dtc' in q.stem.lower())),
+                  file=sys.stderr)
+            return 2
+        paths[what] = hit
 
     done = {t.strip().upper() for t in args.completed.split(',') if t.strip()}
     print('reading:')
-    before = read_side(args.before, paths['before'])
-    after = read_side(args.after, paths['after'])
+    before = read_side(want['before'], paths['before'])
+    after = read_side(want['after'], paths['after'])
+    # An order export holding another month explains nothing about this one,
+    # and every number below it would be arithmetic on the wrong rows.
+    if ym and not args.any_month:
+        for who, side, expect in (('after', after, ym),
+                                  ('before', before, month_before(ym))):
+            got = side.month()
+            if got is None or got == expect:
+                continue
+            lo, hi = side.span()
+            print(f'\n{side.path.name} is not the {expect} export: its orders '
+                  f'run {lo} .. {hi}.\n{pp.name} covers {ym}, so --{who} wants '
+                  f'the {expect} export. --any-month tests it anyway.',
+                  file=sys.stderr)
+            return 2
     describe(before, done)
     describe(after, done)
 
@@ -286,9 +329,7 @@ def main() -> int:
         return 0
 
     # ── what the month actually sold ───────────────────────────────────────
-    rows, info = read_any(pp)
-    head = [h.strip() for h in rows[0]]
-    body = rows[1:]
+    head, body, info = p_head, p_body, p_info
     print(f'\n{pp.name}: {info["format"]}, {len(body):,} rows')
     p_i = {k: find(head, *v) for k, v in
            {'sku': P_SKU, 'cust': P_CUST, 'qty': P_QTY, 'amt': P_AMT}.items()}
@@ -363,25 +404,32 @@ def main() -> int:
                 out[k] = out.get(k, 0.0) + v
         return out
 
+    # The rules are named after the months they are actually about, so a run
+    # explaining September does not print a table that says August.
+    def label(side):
+        ym = side.month()
+        return MONTHS[(ym % 100) - 1] if ym else side.name
+
+    now, was = label(after), label(before)
     rules = [
-        ('Aug COMPLETED only',
+        (f'{now} COMPLETED only',
          'the month is its own completed orders and nothing else',
          aug_done),
-        ('Aug COMPLETED + Jul not-completed',
-         "your hypothesis, read loosely: every July order still open at the "
-         "end of July landed in August",
+        (f'{now} COMPLETED + {was} not-completed',
+         f'your hypothesis, read loosely: every {was} order still open at the '
+         f'end of {was} landed in {now}',
          merge(aug_done, jul_open)),
-        ('Aug COMPLETED + Jul open that later completed',
+        (f'{now} COMPLETED + {was} open that later completed',
          'your hypothesis, read strictly - needs the two files to share lines',
          merge(aug_done, jul_then) if jul_then else None),
-        ('Aug COMPLETED + Jul COMPLETED',
-         'both months booked in August, which would mean July was not booked '
-         'in July',
+        (f'{now} COMPLETED + {was} COMPLETED',
+         f'both months booked in {now}, which would mean {was} was not booked '
+         f'in {was}',
          merge(aug_done, jul_done)),
-        ('every Aug order, whatever the status',
+        (f'every {now} order, whatever the status',
          'the month is everything ordered in it',
          merge(aug_done, aug_rest)),
-        ('Aug shipped-ish (the reconcile reading)',
+        (f'{now} shipped-ish (the reconcile reading)',
          'COMPLETED, DELIVERED, SHIPPED and the rest of the shipped list',
          {sku: q for sku, q in
           ((sku, sum(qty for i2, s2, st2, qty, a2, d2 in after.lines
@@ -425,15 +473,16 @@ def main() -> int:
               + (' - too close to call between them'
                  if second[0] - rel < 0.03 else ''))
 
-    hyp = [s for s in scored if s[1].startswith('Aug COMPLETED + Jul')]
-    plain = [s for s in scored if s[1] == 'Aug COMPLETED only']
+    hyp = [s for s in scored if s[1].startswith(f'{now} COMPLETED + {was}')
+           and 'COMPLETED + ' + was + ' COMPLETED' not in s[1]]
+    plain = [s for s in scored if s[1] == f'{now} COMPLETED only']
     if hyp and plain:
         better = min(h[0] for h in hyp) < plain[0][0]
-        print('\nthe hypothesis: adding July\'s unfinished orders '
+        print(f'\nthe hypothesis: adding {was}\'s unfinished orders '
               + ('does make the month fit better, so the carry-over is real and '
                  'this is the reading to build on'
                  if better else
-                 'does not improve the fit - August\'s own completed orders '
+                 f'does not improve the fit - {now}\'s own completed orders '
                  'explain the month as well or better on their own, so either '
                  'there is little carry-over or the status is not what decides '
                  'it'))

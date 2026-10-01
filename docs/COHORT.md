@@ -5,6 +5,14 @@ py tools\cohort.py                 # the whole test
 py tools\cohort.py --profile       # describe the two order files and stop
 ```
 
+**The months are found, not named.** The profit file says which month it covers,
+and the order exports named for that month and the one before it are the ones
+read - `26 DTC Aug` and `26 DTC Sep` for `profit_2609`. An export whose order
+dates say it is another month stops the run rather than being tested anyway;
+`--before`, `--after` and `--any-month` override all of that. Every rule is
+named after the months it is actually about, so a run explaining September never
+prints a table that says August.
+
 The hypothesis under test: **August's sales are August's COMPLETED orders, plus
 the July orders that were not COMPLETED in July and completed later.**
 

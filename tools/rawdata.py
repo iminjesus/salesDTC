@@ -260,6 +260,56 @@ def norm_stem(s) -> str:
     return re.sub(r'[^a-z0-9]', '', str(s).lower())
 
 
+# The exports are named and dated by month, and a tool that reads two of them
+# has to know it is reading the same month twice. One definition, so the page
+# and the tests that check it cannot disagree about which month is which.
+MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+
+
+def month_of(head: list[str], body: list[list[str]], name: str, say=print):
+    """The month an export covers, as YYYYMM.
+
+    From the export's own column where it has one, since that is the month the
+    rows are in; from the digits in the file name otherwise, which is what the
+    person who exported it meant.
+    """
+    i = find(head, 'YYYYMM', 'Year Month', 'Period', 'Fiscal Period')
+    if i is not None:
+        seen: dict[int, int] = {}
+        for row in body:
+            v = re.sub(r'\D', '', row[i] if i < len(row) else '')
+            if len(v) == 6:
+                n = int(v)
+                seen[n] = seen.get(n, 0) + 1
+        if seen:
+            best = max(seen, key=seen.get)
+            if len(seen) > 1 and body:
+                say(f'  {len(seen)} different months in {head[i]!r}; {best} '
+                    f'holds {seen[best] / len(body) * 100:.0f}% of the rows and '
+                    'is taken as the month')
+            return best
+    # A six-digit run is already YYYYMM; a four-digit one is YYMM, which is how
+    # these files are named - profit_2609 is September 2026, not the year 2609.
+    six = re.findall(r'(?<!\d)(20\d{4})(?!\d)', name)
+    if six:
+        return int(six[0])
+    four = re.findall(r'(?<!\d)(\d{4})(?!\d)', name)
+    for v in four:
+        if 1 <= int(v) % 100 <= 12:
+            return 2000 * 100 + int(v)
+    return None
+
+
+def month_name(ym: int, series: str = '26 DTC') -> str:
+    """'26 DTC Sep' for 202609 - how these exports have been named."""
+    return f'{str(ym // 100)[-2:]} DTC {MONTHS[(ym % 100) - 1]}'
+
+
+def month_before(ym: int) -> int:
+    return ym - 1 if ym % 100 > 1 else (ym // 100 - 1) * 100 + 12
+
+
 def pick_file(folder: Path, *stems: str):
     """The file named like one of these stems, exact match first."""
     for stem in stems:
