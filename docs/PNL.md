@@ -110,6 +110,20 @@ setting Channel to *All* steps up and brings them back for comparison, which is
 also what puts `Channel` on the x axis as two bars side by side.
 `--start-channel ""` opens on everything instead.
 
+### One page, every month
+
+The build draws **every** `profit_*` export in the folder - one month each - and
+puts them in one page behind a **Month** button. The months stay whole rather
+than merged: a month has its own customers, its own products and its own levels,
+and merging them would invent a key that was in neither.
+
+Switching month starts the drill again, because the levels are that month's.
+How the page is being *read* - the basis, amounts or per unit, which chain
+stacks, % of bar - carries over, since that is about the reader rather than the
+data.
+
+With one month in the folder the button row is not there at all.
+
 ### One menu
 
 Everything that drives the page is in the card at the top - both charts read
@@ -268,8 +282,9 @@ difference** - a backlog cleared, not demand earned - and the hint says so in
 those words, with the number.
 
 ```
-py dashboard\build_pnl.py                    # -> dashboard/pnl_<month>.html, then open it
+py dashboard\build_pnl.py                    # every month in the folder, one page
 py dashboard\build_pnl.py --open             # and open it in the browser
+py dashboard\build_pnl.py --file profit_2609 # one month only
 py dashboard\build_pnl.py --no-orders        # sales only
 py dashboard\build_pnl.py --booked "COMPLETED,DELIVERED"
 py dashboard\build_pnl.py --skip-sku SMC-AU-

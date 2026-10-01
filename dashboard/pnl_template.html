@@ -174,6 +174,8 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   <!-- One menu for the page: the levels, then how they are drawn. -->
   <div class="card">
     <div class="crumb" id="crumb"></div>
+    <label class="f" id="monthBox" hidden style="margin-bottom:10px">
+      <span>Month</span><span class="seg" id="months"></span></label>
     <div id="filters"></div>
     <div class="row bar">
       <button class="btn" id="backBtn">&larr; Back</button>
@@ -222,7 +224,14 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
-const DATA = /*__DATA__*/null;
+/* Every month the build found, each a complete payload of its own. They are
+   kept whole rather than merged because a month has its own customers, its own
+   products and its own set of levels, and merging them would invent a key that
+   was never in either. Switching month swaps the payload and starts the drill
+   again; how the page is being read - basis, units, which chain - carries over,
+   since that is about the reader rather than the data. */
+const ALL = /*__DATA__*/null;
+let DATA = ALL.months[0];
 
 /* Chart.js cannot resolve a custom property, so the series colours are read off
    the stylesheet once per render - that way light and dark live in one place. */
@@ -249,17 +258,30 @@ function each(r, key) {
   if (state.unit !== 'per') return r[key];
   return r.qty ? r[key] / r.qty : null;
 }
-const has = {};
-DATA.series.forEach((s, i) => { has[s.key] = i; });
+let has = {};
+let COSTS = [];
+let CHAINS = { customer: [], product: [] };
 const label = k => (has[k] === undefined ? k : DATA.series[has[k]].label);
-const COSTS = ['deduction', 'cogs', 'opex'].filter(k => has[k] !== undefined);
+
+/* Everything read off the payload, recomputed when the payload changes. */
+function rebind() {
+  has = {};
+  DATA.series.forEach((s, i) => { has[s.key] = i; });
+  COSTS = ['deduction', 'cogs', 'opex'].filter(k => has[k] !== undefined);
+  // The two chains the page drills: the customer levels, then the product ones.
+  // A chain stacks the level below whichever one the bars are on.
+  CHAINS = {
+    customer: DATA.levels.map((_, i) => i).filter(i => i < DATA.custDepth),
+    product:  DATA.levels.map((_, i) => i).filter(i => i >= DATA.custDepth),
+  };
+}
 
 /* The page opens on one channel - the online business - with everything else
    still in the file. Setting Channel back to All steps up and brings it in. */
 const state = {
-  filter: DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1)),
-  // Bars start on the level below the channel, since the channel is filtered.
-  dim: DATA.levels.length > 1 ? 1 : 0,
+  month: 0,
+  filter: [],
+  dim: 0,
   // 'amount' charts the money; 'per' divides every figure by quantity, which
   // turns the gross bar into the average selling price and the stack into what
   // each unit costs. The profit line is a percentage either way.
@@ -275,12 +297,21 @@ const state = {
   stkScale: 'amount',
 };
 
-/* The two chains the page drills: the customer levels, then the product ones.
-   A chain stacks the level below whichever one the bars are on. */
-const CHAINS = {
-  customer: DATA.levels.map((_, i) => i).filter(i => i < DATA.custDepth),
-  product:  DATA.levels.map((_, i) => i).filter(i => i >= DATA.custDepth),
-};
+/* Where the drill starts: one channel - the online business - with everything
+   else still in the file. Setting Channel back to All steps up and brings it
+   in. Called afresh for each month, since the levels are that month's. */
+function startHere() {
+  state.filter = DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1));
+  state.dim = DATA.levels.length > 1 ? 1 : 0;
+}
+
+function showMonth(n) {
+  state.month = Math.max(0, Math.min(ALL.months.length - 1, n));
+  DATA = ALL.months[state.month];
+  rebind();
+  startHere();
+  render();
+}
 
 /* The stacked chart sits one level above the bars: it puts the parent on the x
    axis and splits it by the level the bars are on, so the page opens on a single
@@ -740,6 +771,8 @@ function render() {
 
   document.getElementById('tableBtn').classList.toggle('active', state.table);
   // The basis only exists where an order export was read alongside the profit.
+  ALL.months.forEach((_, i) => document.getElementById('month' + i)
+    .classList.toggle('active', state.month === i));
   document.getElementById('basisBox').hidden = !hasOrders();
   if (!hasOrders()) state.basis = 'sales';
   [['bSales', 'sales'], ['bOrd', 'orders'], ['bAll', 'all']].forEach(([id, v]) =>
@@ -1311,7 +1344,22 @@ document.getElementById('stkPct').onclick = () => {
   state.stkScale = 'pct'; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 
-render();
+/* One button per month the build found, hidden when there is only one. */
+(() => {
+  const box = document.getElementById('months');
+  document.getElementById('monthBox').hidden = ALL.months.length < 2;
+  ALL.months.forEach((m, i) => {
+    const b = document.createElement('button');
+    b.className = 'btn';
+    b.id = 'month' + i;
+    b.textContent = m.month || m.title;
+    b.title = `${m.file} · ${m.rows.toLocaleString()} rows`;
+    b.onclick = () => showMonth(i);
+    box.appendChild(b);
+  });
+})();
+
+showMonth(0);
 </script>
 </body>
 </html>

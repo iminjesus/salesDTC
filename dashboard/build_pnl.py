@@ -93,6 +93,8 @@ N_ORDER = len(ORDER_SERIES)
 
 MONTHS_LONG = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
                'August', 'September', 'October', 'November', 'December')
+# Short, for the month buttons on the page.
+MONTHS = tuple(m[:3] for m in MONTHS_LONG)
 
 
 def main() -> int:
@@ -178,12 +180,61 @@ def main() -> int:
     if not folder.is_dir():
         print(f'no such folder: {folder.resolve()}', file=sys.stderr)
         return 2
-    target = (pick_file(folder, args.file) if args.file
-              else pick_latest(folder, 'profit'))
-    if target is None:
+    # One page, every month the folder holds. They stay whole rather than
+    # merged: a month has its own customers, its own products and its own
+    # levels, and merging them would invent a key that was in neither.
+    if args.file:
+        targets = [pick_file(folder, args.file)]
+    else:
+        targets, seen = [], set()
+        for cand in pick_series(folder, 'profit'):
+            key = re.sub(r'\D', '', cand.stem)[:4]
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append(cand)
+        targets.reverse()                       # oldest first, so do the buttons
+    targets = [t for t in targets if t]
+    if not targets:
         print(f'no profit export in {folder.resolve()}', file=sys.stderr)
         return 2
 
+    months = []
+    for target in targets:
+        if len(targets) > 1:
+            print('\n' + '=' * 72)
+        got = build_month(folder, target, args)
+        if got is None:
+            return 1
+        months.append(got)
+
+    out = Path(args.out) if args.out else HERE / (
+        f'pnl_{str(months[-1]["ym"])[-4:]}.html' if months[-1].get('ym')
+        else 'pnl.html')
+    template = (HERE / 'pnl_template.html').read_text(encoding='utf-8')
+    html = template.replace('/*__DATA__*/null',
+                            json.dumps({'months': months}, ensure_ascii=False,
+                                       separators=(',', ':')))
+    if not args.cdn:
+        f = HERE / 'vendor' / 'chart.umd.js'
+        if f.is_file():
+            code = f.read_text(encoding='utf-8').replace('</script>', '<\\/script>')
+            html = html.replace(
+                '<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>',
+                f'<script>/* chart.umd.js */\n{code}\n</script>')
+        else:
+            print('vendor/chart.umd.js missing - the page will need a connection')
+
+    out.write_text(html, encoding='utf-8')
+    print(f'\n-> {out.resolve()}  ({len(html.encode("utf-8")) / 1024:,.0f} KB'
+          f'{", needs a connection" if args.cdn else ", works offline"})')
+    if args.open:
+        webbrowser.open(out.resolve().as_uri())
+    return 0
+
+
+def build_month(folder, target, args):
+    """One month, as a payload the page can be switched onto."""
     print('reading:')
     rows, info = read_any(target)
     head = [h.strip() for h in rows[0]]
@@ -193,12 +244,6 @@ def main() -> int:
     ym = month_of(head, body, target.stem)
     if ym:
         print(f'  the month it covers: {ym}')
-    if args.title is None:
-        args.title = (f'{MONTHS_LONG[(ym % 100) - 1]} {ym // 100} Profit' if ym
-                      else 'Profit')
-    if args.out is None:
-        args.out = str(HERE / (f'pnl_{str(ym)[-4:]}.html' if ym
-                               else f'pnl_{target.stem}.html'))
 
     cols = A.column_profile(head, body)
     measures = [c['pos'] for c in cols if A.is_measure(c, len(body))]
@@ -235,7 +280,7 @@ def main() -> int:
         print('\nWithout a gross figure and an operating profit there is nothing '
               'to draw.', file=sys.stderr)
         print('Headers seen:', ', '.join(head[:40]), file=sys.stderr)
-        return 1
+        return None
 
     # Say out loud whether the four bars actually account for the profit line.
     if {'deduction', 'cogs', 'opex'} <= set(pos_of):
@@ -591,6 +636,7 @@ def main() -> int:
             # The orders are the online store's, so the only sales they can
             # account for are the online ones. Comparing against the whole file
             # would charge them with the offline business as well.
+            qi = keys.index('qty') if 'qty' in keys else None
             sold = abs(sum(v[qi] for k, v in combos.items()
                            if k[0] == CUST.ONLINE)) if qi is not None else 0
             model = own + came
@@ -690,7 +736,10 @@ def main() -> int:
               f'{", ".join(v for v in levels[0]["values"] if v != start)} back in)')
 
     payload = {
-        'title': args.title,
+        'ym': ym,
+        'month': (f'{MONTHS[(ym % 100) - 1]} {ym // 100}' if ym else target.stem),
+        'title': args.title or (f'{MONTHS_LONG[(ym % 100) - 1]} {ym // 100} '
+                                'Profit' if ym else 'Profit'),
         'file': target.name,
         'rows': len(body),
         'custDepth': CUST_DEPTH,
@@ -703,28 +752,7 @@ def main() -> int:
                     'n': counts[k], 'v': [round(x) for x in v]}
                    for k, v in combos.items()],
     }
-
-    template = (HERE / 'pnl_template.html').read_text(encoding='utf-8')
-    html = template.replace('/*__DATA__*/null',
-                            json.dumps(payload, ensure_ascii=False,
-                                       separators=(',', ':')))
-    if not args.cdn:
-        f = HERE / 'vendor' / 'chart.umd.js'
-        if f.is_file():
-            code = f.read_text(encoding='utf-8').replace('</script>', '<\\/script>')
-            html = html.replace(
-                '<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>',
-                f'<script>/* chart.umd.js */\n{code}\n</script>')
-        else:
-            print('vendor/chart.umd.js missing - the page will need a connection')
-
-    out = Path(args.out)
-    out.write_text(html, encoding='utf-8')
-    print(f'\n-> {out.resolve()}  ({len(html.encode("utf-8")) / 1024:,.0f} KB'
-          f'{", needs a connection" if args.cdn else ", works offline"})')
-    if args.open:
-        webbrowser.open(out.resolve().as_uri())
-    return 0
+    return payload
 
 
 if __name__ == '__main__':
