@@ -103,6 +103,26 @@ sold, the winning rule's prediction, and each bucket that fed it, sorted by the
 size of the miss. That file is where a rule that fits in total but not in detail
 gives itself away.
 
+## The one test it was not fitted to
+
+```
+py tools\cohort.py --next-profit profit_2609
+```
+
+Everything else is scored against the month the rule was *chosen* on, so it had
+every chance to fit. What the month carries out is a claim about a month the
+rule never saw: those units have to turn up in it. The run reports how much is
+carried out, how much the next month sold, and - product by product - how much
+of the carry-out **will not fit** in what that month actually sold.
+
+This cannot prove the rule. It is the thing that would have disproved it: a
+carry-out larger than the month it lands in is wrong whatever else fits. Past a
+quarter not fitting, the run says so in those words.
+
+The full out-of-sample test needs the **next month's order export** as well,
+which turns the check into the same scoring run on a second month. Two months
+reproduced by one rule is not a coincidence; one is.
+
 ## What it cannot do
 
 It cannot see a shipment. Every answer here is inferred from a status and the

@@ -32,9 +32,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
-from promo_match import code_norm, portal_levels               # noqa: E402
-from rawdata import find, key_norm, parse_number, read_any     # noqa: E402
 from cohort import is_dead                                     # noqa: E402
+from promo_match import NAMES as O_NAMES                       # noqa: E402
+from promo_match import code_norm, portal_levels, to_date      # noqa: E402
+from rawdata import find, key_norm, parse_number, read_any     # noqa: E402
 from reconcile import O_AMT, O_QTY, O_SKU, O_STATUS, classify  # noqa: E402
 
 # What the order export calls the customer. Its vocabulary is the master's
@@ -63,6 +64,22 @@ class Orders:
         self.group_hit: dict[str, int] = {}
         self.unknown: dict[str, float] = {}
         self.no_product = 0
+        self.dates: list = []
+
+    def month(self):
+        """The month this export covers, as YYYYMM, or None if it spans more.
+
+        The page models one month with the orders of that month and the one
+        before it. An export quietly holding the wrong month would be modelled
+        anyway, so the month is read off the rows rather than off the name.
+        """
+        if not self.dates:
+            return None
+        months = {d.year * 100 + d.month for d in self.dates}
+        return months.pop() if len(months) == 1 else None
+
+    def span(self):
+        return (min(self.dates), max(self.dates)) if self.dates else (None, None)
 
     def add(self, key: tuple, qty: float, amt: float, which: int) -> None:
         v = self.by_key.get(key)
@@ -98,7 +115,8 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
 
     col = {'sku': find(head, *O_SKU), 'qty': find(head, *O_QTY),
            'amt': find(head, *O_AMT), 'status': find(head, *O_STATUS),
-           'group': find(head, *O_GROUP), 'portal': find(head, *O_PORTAL)}
+           'group': find(head, *O_GROUP), 'portal': find(head, *O_PORTAL),
+           'date': find(head, *O_NAMES['date'])}
     say('  order columns:')
     for what in ('sku', 'qty', 'amt', 'status', 'group'):
         i = col[what]
@@ -122,6 +140,10 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
 
     for r in body:
         out.lines += 1
+        if col['date'] is not None:
+            d = to_date(cell(r, col['date']))
+            if d:
+                out.dates.append(d)
         status = cell(r, col['status']) or '(blank)'
         if booked is not None:
             # The booking rule: one set of statuses books the money, everything
@@ -188,8 +210,14 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
 def report(o: Orders, say=print) -> None:
     """What the read made of the file, in the shape the other tools print."""
     sq, sa, oq, oa = o.totals()
+    lo, hi = o.span()
     say(f'\n{o.path.name}: {o.lines:,} line(s) - {o.kept:,} booked ({sq:,.0f} '
         f'units, {sa:,.0f}), {o.open:,} carried ({oq:,.0f} units, {oa:,.0f})')
+    if lo:
+        say(f'  order dates {lo} .. {hi}'
+            + ('' if o.month() else '   <- more than one month in this file'))
+    else:
+        say('  no order date could be read, so the month cannot be checked')
     if o.skipped:
         say(f'  {o.skipped:,} line(s) left out: returns, and statuses that say '
             'neither one thing nor the other')

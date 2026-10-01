@@ -156,6 +156,11 @@ def main() -> int:
     ap.add_argument('--profile', action='store_true',
                     help='describe the two order files and stop')
     ap.add_argument('--out', default=str(ROOT / 'docs' / 'cohort_sku.csv'))
+    ap.add_argument('--next-profit', metavar='NAME',
+                    help="the NEXT month's profit export, e.g. profit_2609. The "
+                         'units this month carries out have to turn up in it, so '
+                         'this is the one test the rule cannot have been fitted '
+                         'to - it was not used to choose the rule')
     ap.add_argument('--keep-dead', action='store_true',
                     help='count cancelled and returned orders as carry-over. '
                          'They never become a later month, so by default they '
@@ -476,6 +481,61 @@ def main() -> int:
               '  the month handed on more than it took in, so its revenue is '
               'understated by that\n  difference - demand it earned and has '
               'not yet booked')
+
+    # ── the one test the rule was not fitted to ────────────────────────────
+    # Everything above was scored against the month the rule was chosen on, so
+    # it had every chance to fit. What the month carries out is a claim about a
+    # month the rule never saw, and that month either contains those units or
+    # it does not.
+    if args.next_profit:
+        np_ = pick_file(folder, args.next_profit)
+        if np_ is None:
+            print(f'\nno file named like {args.next_profit!r} to check the '
+                  'carry-out against', file=sys.stderr)
+        else:
+            n_rows, n_info = read_any(np_)
+            n_head = [h.strip() for h in n_rows[0]]
+            n_body = n_rows[1:]
+            n_i = {k: find(n_head, *v) for k, v in
+                   {'sku': P_SKU, 'cust': P_CUST, 'qty': P_QTY}.items()}
+            nxt: dict[str, float] = {}
+            for r in n_body:
+                q = parse_number(cell(r, n_i['qty'])) or 0.0
+                if cust and args.online:
+                    c = cust.get(key_norm(cell(r, n_i['cust'])))
+                    if (CUST.channel_of(c['account']) if c
+                            else CUST.NO_MATCH) != args.online:
+                        continue
+                code = key_norm(cell(r, n_i['sku']))
+                if skipped(code):
+                    continue
+                nxt[code] = nxt.get(code, 0.0) + q
+            out_u = sum(aug_rest.values())
+            nxt_u = sum(nxt.values())
+            print(f'\nout of sample: {np_.name}, {n_info["format"]}, '
+                  f'{len(n_body):,} rows')
+            print(f'  {after.name} carries out {out_u:,.0f} unit(s); the next '
+                  f'month sold {nxt_u:,.0f}')
+            # A carry-out bigger than the month it lands in is the one way this
+            # can be plainly wrong, and it can be checked product by product.
+            over = {k: v - nxt.get(k, 0.0) for k, v in aug_rest.items()
+                    if v - nxt.get(k, 0.0) > 0.5}
+            short = sum(over.values())
+            print(f'  {len(over):,} product(s) carry out more than the next '
+                  f'month sold of them, {short:,.0f} unit(s) over in total '
+                  f'({short / out_u * 100 if out_u else 0:.0f}% of the carry-out)')
+            if out_u:
+                print('  the carry-out is '
+                      + (f'{out_u / nxt_u * 100:.0f}% of the next month - so the '
+                         'rule says that much of it was already ordered'
+                         if nxt_u else 'larger than the next month entirely'))
+            print('  this does not prove the rule; it is the thing that would '
+                  'have disproved it.\n  A carry-out that will not fit in the '
+                  'month it lands in cannot be right, and\n  the shortfall '
+                  'above is how much of it does not fit.')
+            if out_u and short > out_u * 0.25:
+                print('  more than a quarter of it does not fit, which is a '
+                      'real problem with the rule')
 
     # ── the detail, per product ────────────────────────────────────────────
     out = Path(args.out)

@@ -89,6 +89,46 @@ ORDER_SERIES = [
 ]
 N_ORDER = len(ORDER_SERIES)
 
+# The order exports are named by month. Knowing the profit file's month means
+# the right pair can be reached for without being told which they are.
+MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+
+
+def month_of(head, body, name):
+    """The month an export covers, as YYYYMM.
+
+    From the export's own column where it has one, since that is the month the
+    rows are in; from the digits in the file name otherwise, which is what the
+    person who exported it meant.
+    """
+    i = find(head, 'YYYYMM', 'Year Month', 'Period', 'Fiscal Period')
+    if i is not None:
+        seen: dict[int, int] = {}
+        for r in body:
+            v = re.sub(r'\D', '', r[i] if i < len(r) else '')
+            if len(v) == 6:
+                n = int(v)
+                seen[n] = seen.get(n, 0) + 1
+        if seen:
+            best = max(seen, key=seen.get)
+            if len(seen) > 1:
+                print(f'  {len(seen)} different months in {head[i]!r}; '
+                      f'{best} holds {seen[best] / len(body) * 100:.0f}% of the '
+                      'rows and is taken as the month')
+            return best
+    digits = re.findall(r'\d{4}', name)
+    return 2000 * 100 + int(digits[0]) if digits else None
+
+
+def month_name(ym, series='26 DTC'):
+    """'26 DTC Sep' for 202609 - how these exports have been named."""
+    return f'{str(ym // 100)[-2:]} DTC {MONTHS[(ym % 100) - 1]}'
+
+
+def month_before(ym):
+    return ym - 1 if ym % 100 > 1 else (ym // 100 - 1) * 100 + 12
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(
@@ -113,13 +153,19 @@ def main() -> int:
     ap.add_argument('--cdn', action='store_true',
                     help='link Chart.js instead of embedding it: a smaller file '
                          'that then needs a connection')
-    ap.add_argument('--orders', default='26 DTC Aug', metavar='NAME',
-                    help='the order export for the month the profit file covers '
-                         '(default: 26 DTC Aug)')
-    ap.add_argument('--orders-before', default='26 DTC Jul', metavar='NAME',
+    ap.add_argument('--orders', default=None, metavar='NAME',
+                    help='the order export for the month the profit file covers. '
+                         "By default the one named for that month, e.g. '26 DTC "
+                         "Sep' for a September profit file")
+    ap.add_argument('--orders-before', default=None, metavar='NAME',
                     help='the month before, whose unfinished orders became this '
-                         "month's revenue (default: 26 DTC Jul). Without it the "
-                         'page cannot say what was carried in')
+                         "month's revenue. By default the one named for it. "
+                         'Without it the page cannot say what was carried in')
+    ap.add_argument('--any-month', action='store_true',
+                    help='model the month with whatever order exports were '
+                         'named, even when their dates say they are other '
+                         'months. Off by default, because modelling a month '
+                         'with the wrong orders is worse than not modelling it')
     ap.add_argument('--booked', default='COMPLETED', metavar='LIST',
                     help='the order status(es) that book the money (default '
                          'COMPLETED). Everything else still in flight is carried '
@@ -156,6 +202,10 @@ def main() -> int:
     head = [h.strip() for h in rows[0]]
     body = rows[1:]
     print(f'  {target.name}: {info["format"]}, {len(body):,} rows, {len(head)} columns')
+
+    ym = month_of(head, body, target.stem)
+    if ym:
+        print(f'  the month it covers: {ym}')
 
     cols = A.column_profile(head, body)
     measures = [c['pos'] for c in cols if A.is_measure(c, len(body))]
@@ -354,8 +404,19 @@ def main() -> int:
     # That is an allocation and nothing more; it says where an order could have
     # gone, in the proportions the month itself gives.
     n_measures = len(keys)
-    op = None if args.no_orders else pick_file(folder, args.orders)
-    bp = None if args.no_orders else pick_file(folder, args.orders_before)
+    # Which two exports model this month: the one named for it, and the one
+    # named for the month before, unless both were named on the command line.
+    want_now = args.orders or (month_name(ym) if ym else None)
+    want_was = args.orders_before or (month_name(month_before(ym)) if ym else None)
+    op = None if args.no_orders or not want_now else pick_file(folder, want_now)
+    bp = None if args.no_orders or not want_was else pick_file(folder, want_was)
+    if not args.no_orders and op is None and want_now:
+        print(f'\nno order export named like {want_now!r}, so the page is sales '
+              'only. Name one with --orders.')
+        here = sorted(q.name for q in folder.iterdir()
+                      if q.is_file() and 'dtc' in q.stem.lower())
+        if here:
+            print('  order-looking files in the folder: ' + ', '.join(here))
     if op is not None:
         print('\nreading orders:')
         booked = {t.strip().upper() for t in args.booked.split(',') if t.strip()}
@@ -367,8 +428,28 @@ def main() -> int:
         this = ORD.load(op, **load)
         before = ORD.load(bp, **load) if bp is not None else None
         if bp is None:
-            print(f'  no file named like {args.orders_before!r}, so the page '
-                  'cannot say what was carried into this month')
+            print(f'  no file named like {want_was!r}, so the page cannot say '
+                  'what was carried into this month')
+
+        # Modelling a month with another month's orders is worse than not
+        # modelling it, and nothing downstream would show that it happened.
+        if ym and not args.any_month:
+            for who, side, expect in (('orders', this, ym),
+                                      ('orders-before', before, month_before(ym))):
+                if side is None:
+                    continue
+                got = side.month()
+                if got == expect:
+                    continue
+                lo, hi = side.span()
+                print(f'\n  {side.path.name} is not the {expect} export: its '
+                      + (f'orders run {lo} .. {hi}' if lo else
+                         'order dates could not be read')
+                      + f'.\n  The profit file covers {ym}, so --{who} wants '
+                      f'the {expect} export. Nothing is modelled from orders '
+                      'until they line up;\n  --any-month overrides this.')
+                this = None
+                break
         if this is not None:
             ORD.report(this)
             if before is not None:

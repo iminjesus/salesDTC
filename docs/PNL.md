@@ -262,7 +262,17 @@ py dashboard\build_pnl.py --booked "COMPLETED,DELIVERED"
 py dashboard\build_pnl.py --skip-sku SMC-AU-
 ```
 
-`--orders` and `--orders-before` name the two exports. `--booked` names the
+The two order exports are found **by month**: the profit file says which month
+it covers, in its own `YYYYMM` column where it has one, and the exports named
+for that month and the one before it are the ones read - `26 DTC Sep` and
+`26 DTC Aug` for a September profit file. `--orders` and `--orders-before`
+override that.
+
+An export whose order dates say it is a different month is **not used**: the
+build says which month it actually holds and which one it wanted, and the page
+comes out as sales only. Modelling a month with another month's orders is worse
+than not modelling it, and nothing downstream would show that it had happened.
+`--any-month` overrides the check. `--booked` names the
 status(es) that book the money; everything else in flight is carried forward and
 `tools/cohort.py` is what says whether that reading holds. `--skip-sku` drops
 product codes that are ordered but never reach the profit file - service plans,
