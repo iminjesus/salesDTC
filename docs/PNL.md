@@ -268,7 +268,8 @@ difference** - a backlog cleared, not demand earned - and the hint says so in
 those words, with the number.
 
 ```
-py dashboard\build_pnl.py                    # reads both order exports if they are there
+py dashboard\build_pnl.py                    # -> dashboard/pnl_<month>.html, then open it
+py dashboard\build_pnl.py --open             # and open it in the browser
 py dashboard\build_pnl.py --no-orders        # sales only
 py dashboard\build_pnl.py --booked "COMPLETED,DELIVERED"
 py dashboard\build_pnl.py --skip-sku SMC-AU-

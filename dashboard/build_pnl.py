@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Draw the profit chart: what came in, where it went, what was left.
 
-    py dashboard\\build_pnl.py                 # -> dashboard/pnl_2608.html
+    py dashboard\\build_pnl.py                 # -> dashboard/pnl_<month>.html
     py dashboard\\build_pnl.py --open
 
 One bar for gross sales, a stack beside it for sales deduction, cost of goods
@@ -91,6 +91,9 @@ ORDER_SERIES = [
 ]
 N_ORDER = len(ORDER_SERIES)
 
+MONTHS_LONG = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
+               'August', 'September', 'October', 'November', 'December')
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(
@@ -99,8 +102,12 @@ def main() -> int:
     ap.add_argument('--file', default=None,
                     help='the export to draw (default: the highest-numbered '
                          'profit_* file in the folder)')
-    ap.add_argument('--out', default=str(HERE / 'pnl_2608.html'))
-    ap.add_argument('--title', default='August 2026 Profit')
+    # Both default to the month the export turns out to cover, so a new month
+    # does not quietly overwrite the last one's page under the last one's name.
+    ap.add_argument('--out', default=None,
+                    help='default: dashboard/pnl_<month>.html')
+    ap.add_argument('--title', default=None,
+                    help="default: the export's month, e.g. September 2026 Profit")
     ap.add_argument('--structure', default=str(ROOT / 'docs' / 'structure.json'),
                     help='the analysis to read; recomputed if it does not match')
     ap.add_argument('--start-channel', metavar='NAME', default=CUST.ONLINE,
@@ -186,6 +193,12 @@ def main() -> int:
     ym = month_of(head, body, target.stem)
     if ym:
         print(f'  the month it covers: {ym}')
+    if args.title is None:
+        args.title = (f'{MONTHS_LONG[(ym % 100) - 1]} {ym // 100} Profit' if ym
+                      else 'Profit')
+    if args.out is None:
+        args.out = str(HERE / (f'pnl_{str(ym)[-4:]}.html' if ym
+                               else f'pnl_{target.stem}.html'))
 
     cols = A.column_profile(head, body)
     measures = [c['pos'] for c in cols if A.is_measure(c, len(body))]
