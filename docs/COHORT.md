@@ -148,10 +148,26 @@ backlog cleared, not demand earned in the month - and the run says so.
 ## What comes out
 
 A ranked table, a verdict on the hypothesis in one sentence, the worst-fitting
-products, and `docs/cohort_sku.csv` with every product's buckets side by side -
-sold, the winning rule's prediction, and each bucket that fed it, sorted by the
-size of the miss. That file is where a rule that fits in total but not in detail
-gives itself away.
+products, and `docs/cohort_sku.csv` with every product's buckets side by side,
+sorted by the size of the miss. That file is where a rule that fits in total but
+not in detail gives itself away.
+
+Every column there names the month it holds, so a September run never writes
+September's units under an August heading:
+
+| column | |
+|---|---|
+| `sold in Sep (profit_2609.csv, E-STORE)` | **what the month being explained actually sold** - the profit file's `Quantity(Net)` for that product, the kept channel only, net of returns, **whenever the order behind it was placed**. This is the left-hand side of the whole comparison |
+| `best rule units` | what the winning rule predicted for it |
+| `difference` | rule minus sold |
+| `Sep booked, signed` / `, COMPLETED only` | the month's own orders, under each reading |
+| `Sep carried out, …` | what it leaves for October |
+| `Aug carried in, …` | what August left for it |
+| `Aug booked, COMPLETED only` | August's own revenue - no part of September |
+| `Aug open then completed` | only filled when the two exports share order lines |
+
+Both readings are written for every product, so the row reconciles whichever
+rule won.
 
 ## The one test it was not fitted to
 

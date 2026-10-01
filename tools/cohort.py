@@ -729,22 +729,37 @@ def main() -> int:
     # ── the detail, per product ────────────────────────────────────────────
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    # Every column names the month it holds. The headings used to say 'aug'
+    # and 'jul' whatever months were being read, which is worse than no
+    # heading: a September run wrote September's units under 'aug completed'.
+    where = args.online or 'every channel'
+    cols = [
+        ('sku', lambda k: k),
+        (f'sold in {now} ({pp.name}, {where})', lambda k: sales.get(k, 0.0)),
+        ('best rule units', lambda k: pred.get(k, 0.0)),
+        ('difference', lambda k: pred.get(k, 0.0) - sales.get(k, 0.0)),
+        (f'{now} booked, signed', lambda k: aug_signed.get(k, 0.0)),
+        (f'{now} booked, COMPLETED only', lambda k: aug_done.get(k, 0.0)),
+        (f'{now} carried out, signed reading',
+         lambda k: aug_carry.get(k, 0.0)),
+        (f'{now} carried out, returns dropped',
+         lambda k: aug_rest.get(k, 0.0)),
+        (f'{was} carried in, signed reading', lambda k: jul_carry.get(k, 0.0)),
+        (f'{was} carried in, returns dropped', lambda k: jul_open.get(k, 0.0)),
+        (f'{was} booked, COMPLETED only', lambda k: jul_done.get(k, 0.0)),
+        (f'{was} open then completed', lambda k: jul_then.get(k, 0.0)),
+    ]
     with out.open('w', newline='', encoding='utf-8-sig') as fh:
         w = csv.writer(fh)
-        w.writerow(['sku', 'sales units', 'best rule units', 'difference',
-                    'aug completed', 'aug other', 'jul completed', 'jul open',
-                    'jul open then completed'])
+        w.writerow([h for h, _ in cols])
         for sku in sorted(set(sales) | set(pred), key=lambda k:
                           -abs(pred.get(k, 0.0) - sales.get(k, 0.0))):
-            w.writerow([sku, round(sales.get(sku, 0.0), 2),
-                        round(pred.get(sku, 0.0), 2),
-                        round(pred.get(sku, 0.0) - sales.get(sku, 0.0), 2),
-                        round(aug_done.get(sku, 0.0), 2),
-                        round(aug_rest.get(sku, 0.0), 2),
-                        round(jul_done.get(sku, 0.0), 2),
-                        round(jul_open.get(sku, 0.0), 2),
-                        round(jul_then.get(sku, 0.0), 2)])
-    print(f'\nthe worst-fitting products, under the best rule:')
+            w.writerow([sku] + [round(f(sku), 2) for _, f in cols[1:]])
+    print(f'\n  in that file, "sold in {now}" is what {pp.name} reports for the '
+          f'product -\n  {where}, net of returns, whenever the order behind it '
+          f'was placed. That is the\n  month being explained; every other '
+          'column is a piece of the explanation.')
+    print('\nthe worst-fitting products, under the best rule:')
     worst = sorted(set(sales) | set(pred),
                    key=lambda k: -abs(pred.get(k, 0.0) - sales.get(k, 0.0)))
     print(f'  {"product":<18} {"sold":>9} {"rule":>9} {"diff":>9}')
