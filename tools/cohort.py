@@ -239,6 +239,44 @@ def main() -> int:
               'matched to each other; the rules below that need a before-and-'
               'after are skipped')
 
+    # ── and do they share order numbers, never mind the lines? ─────────────
+    # The line test above is (order, product). An order split across the two
+    # months - one product fulfilled in July, another in August - shares its
+    # number without sharing a line, and that is worth knowing on its own: it
+    # says the files are cut by something other than the order.
+    if before.has_order_no and after.has_order_no:
+        def numbers(side):
+            out: dict[str, list] = {}
+            for ident, sku, st, qty, amt, d in side.lines:
+                if not ident[0]:
+                    continue
+                v = out.setdefault(ident[0], [0, 0.0, set(), set()])
+                v[0] += 1
+                v[1] += qty
+                v[2].add(sku)
+                v[3].add(st)
+            return out
+
+        b_no, a_no = numbers(before), numbers(after)
+        both = set(b_no) & set(a_no)
+        print(f'\norder numbers: {len(b_no):,} in {before.name}, '
+              f'{len(a_no):,} in {after.name}, {len(both):,} in both')
+        if both:
+            units = sum(b_no[n][1] + a_no[n][1] for n in both)
+            split = sum(1 for n in both if not (b_no[n][2] & a_no[n][2]))
+            print(f'  {units:,.0f} unit(s) sit on a number that appears in both '
+                  f'files; {split:,} of those numbers\n  carry no product in '
+                  'common, so they are one order cut across the two months')
+            print(f'  {"order":<20} {before.name[:14]:<30} {after.name[:14]:<30}')
+            for n in sorted(both, key=lambda k: -(b_no[k][1] + a_no[k][1]))[:8]:
+                left = f'{b_no[n][0]} line(s) ' + ','.join(sorted(b_no[n][3]))[:20]
+                right = f'{a_no[n][0]} line(s) ' + ','.join(sorted(a_no[n][3]))[:20]
+                print(f'  {str(n)[:20]:<20} {left:<30} {right:<30}')
+        else:
+            print('  not one number is in both, so the two files are cut by the '
+                  'order and nothing\n  crosses between them - the carry-over '
+                  'can only be inferred from the statuses')
+
     if args.profile:
         return 0
 

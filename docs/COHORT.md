@@ -34,6 +34,13 @@ row, and the right thing to do is use that column instead.
   twice, `Aug COMPLETED only` is already the hypothesis, and the run says so
   before scoring anything.
 
+Shared **lines** are `(order number, product)`. An order split across the cut -
+one product fulfilled in July, another in August - shares its *number* without
+sharing a line, so the order numbers are compared separately and reported on
+their own. Numbers in both with no product in common is one order cut across two
+months; no numbers in both at all means the files are cut by the order and
+nothing crosses between them, which leaves the statuses as the only evidence.
+
 Where lines are shared, the status each line carries in the two files is a
 before and an after - the only direct evidence either export holds about *when*
 something moved. `PAYMENT_PENDING -> COMPLETED` between a July file and an
