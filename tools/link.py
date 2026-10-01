@@ -34,8 +34,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rawdata import (find, month_name, month_of, parse_number,  # noqa: E402
-                     pick_file, pick_series, read_any)
+import customer as CUST                                         # noqa: E402
+from rawdata import (find, key_norm, master, month_name,        # noqa: E402
+                     month_of, norm_stem, parse_number, pick_file,
+                     pick_series, read_any)
+from reconcile import P_CUST, P_QTY, P_SKU                      # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -103,10 +106,19 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata')
     ap.add_argument('--sap', default=None, metavar='NAME',
-                    help="SAP's sales-order export (default: the latest orders_*)")
+                    help="one SAP sales-order export instead of every orders_* "
+                         'in the folder')
     ap.add_argument('--dtc', default=None, metavar='NAME',
                     help="the store's export (default: the one named for the "
                          "same month, e.g. 26 DTC Sep)")
+    ap.add_argument('--profit', default=None, metavar='NAME',
+                    help='the month to check the despatches against (default: '
+                         'every profit_* the despatches can reach)')
+    ap.add_argument('--online', default=CUST.ONLINE, metavar='NAME',
+                    help=f'the channel the profit side is kept to '
+                         f'(default {CUST.ONLINE})')
+    ap.add_argument('--skip-sku', metavar='PREFIX', default='',
+                    help='product-code prefixes to leave out, e.g. SMC-AU-')
     ap.add_argument('--sample', type=int, default=6,
                     help='how many examples of each kind to print')
     ap.add_argument('--out', default=None,
@@ -117,14 +129,32 @@ def main() -> int:
     if not folder.is_dir():
         print(f'no such folder: {folder.resolve()}', file=sys.stderr)
         return 2
-    want = ([pick_file(folder, args.sap)] if args.sap
-            else pick_series(folder, 'orders'))
-    want = [p for p in want if p]
-    if not want:
-        print(f'no SAP order export in {folder.resolve()} - looked for '
-              f'{args.sap or "orders_*"}', file=sys.stderr)
+
+    # One export per month, csv ahead of the workbook.
+    months, seen = [], {}
+    for cand in ([pick_file(folder, args.sap)] if args.sap
+                 else pick_series(folder, 'orders')):
+        if cand is None:
+            continue
+        key = norm_stem(cand.stem)
+        seen.setdefault(key, []).append(cand)
+    for key, cands in seen.items():
+        months.append(cands)
+    if not months:
+        print(f'no SAP order export in {folder.resolve()}', file=sys.stderr)
         return 2
 
+    done = []
+    for cands in months:
+        got = one(folder, cands, args)
+        if got:
+            done.append(got)
+    if not done:
+        return 1
+    return settle(folder, args, done)
+
+
+def one(folder, want, args):
     # The same export is often in the folder twice, as a csv and as a workbook,
     # and a spreadsheet round-trip renames headers. So the candidates are tried
     # in turn and the first one that actually carries the columns is used,
@@ -152,7 +182,7 @@ def main() -> int:
               'goods issue date.\nWithout the reference there is nothing to join '
               'on; without the date there is\nnothing worth joining for. Name '
               'one with --sap.', file=sys.stderr)
-        return 1
+        return None
     for what in ('ref', 'doc', 'sku', 'qty', 'gi', 'made'):
         i = S[what]
         print(f'    {what:<6} ' + (repr(s_head[i]) if i is not None
@@ -178,7 +208,7 @@ def main() -> int:
         print(f'\nno store export named like '
               f'{args.dtc or (month_name(ym) if ym else "?")!r}; nothing to join '
               'to.', file=sys.stderr)
-        return 2
+        return None
     d_rows, d_info = read_any(dp)
     d_head = [h.strip() for h in d_rows[0]]
     d_body = d_rows[1:]
@@ -194,7 +224,7 @@ def main() -> int:
         print('\nThe store export carries no order number this build recognises, '
               'so the two\ncannot be joined. Columns: '
               + ', '.join(d_head[:20]), file=sys.stderr)
-        return 1
+        return None
 
     # ── what shape is the reference in? ────────────────────────────────────
     stamped = plain = 0
@@ -334,7 +364,114 @@ def main() -> int:
                     'goods issue date', 'goods issue month',
                     'left or due', 'sap status'])
         w.writerows(rows_out)
-    print(f'\n-> {out.resolve()}')
+    print(f'  -> {out.resolve()}')
+    return {'ym': ym, 'rows': rows_out, 'asof': asof,
+            'sap': sp.name, 'dtc': dp.name}
+
+
+
+def settle(folder, args, done):
+    """Which month did each unit's revenue fall in, and does the month agree?
+
+    Nothing here is inferred. A unit belongs to the month its goods issue fell
+    in, whatever month it was ordered in and whatever the store's status column
+    says - so the months are pooled across every export read, and the total for
+    each is put beside what the profit file reports for it.
+
+    A month can only be checked where the exports can see all of it. September's
+    own export, taken on 30 September, knows nothing of what left in October, so
+    a month is only scored when every export that could hold its despatches has
+    been read.
+    """
+    drop = tuple(t.strip().upper() for t in args.skip_sku.split(',') if t.strip())
+
+    def skipped(code):
+        return bool(drop) and str(code).upper().startswith(drop)
+
+    by_month: dict[str, dict] = {}
+    due_month: dict[str, float] = collections.Counter()
+    for got in done:
+        for order, sku, qty, doc, gid, m, state, status in got['rows']:
+            if not m or skipped(sku):
+                continue
+            if state == 'left':
+                by_month.setdefault(m, {})
+                k = key_norm(sku)
+                by_month[m][k] = by_month[m].get(k, 0.0) + qty
+            elif state == 'due':
+                due_month[m] += qty
+
+    print('\n' + '=' * 72)
+    print('revenue by the month the goods actually left, pooled over '
+          + ', '.join(g['sap'] for g in done))
+    print(f'  {"":<10} {"left":>12} {"still only due":>16}')
+    for m in sorted(set(by_month) | set(due_month)):
+        print(f'  {m:<10} {sum(by_month.get(m, {}).values()):>12,.0f} '
+              f'{due_month.get(m, 0):>16,.0f}')
+
+    # A month is complete only if an export exists that was taken after it ended.
+    asofs = [g['asof'] for g in done if g['asof']]
+    latest = max(asofs) if asofs else None
+    print(f'\n  the latest export was taken {latest}, so a month ending after '
+          'that\n  cannot have all of its despatches in hand yet.')
+
+    # ── against the profit file ────────────────────────────────────────────
+    cust = {}
+    cp = pick_file(folder, 'customer') or None
+    for cand in pick_series(folder, 'customer'):
+        cust = master(cand, ('Sold-To', 'sold To', 'sold_to'),
+                      {'account': CUST.ACCOUNT_NAMES}, say=lambda *a: None)
+        cp = cand
+        break
+    if cust:
+        print(f'  customer master: {cp.name}, {len(cust):,} accounts')
+
+    wanted = ([pick_file(folder, args.profit)] if args.profit
+              else pick_series(folder, 'profit'))
+    checked = set()
+    for pp in [x for x in wanted if x]:
+        rows, info = read_any(pp)
+        head = [h.strip() for h in rows[0]]
+        body = rows[1:]
+        ym = month_of(head, body, pp.stem, say=lambda *a: None)
+        m = f'{ym // 100}-{ym % 100:02d}' if ym else None
+        if not m or m in checked:
+            continue
+        checked.add(m)
+        i = {k: find(head, *v) for k, v in
+             {'sku': P_SKU, 'cust': P_CUST, 'qty': P_QTY}.items()}
+        if i['sku'] is None or i['qty'] is None:
+            continue
+        sold: dict[str, float] = {}
+        for r in body:
+            q = parse_number(cell(r, i['qty'])) or 0.0
+            if cust and args.online:
+                c = cust.get(key_norm(cell(r, i['cust'])))
+                if (CUST.channel_of(c['account']) if c
+                        else CUST.NO_MATCH) != args.online:
+                    continue
+            code = key_norm(cell(r, i['sku']))
+            if skipped(code):
+                continue
+            sold[code] = sold.get(code, 0.0) + q
+        actual = sum(sold.values())
+        pred = by_month.get(m, {})
+        total = sum(pred.values())
+        err = sum(abs(pred.get(k, 0.0) - sold.get(k, 0.0))
+                  for k in set(pred) | set(sold))
+        print(f'\n{pp.name} - {m}, {args.online or "every channel"}: '
+              f'{actual:,.0f} units over {len(sold):,} product(s)')
+        print(f'  goods issue in {m}: {total:,.0f} units over {len(pred):,} '
+              f'product(s)')
+        if actual:
+            print(f'  {total / actual * 100:.1f}% of the month, '
+                  f'{err / actual * 100:.1f}% per-product error')
+            if due_month.get(m):
+                print(f'  ({due_month[m]:,.0f} more are scheduled for {m} and '
+                      'have not gone - they are not counted above)')
+            print('  No status was read and no carry-over was inferred: a unit '
+                  'is in the month\n  its goods issue fell in. Compare these '
+                  'two numbers with docs/COHORT.md\'s.')
     return 0
 
 

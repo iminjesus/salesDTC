@@ -50,6 +50,35 @@ the duplicate is named rather than read, and `tools/link.py` walks the
 candidates and takes the first that actually carries the columns it needs
 instead of failing on the newest name.
 
+## The month a unit belongs to, with nothing inferred
+
+`py tools\link.py` reads **every** `orders_*` export, joins each to its own
+month's store export, and pools the result by the month the goods actually left:
+
+```
+revenue by the month the goods actually left
+             left   still only due
+  2026-08   ...            ...
+  2026-09   ...            ...
+  2026-10     0            ...
+```
+
+Then it puts each month's total beside what `profit_<month>` reports for the
+same channel - total, and per product. **No status is read and no carry-over is
+inferred.** A unit is in the month its goods issue fell in, whatever month it
+was ordered in and whatever the store's status column says.
+
+That last point is the one that matters. The store's `COMPLETED` is not the
+revenue event - the goods issue is, and the store's status follows it rather
+than leading it. The join shows lines whose goods issue was 29 September sitting
+under a SAP status of `Open`, which is exactly the gap the status-based model in
+`docs/COHORT.md` was trying to bridge by inference.
+
+A month can only be scored where the exports can see all of it: September's own
+export, taken on 30 September, knows nothing of what left in October. The run
+says when the latest export was taken so a short month is not read as a settled
+one.
+
 ## What it is worth
 
 The status-based inference in `docs/COHORT.md` put September's carry-out at 27%
