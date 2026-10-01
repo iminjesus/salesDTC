@@ -74,6 +74,20 @@ than leading it. The join shows lines whose goods issue was 29 September sitting
 under a SAP status of `Open`, which is exactly the gap the status-based model in
 `docs/COHORT.md` was trying to bridge by inference.
 
+Three readings are scored against the profit file:
+
+| | |
+|---|---|
+| **left** | despatched on or before the day the export was taken - measurement only |
+| **left + due, through the store join** | adds what was scheduled. A month's revenue is both, and only the first half is measured |
+| **left + due, SAP alone** | the same, counted straight off the SAP lines that carry a store reference |
+
+The last one is the one to read. The join exists to prove the key works and to
+show the store's own view of an order; the **measurement does not need it**, and
+going through it costs units - one store order can become several SAP documents
+with different despatch dates, and the join keeps one. On September that was
+1,070 units, 5% of the month.
+
 A month can only be scored where the exports can see all of it: September's own
 export, taken on 30 September, knows nothing of what left in October. The run
 says when the latest export was taken so a short month is not read as a settled

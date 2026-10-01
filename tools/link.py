@@ -230,11 +230,22 @@ def one(folder, want, args):
     stamped = plain = 0
     sap_by_key: dict[str, list] = collections.defaultdict(list)
     whose = collections.Counter()
+    # The SAP side on its own. Every store-referenced line, with its own
+    # material, its own quantity and its own despatch date - no join, so no
+    # order split lost and no product falling back to the order it sat in.
+    sap_rows = []
     for r in s_body:
         raw = cell(r, S['ref'])
         if STAMPED.match(raw.upper()):
             stamped += 1
             whose[cell(r, S['who'])] += 1
+            gi = to_date(cell(r, S['gi']))
+            left = bool(gi) and cell(r, S['dstat']).upper() in DELIVERED \
+                and (not asof or gi <= asof)
+            sap_rows.append((cell(r, S['sku']),
+                             parse_number(cell(r, S['qty'])) or 0.0,
+                             gi.strftime('%Y-%m') if gi else '',
+                             'left' if left else 'due' if gi else 'no date'))
         elif raw:
             plain += 1
         if raw:
@@ -365,7 +376,7 @@ def one(folder, want, args):
                     'left or due', 'sap status'])
         w.writerows(rows_out)
     print(f'  -> {out.resolve()}')
-    return {'ym': ym, 'rows': rows_out, 'asof': asof,
+    return {'ym': ym, 'rows': rows_out, 'sap_rows': sap_rows, 'asof': asof,
             'sap': sp.name, 'dtc': dp.name}
 
 
@@ -403,6 +414,21 @@ def settle(folder, args, done):
             k = key_norm(sku)
             into[m][k] = into[m].get(k, 0.0) + qty
     due_month = {m: sum(v.values()) for m, v in due_by_month.items()}
+
+    # The same thing again, straight off the SAP side. The join exists to prove
+    # the key and to show the store's own view of an order; the measurement does
+    # not need it, and loses units to splits and to product mismatches when it
+    # goes through it.
+    sap_left: dict[str, dict] = {}
+    sap_due: dict[str, dict] = {}
+    for got in done:
+        for sku, qty, m, state in got.get('sap_rows', ()):
+            if not m or skipped(sku) or state not in ('left', 'due'):
+                continue
+            into = sap_left if state == 'left' else sap_due
+            into.setdefault(m, {})
+            k = key_norm(sku)
+            into[m][k] = into[m].get(k, 0.0) + qty
 
     print('\n' + '=' * 72)
     print('revenue by the month the goods actually left, pooled over '
@@ -490,8 +516,13 @@ def settle(folder, args, done):
                     sum(abs(pred.get(k, 0.0) - sold.get(k, 0.0))
                         for k in set(pred) | set(sold)))
 
+        sap_both = {}
+        for src in (sap_left.get(m, {}), sap_due.get(m, {})):
+            for k, v in src.items():
+                sap_both[k] = sap_both.get(k, 0.0) + v
         gone_u, gone_e = score(by_month.get(m, {}))
         both_u, both_e = score(both)
+        sap_u, sap_e = score(sap_both)
         print(f'\n{pp.name} - {m}, {args.online or "every channel"}: '
               f'{actual:,.0f} units over {len(sold):,} product(s)')
         print(f'  {"goods issue in " + m:<34} {"units":>10} {"vs sales":>9} '
@@ -499,9 +530,16 @@ def settle(folder, args, done):
         print(f'  {"left - measured":<34} {gone_u:>10,.0f} '
               f'{gone_u / actual * 100:>8.1f}% {gone_e / actual * 100:>15.1f}%')
         if both_u != gone_u:
-            print(f'  {"left + due to leave":<34} {both_u:>10,.0f} '
+            print(f'  {"left + due, through the store join":<34} {both_u:>10,.0f} '
                   f'{both_u / actual * 100:>8.1f}% '
                   f'{both_e / actual * 100:>15.1f}%')
+        if sap_u:
+            print(f'  {"left + due, SAP alone":<34} {sap_u:>10,.0f} '
+                  f'{sap_u / actual * 100:>8.1f}% '
+                  f'{sap_e / actual * 100:>15.1f}%')
+            print('  SAP alone needs no join, so it loses nothing to an order '
+                  'split or to a line\n  whose product did not match - every '
+                  'store-referenced line counted as it stands.')
         print('  No status was read and no carry-over was inferred: a unit is in '
               'the month its\n  goods issue fell in. Compare with '
               "docs/COHORT.md's figures for the same month.")
