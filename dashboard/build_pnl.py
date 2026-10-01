@@ -293,18 +293,32 @@ def build_month(folder, target, args):
                  'to account for it exactly'))
 
     # ── masters ────────────────────────────────────────────────────────────
-    cust = prod = {}
-    cp = pick_latest(folder, 'customer')
-    if cp:
-        want = {slot: names for _, slot, names in CUST.LEVELS if names}
-        want['account'] = CUST.ACCOUNT_NAMES
-        cust = master(cp, ('Sold-To', 'sold To', 'sold_to'), want)
-        print(f'\ncustomer master: {len(cust):,} accounts')
-    pp = pick_latest(folder, 'product')
-    if pp:
-        prod = master(pp, ('SKU', 'sku', 'Material'),
-                      {slot: names for _, slot, names in PRODUCT_LEVELS})
-        print(f'product master: {len(prod):,} products')
+    # The newest name is not always the readable one: a workbook saved in a
+    # format this build cannot open sits in the folder beside a perfectly good
+    # csv. So the candidates are tried in turn and the first that reads wins,
+    # with the ones passed over named rather than silently skipped.
+    def read_master(prefix, keys, want):
+        for cand in pick_series(folder, prefix):
+            try:
+                got = master(cand, keys, want)
+            except (ValueError, OSError) as e:
+                print(f'  {cand.name}: {e}\n    - trying the next {prefix} '
+                      'export')
+                continue
+            if got:
+                return cand, got
+        return None, {}
+
+    print()
+    want = {slot: names for _, slot, names in CUST.LEVELS if names}
+    want['account'] = CUST.ACCOUNT_NAMES
+    cp, cust = read_master('customer', ('Sold-To', 'sold To', 'sold_to'), want)
+    print(f'customer master: {cp.name}, {len(cust):,} accounts' if cp
+          else 'no customer master could be read')
+    pp, prod = read_master('product', ('SKU', 'sku', 'Material'),
+                           {slot: names for _, slot, names in PRODUCT_LEVELS})
+    print(f'product master: {pp.name}, {len(prod):,} products' if pp
+          else 'no product master could be read')
 
     c_key = find(head, 'Payer', 'sold To', 'Sold-To', 'Customer', 'Customer Code',
                  'Payer Code', 'Sold To Party')

@@ -395,7 +395,12 @@ def pick_series(folder: Path, prefix: str) -> list:
     def rank(p):
         fmt = (FORMAT_ORDER.index(p.suffix.lower())
                if p.suffix.lower() in FORMAT_ORDER else len(FORMAT_ORDER))
-        return ([-int(n) for n in re.findall(r'\d+', p.stem)], fmt, p.name)
+        # Negated so the highest number sorts first, and padded so that a longer
+        # run of numbers sorts first too: profit_2608_3 is a later cut of the
+        # same month than profit_2608, and without the padding the shorter name
+        # would win on being shorter.
+        nums = [-int(n) for n in re.findall(r'\d+', p.stem)]
+        return (tuple(nums + [0] * (8 - len(nums)))[:8], fmt, p.name)
     return sorted(hits, key=rank)
 
 
