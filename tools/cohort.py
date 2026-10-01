@@ -761,14 +761,27 @@ def main() -> int:
     carry_out = sum((aug_carry if best_signed else aug_rest).values())
     own = sum((aug_signed if best_signed else aug_done).values())
     print(f'\nthe month in and out, on the winning reading')
-    print(f'  {after.name} completed in its own month   {own:>10,.0f} units '
+    print(f'  {"booked on its own orders":<38} {own:>10,.0f} units '
           f'{own / actual * 100:>5.0f}% of what was sold')
-    print(f'  carried in from {before.name:<22} {carry_in:>10,.0f} units '
+    print(f'  {"carried in from " + before.name:<38} {carry_in:>10,.0f} units '
           f'{carry_in / actual * 100:>5.0f}%')
-    print(f'  carried out, still open at month end   {carry_out:>10,.0f} units '
+    print(f'  {"carried out, open at month end":<38} {carry_out:>10,.0f} units '
           f'{carry_out / actual * 100:>5.0f}%')
+    # What neither bucket accounts for. Naming it beats modelling it: with two
+    # testable months there is no way to fit a second carry term and know it is
+    # real rather than fitted, and an unnamed residual is the thing that quietly
+    # becomes someone's conclusion.
+    rest = actual - own - carry_in
+    print(f'  {"neither of those":<38} {rest:>+10,.0f} units '
+          f'{rest / actual * 100:>+5.0f}%')
+    print('    sold in the month, from neither its own orders nor last month\'s '
+          'leftovers:\n    an older vintage still landing, or an order whose '
+          'product code is not the one\n    the sale is under. It is one number '
+          'rather than a model, because two months\n    cannot tell a second '
+          'carry term from a fitted one.')
+
     net = carry_in - carry_out
-    print(f'  net                                    {net:>+10,.0f} units '
+    print(f'  {"net carry":<38} {net:>+10,.0f} units '
           f'{net / actual * 100:>+5.0f}%')
     if abs(net) > actual * 0.05:
         print('  the month took in more than it handed on, so its revenue is '

@@ -195,6 +195,22 @@ make it carry too much also means the month **before last** can still be landing
 orders, which this model does not carry at all. That is the other end of the
 same observation, and it is the one that shows up as a shortfall.
 
+## The leftover is named, not modelled
+
+The month-in-and-out block ends on **neither of those**: what the month sold that
+came from neither its own orders nor last month's leftovers. An older vintage
+still landing, or an order sitting under a product code the sale is not under.
+
+It stays one number on purpose. Fitting a second carry term - what lands the
+month after next, and at what rate - needs more months to test it on than exist
+here, and a term fitted on the only months available cannot be told apart from
+one that is real. A residual that is named and watched is worth more than a
+parameter that is fitted and believed.
+
+If it is small and stable across months, it is noise to live with. If it grows,
+that is when it has earned a model - and by then there will be months to test
+one on.
+
 ## The one test it was not fitted to
 
 ```
