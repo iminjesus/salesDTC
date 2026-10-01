@@ -51,8 +51,14 @@ S_GI = ('Goods Issue Date', 'Actual GI Date', 'Despatch Date')
 S_DEL = ('Delivery Date', 'Requested Delivery Date')
 S_MADE = ('Created On', 'Creation Date', 'Entered On')
 S_WHO = ('Sold-To Party Name', 'Sold-to Party Name', 'Customer Name')
-S_STATUS = ('Overall Status Item Description', 'Overall Status',
-            'Overall Delivery Status Item Description')
+S_STATUS = ('Overall Status Item Description', 'Overall Status')
+S_DSTAT = ('Overall Delivery Status Item Description',
+           'Overall Delivery Status (All Items)')
+# SAP fills Goods Issue Date on every schedule line. On one that has gone it is
+# the day it went; on one that has not it is the day it is meant to go. A date
+# past the day the export was taken is a plan whatever the status says, and the
+# two are never added together - see docs/DESPATCH.md.
+DELIVERED = ('COMPLETED', 'DELIVERED', 'FULLY DELIVERED')
 
 # The store's own export.
 D_ORDER = ('Order Code', 'Order No', 'Order Number', 'Order ID', 'order_code')
@@ -131,7 +137,7 @@ def main() -> int:
         got = {k: find(head, *v) for k, v in
                {'ref': S_REF, 'doc': S_DOC, 'sku': S_SKU, 'qty': S_QTY,
                 'amt': S_AMT, 'gi': S_GI, 'del': S_DEL, 'made': S_MADE,
-                'who': S_WHO, 'status': S_STATUS}.items()}
+                'who': S_WHO, 'status': S_STATUS, 'dstat': S_DSTAT}.items()}
         missing = [k for k in ('ref', 'gi', 'made') if got[k] is None]
         print(f'  {cand.name}: {info["format"]}, {len(rows) - 1:,} rows, '
               f'{len(head)} columns'
@@ -160,8 +166,12 @@ def main() -> int:
     ym = (max(collections.Counter(d.year * 100 + d.month for d in made).items(),
               key=lambda kv: kv[1])[0] if made
           else month_of(s_head, s_body, sp.stem, say=lambda *a: None))
+    # The day the export was taken, which is the line between what happened and
+    # what is only scheduled. The last order it recorded is the best proxy.
+    asof = max(made) if made else None
     if made:
-        print(f'  created {min(made)} .. {max(made)}  -> the {ym} export')
+        print(f'  created {min(made)} .. {max(made)}  -> the {ym} export, '
+              f'taken on or about {asof}')
 
     dp = pick_file(folder, args.dtc or (month_name(ym) if ym else ''))
     if dp is None:
@@ -243,15 +253,19 @@ def main() -> int:
                 if order_key(cell(x, S['sku'])) == order_key(sku)] or sap
         if not sap:
             hit['no SAP document'] += 1
-            rows_out.append((cell(r, D['order']), sku, qty, '', '', '', ''))
+            rows_out.append((cell(r, D['order']), sku, qty, '', '', '',
+                             'no SAP document', ''))
             continue
         hit['matched' if mine is not sap else 'matched, product differs'] += 1
         for x in mine[:1]:
             seen_sap.add(id(x))
             gi = to_date(cell(x, S['gi']))
+            left = bool(gi) and cell(x, S['dstat']).upper() in DELIVERED \
+                and (not asof or gi <= asof)
             rows_out.append((cell(r, D['order']), sku, qty,
                              cell(x, S['doc']), cell(x, S['gi']),
                              gi.strftime('%Y-%m') if gi else '',
+                             'left' if left else 'due' if gi else 'no date',
                              cell(x, S['status'])))
     total = sum(hit.values())
     print(f'\njoined {dp.name} -> {sp.name}')
@@ -265,29 +279,46 @@ def main() -> int:
           'kept once)')
 
     # ── the payoff: which month did it actually leave in? ──────────────────
-    by_month = collections.Counter()
-    units = collections.Counter()
-    for _, _, qty, _, _, m, _ in rows_out:
-        by_month[m or '(not despatched / unmatched)'] += 1
-        units[m or '(not despatched / unmatched)'] += qty
-    print('\nwhen the store\'s orders actually left, read off Goods Issue Date:')
-    for m, n in sorted(by_month.items()):
-        print(f'  {m:<28} {n:>8,} line(s) {units[m]:>10,.0f} units')
-    own = units.get(f'{ym // 100}-{ym % 100:02d}', 0.0) if ym else 0.0
-    tot = sum(units.values())
+    went = collections.Counter()
+    due = collections.Counter()
+    nothing = 0.0
+    for _, _, qty, _, _, m, state, _ in rows_out:
+        if state == 'left':
+            went[m] += qty
+        elif state == 'due':
+            due[m] += qty
+        else:
+            nothing += qty
+    print('\nwhen the store\'s orders left, read off Goods Issue Date')
+    print(f'  (a date after {asof} is when a line is meant to go, not when it '
+          'went - counted apart)')
+    print(f'  {"":<12} {"left":>12} {"due to leave":>14}')
+    for m in sorted(set(went) | set(due)):
+        own = ym and m == f'{ym // 100}-{ym % 100:02d}'
+        print(f'  {m:<12} {went.get(m, 0):>12,.0f} {due.get(m, 0):>14,.0f}'
+              + ('   <- the month they were ordered' if own else ''))
+    if nothing:
+        print(f'  {"no date":<12} {"":>12} {nothing:>14,.0f}')
+    own = went.get(f'{ym // 100}-{ym % 100:02d}', 0.0) if ym else 0.0
+    tot = sum(went.values()) + sum(due.values()) + nothing
     if tot:
-        print(f'\n  {own:,.0f} of {tot:,.0f} units ({own / tot * 100:.0f}%) left '
+        later = sum(v for k, v in went.items()
+                    if ym and k > f'{ym // 100}-{ym % 100:02d}')
+        print(f'\n  {own / tot * 100:.0f}% of these orders had left by {asof}, '
               'in the month they were ordered.')
-        print('  The rest is the carry-over the cohort test had to infer. This '
-              'is it measured.')
+        if later:
+            print(f'  {later / tot * 100:.0f}% had already left in a later one.')
+        print(f'  {(sum(due.values()) + nothing) / tot * 100:.0f}% had not left '
+              'yet. This is the carry-over the cohort\n  test had to infer - '
+              'part of it measured, the rest still only scheduled.')
 
     if args.sample:
         print(f'\nmatched, first {args.sample}:')
         print(f'  {"store order":<22} {"product":<18} {"SAP doc":<12} '
-              f'{"goods issue":<12} status')
+              f'{"goods issue":<12} {"":<8} SAP status')
         for row in [r for r in rows_out if r[3]][:args.sample]:
             print(f'  {row[0][:22]:<22} {row[1][:18]:<18} {row[3]:<12} '
-                  f'{row[4]:<12} {row[6]}')
+                  f'{row[4]:<12} {row[6]:<8} {row[7]}')
         miss = [r for r in rows_out if not r[3]]
         if miss:
             print(f'\nunmatched, first {args.sample}:')
@@ -300,7 +331,8 @@ def main() -> int:
     with out.open('w', newline='', encoding='utf-8-sig') as fh:
         w = csv.writer(fh)
         w.writerow(['store order', 'product', 'units', 'sap document',
-                    'goods issue date', 'goods issue month', 'sap status'])
+                    'goods issue date', 'goods issue month',
+                    'left or due', 'sap status'])
         w.writerows(rows_out)
     print(f'\n-> {out.resolve()}')
     return 0
