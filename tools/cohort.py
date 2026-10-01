@@ -187,7 +187,81 @@ def describe(s: Side, done: set, say=print) -> None:
         'left, and then it cannot say when anything moved.')
 
 
+def ages(side, pos, neg, skipped):
+    """How long each line had been waiting when the export was taken.
+
+    The snapshot is the file's last order date. A line ordered on the 1st and
+    still unfinished on the 31st has waited 30 days; one ordered on the 30th has
+    waited 1. They are not the same thing at all - the second is the ordinary
+    pipeline, the first has already failed to move for a month - and carrying
+    both into the next month at full weight assumes they are.
+    """
+    lo, hi = side.span()
+    if not hi:
+        return None
+    out = []
+    for _, sku, st, qty, _, d in side.lines:
+        if skipped(sku) or not d:
+            continue
+        out.append(((hi - d).days, booking(st, pos, neg), qty, sku))
+    return out
+
+
+BANDS = ((0, 3), (4, 7), (8, 14), (15, 21), (22, 31), (32, 10_000))
+
+
+def band_of(age):
+    for lo, hi in BANDS:
+        if lo <= age <= hi:
+            return (lo, hi)
+    return BANDS[-1]
+
+
+def say_ages(side, rows, say=print):
+    """Two readings of the same lines: how fast the month settles, and how old
+    what it hands on already is."""
+    if not rows:
+        say(f'\n{side.name}: no order date could be read, so nothing can be '
+            'said about how long things take')
+        return
+    tot: dict = {}
+    for age, verdict, qty, _ in rows:
+        b = band_of(age)
+        t = tot.setdefault(b, [0.0, 0.0])
+        t[0] += qty
+        if verdict != 'carry':
+            t[1] += qty
+    say(f'\nhow long {side.name} took to settle, by how old the order was at '
+        'month end')
+    say(f'  {"waited":<12} {"units":>10} {"settled":>10} {"still open":>12}')
+    for b in BANDS:
+        t = tot.get(b)
+        if not t or not t[0]:
+            continue
+        lo, hi = b
+        label = f'{lo}-{hi} days' if hi < 10_000 else f'{lo}+ days'
+        say(f'  {label:<12} {t[0]:>10,.0f} {t[1] / t[0] * 100:>9.0f}% '
+            f'{t[0] - t[1]:>12,.0f}')
+    say('  "settled" is the share that had booked or been returned by the '
+        'snapshot. It is the\n  only thing either export says about how long '
+        'fulfilment takes, and it says it\n  without a shipping date, by '
+        'reading age against status.')
+
+    carried = [(age, qty) for age, verdict, qty, _ in rows if verdict == 'carry']
+    total = sum(q for _, q in carried)
+    if not total:
+        return
+    old = sum(q for age, q in carried if age >= 22)
+    say(f'\n  of the {total:,.0f} unit(s) it carries on, {old:,.0f} '
+        f'({old / total * 100:.0f}%) had already waited 22 days or more.')
+    say('  Those are not next month\'s pipeline - they are orders that have '
+        'already failed to\n  move for most of a month, and carrying them at '
+        'full weight assumes they will.')
+
+
 def main() -> int:
+
+
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata')
@@ -621,6 +695,39 @@ def main() -> int:
         print('  a product that is ordered every month and never sold is usually '
               'not merchandise -\n  a service plan, a subscription, a bundle '
               'header. --skip-sku PREFIX leaves them out.')
+
+    # ── does age explain what is left over? ────────────────────────────────
+    a_rows = ages(after, pos, neg, skipped)
+    b_rows = ages(before, pos, neg, skipped)
+    say_ages(after, a_rows)
+    say_ages(before, b_rows)
+
+    # If an old open order is less likely to land next month than a fresh one,
+    # carrying less of it should fit better. Sweeping the cutoff says whether
+    # that is true here, instead of leaving it an argument about plausibility.
+    if b_rows:
+        print('\ncarrying only the fresher part of what ' + before.name
+              + ' left open')
+        print(f'  {"carried if it had waited":<30} {"units":>11} {"vs sales":>9} '
+              f'{"per-product err":>16}')
+        for cut in (None, 31, 21, 14, 7):
+            carry: dict = {}
+            for age, verdict, qty, sku in b_rows:
+                if verdict != 'carry' or (cut is not None and age > cut):
+                    continue
+                carry[sku] = carry.get(sku, 0.0) + qty
+            pred2 = merge(aug_signed, carry)
+            tot2 = sum(pred2.values())
+            err2 = sum(abs(pred2.get(k, 0.0) - sales.get(k, 0.0))
+                       for k in set(pred2) | set(sales))
+            label = 'all of it' if cut is None else f'{cut} days or less'
+            print(f'  {label:<30} {tot2:>11,.0f} '
+                  f'{(tot2 / actual * 100 if actual else 0):>8.1f}% '
+                  f'{err2 / actual * 100 if actual else 0:>15.1f}%')
+        print('  A cutoff that fits better means an order left waiting is less '
+              'likely to land the\n  next month than a fresh one, and the model '
+              'should discount it. A cutoff that\n  fits worse means the wait '
+              'is not what is breaking the month.')
 
     # ── how the two readings of the status list differ ─────────────────────
     # Gross, off the lines: the per-product buckets are already netted, so a

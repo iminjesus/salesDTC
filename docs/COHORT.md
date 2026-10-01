@@ -169,6 +169,32 @@ September's units under an August heading:
 Both readings are written for every product, so the row reconciles whichever
 rule won.
 
+## How long the wait is, without a shipping date
+
+An order placed on the 1st and still unfinished on the 31st has waited 30 days.
+One placed on the 30th has waited 1. They are not the same thing - the second is
+the ordinary pipeline, the first has already failed to move for a month - and
+carrying both into the next month at full weight assumes they are.
+
+Reading **age against status** measures that without any shipping date at all.
+For orders placed `T` days before the snapshot, what share had settled by it?
+That curve is how long fulfilment takes, and the run prints it for both months,
+then says how much of what each one carries on had **already waited 22 days or
+more**.
+
+Then it sweeps a cutoff: carry only what had waited 7, 14, 21, 31 days or less,
+and score each.
+
+- A cutoff that **fits better** means a waiting order is less likely to land next
+  month than a fresh one, and the model should discount it.
+- A cutoff that **fits worse** means the wait is not what is breaking the month.
+
+Watch which way the total moves. A model that is already **under** the month
+cannot be fixed by carrying *less* into it - and the same long wait that would
+make it carry too much also means the month **before last** can still be landing
+orders, which this model does not carry at all. That is the other end of the
+same observation, and it is the one that shows up as a shortfall.
+
 ## The one test it was not fitted to
 
 ```
