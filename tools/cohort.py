@@ -521,9 +521,13 @@ def main() -> int:
         err = sum(abs(pred.get(k, 0.0) - sales.get(k, 0.0))
                   for k in set(pred) | set(sales))
         rel = err / actual if actual else 0
-        scored.append((rel, name, why, pred, total))
+        # Two rules that round to the same error are not the same rule, and
+        # which one came first in the list is no way to choose between them -
+        # so the total is the tie-break, and both are printed to a decimal.
+        off = abs(total / actual - 1) if actual else 0
+        scored.append((round(rel, 4), off, name, why, pred, total))
         print(f'  {name[:44]:<44} {total:>11,.0f} '
-              f'{(total / actual * 100 if actual else 0):>8.0f}% {rel * 100:>15.0f}%')
+              f'{(total / actual * 100 if actual else 0):>8.1f}% {rel * 100:>15.1f}%')
     print('  "vs sales" is the total against the profit file; "per-product err" '
           'adds up every\n  product\'s miss in both directions, so a rule that '
           'is right in total and wrong\n  product by product cannot hide behind '
@@ -534,21 +538,27 @@ def main() -> int:
         return 1
     scored.sort()
     best = scored[0]
-    rel, name, why, pred, total = best
+    rel, off, name, why, pred, total = best
     print(f'\nbest fit: {name}')
     print(f'  {why}')
     print(f'  {total:,.0f} units against the profit file\'s {actual:,.0f} '
-          f'({total / actual * 100:.0f}%), missing {rel * 100:.0f}% of the month '
+          f'({total / actual * 100:.1f}%), missing {rel * 100:.1f}% of the month '
           'once every product is counted both ways')
     second = scored[1] if len(scored) > 1 else None
     if second:
-        print(f'  next best is {second[1]} at {second[0] * 100:.0f}%'
-              + (' - too close to call between them'
-                 if second[0] - rel < 0.03 else ''))
+        close = second[0] - rel < 0.005
+        print(f'  next best is {second[2]} at {second[0] * 100:.1f}%'
+              + (f', which is the same answer to within a rounding error.\n  '
+                 f'{name} wins it on the total '
+                 f'({total / actual * 100:.1f}% against '
+                 f'{second[5] / actual * 100:.1f}%), and nothing else separates '
+                 'them' if close else ''))
 
-    hyp = [s for s in scored if s[1].startswith(f'{now} COMPLETED + {was}')
-           and 'COMPLETED + ' + was + ' COMPLETED' not in s[1]]
-    plain = [s for s in scored if s[1] == f'{now} COMPLETED only']
+    hyp = [s for s in scored
+           if (s[2].startswith(f'{now} COMPLETED + {was}')
+               or s[2].startswith(f'{now} signed'))
+           and 'COMPLETED + ' + was + ' COMPLETED' not in s[2]]
+    plain = [s for s in scored if s[2] == f'{now} COMPLETED only']
     if hyp and plain:
         better = min(h[0] for h in hyp) < plain[0][0]
         print(f'\nthe hypothesis: adding {was}\'s unfinished orders '
@@ -607,9 +617,9 @@ def main() -> int:
               + (f'{b:>12,.0f}' if b is not None else f'{"":>12}'))
 
     # ── the month's timing, which is what all of this was for ──────────────
-    best_signed = best[1].endswith('had not finished') or 'cancelled dropped' in best[1]
-    carry_in = sum((jul_carry if best[1].endswith('had not finished')
-                    else jul_carry_live if 'cancelled dropped' in best[1]
+    best_signed = best[2].startswith(f'{now} signed')
+    carry_in = sum((jul_carry if best[2].endswith('had not finished')
+                    else jul_carry_live if 'cancelled dropped' in best[2]
                     else jul_open).values())
     carry_out = sum((aug_carry if best_signed else aug_rest).values())
     own = sum((aug_signed if best_signed else aug_done).values())
