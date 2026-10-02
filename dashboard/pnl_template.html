@@ -1052,7 +1052,10 @@ const barValues = {
 const pointLabels = {
   id: 'pointLabels',
   afterDatasetsDraw(c) {
-    const i = c.data.datasets.findIndex(d => d.type === 'line');
+    // Only the line that asks for it. The split draws one dotted line per
+    // member as well, and labelling all of them would bury the chart it is
+    // drawn over.
+    const i = c.data.datasets.findIndex(d => d.type === 'line' && d.labelPoints);
     if (i < 0) return;
     const { ctx } = c;
     ctx.save();
@@ -1171,6 +1174,15 @@ function drawStack() {
   const fin = DATA.months.map(() => ({ qty: 0, net: 0, gross: 0, profit: 0,
                                        deduction: 0, cogs: 0, opex: 0 }));
   const stackTotal = new Map();
+  // Each member's own profit and its own denominator, month by month, so the
+  // split can carry a margin per band and not just a size per band.
+  const finBy = new Map();
+  const slotFor = g => {
+    let a = finBy.get(g);
+    if (!a) finBy.set(g, a = DATA.months.map(() => ({ profit: 0, net: 0,
+                                                      gross: 0 })));
+    return a;
+  };
   /* Costs are carried negative in the export. The whole figure is flipped when
      its total is, so a cost stack stands up like the others - and a member that
      really does run the other way still points the other way inside it. */
@@ -1183,6 +1195,10 @@ function drawStack() {
     }
     if (pnlMode || sl === undefined) continue;
     const g = DATA.levels[sl].values[c.k[sl]];
+    const b = slotFor(g)[c.m];
+    for (const k of ['profit', 'net', 'gross']) {
+      if (has[k] !== undefined) b[k] += c.v[has[k]];
+    }
     const v = fig === undefined ? 0 : c.v[fig] * flip;
     const row = xs[c.m].row;
     row.set(g, (row.get(g) || 0) + v);
@@ -1242,22 +1258,42 @@ function drawStack() {
   }
   const denom = has.net !== undefined ? label('net') : label('gross');
   const hasLine = has.profit !== undefined;
+  const marginOf = f => {
+    const base = f.net || f.gross;
+    return base ? f.profit / base * 100 : null;
+  };
   if (hasLine) {
     series.push({
       type: 'line', label: `${label('profit')} % of ${denom}`, yAxisID: 'y1',
-      data: xs.map(r => {
-        const f = fin[r.mi];
-        const base = f.net || f.gross;
-        return base ? f.profit / base * 100 : null;
-      }),
+      data: xs.map(r => marginOf(fin[r.mi])),
       borderColor: C.profit, backgroundColor: C.profit, borderWidth: 2,
       pointRadius: 4, pointHoverRadius: 7, tension: .25, fill: false,
-      spanGaps: true, order: -1,
+      spanGaps: true, order: -1, labelPoints: true,
     });
+    // And one per band, dotted, in the band's own colour. Solid is the slice
+    // as a whole; dotted is a member of it. A stacked bar says how big each
+    // member is and says nothing about how well it did - two members of the
+    // same size can be a long way apart on margin, and that is usually the
+    // question the sizes raise.
+    if (!pnlMode) {
+      named.forEach((g, i) => {
+        const a = finBy.get(g);
+        if (!a) return;
+        series.push({
+          type: 'line', label: `${g} margin`, yAxisID: 'y1',
+          data: xs.map(r => marginOf(a[r.mi])),
+          borderColor: C.stack[i], backgroundColor: C.stack[i],
+          borderWidth: 1.5, borderDash: [4, 3],
+          pointRadius: 2, pointHoverRadius: 6, tension: .25, fill: false,
+          spanGaps: true, order: -1, bandLine: true,
+        });
+      });
+    }
   }
 
-  document.getElementById('stkLegend').innerHTML = series.map(d =>
-    `<span><i style="background:${d.type === 'line' ? d.borderColor
+  document.getElementById('stkLegend').innerHTML = series
+    .filter(d => !d.bandLine)        // the band's own colour already names it
+    .map(d => `<span><i style="background:${d.type === 'line' ? d.borderColor
       : d.backgroundColor}"></i>${d.label}</span>`).join('');
   // Expanded, the stylesheet gives the plot the window; the inline height set
   // here would win over it, so it steps aside.
@@ -1368,8 +1404,12 @@ function drawStack() {
           + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
                       + 'have a colour of their own, the same colour in every '
                       + 'month; the rest are folded into Other.' : '.'))
-    + (hasLine ? ` The line is ${label('profit')} over ${denom}, each point `
-                 + 'carrying its own figure.' : '')
+    + (hasLine ? ` The solid line is ${label('profit')} over ${denom} for the `
+                 + 'whole slice, each point carrying its own figure'
+                 + (pnlMode ? '.'
+                    : '; the dotted lines are the same margin for each band, in '
+                      + 'the band\'s own colour - two bands the same size can '
+                      + 'be a long way apart on it.') : '')
     + (canDrill ? ` Click a band to keep only that ${DATA.levels[sl].name}`
                   + (slNext === null ? '.'
                      : `; the split then steps down to ${DATA.levels[slNext].name}.`)

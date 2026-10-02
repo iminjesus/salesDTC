@@ -317,7 +317,15 @@ So there is one chart, and **Figure** chooses what it draws:
 The profit line is on both, each point labelled with its own figure, so
 switching between them never loses it. There is no right-hand axis: a line that
 writes its value over every point has nothing left for a scale to say, and
-dropping it gives the bars the width back. Choosing **Qty** therefore gives the units split with the profit
+dropping it gives the bars the width back.
+
+**Solid is the whole slice; dotted is a band of it.** Where the bars are split,
+each band also gets its margin as a dotted line in its own colour. A stacked bar
+says how big every member is and nothing at all about how well it did - and two
+members the same size can be a long way apart on margin, which is usually the
+question the sizes raise. Only the solid line's points are labelled; eight
+labelled lines would bury the chart they are drawn over, and the dotted ones
+are read against it rather than off a number. Choosing **Qty** therefore gives the units split with the profit
 line over it and **no cost bars**: costs share no scale with a count of units,
 and the same goes for a bar normalised to 100%.
 
