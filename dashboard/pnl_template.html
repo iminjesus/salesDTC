@@ -167,6 +167,22 @@ select:disabled { opacity: .5; }
 .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block;
   margin-right: 6px; vertical-align: -1px; }
 .chart { position: relative; height: 420px; }
+/* The chart's own controls, over its top-right corner. Back is in the menu too,
+   but by the time you have drilled three levels the menu is a long way from the
+   bar you just clicked, and the step back belongs next to the step in. */
+.tools { position: absolute; top: 0; right: 0; z-index: 2; display: flex;
+  gap: 4px; }
+.ctl { font: inherit; font-size: 12px; line-height: 1; padding: 5px 8px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--surface);
+  color: var(--ink-2); cursor: pointer; }
+.ctl:hover:not(:disabled) { border-color: var(--ink-3); color: var(--ink); }
+.ctl:disabled { opacity: .35; cursor: default; }
+/* Zoomed: the card takes the window and everything else stands down, so one
+   chart gets the whole screen rather than a bigger share of a crowded page. */
+body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
+.card.zoom { position: fixed; inset: 10px; z-index: 50; margin: 0;
+  overflow: auto; box-shadow: 0 10px 40px rgba(0,0,0,.18); }
+.card.zoom .chart { height: calc(100vh - 160px) !important; }
 .hint { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
 table { border-collapse: collapse; width: 100%; font-size: 13px;
   font-variant-numeric: tabular-nums; }
@@ -213,9 +229,14 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="scope" id="scope"></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="stkCard">
     <div class="legend" id="stkLegend"></div>
-    <div class="chart" id="stkPlot"><canvas id="stkBars"></canvas></div>
+    <div class="chart" id="stkPlot">
+      <div class="tools">
+        <button class="ctl" id="stkBack" title="Widen the deepest narrowing">&larr; Back</button>
+        <button class="ctl" id="stkZoom" title="Show only this chart, with every value labelled">&#x2921; Expand</button>
+      </div>
+      <canvas id="stkBars"></canvas></div>
     <div class="hint" id="stkHint"></div>
   </div>
 
@@ -231,7 +252,11 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         ><button class="btn" id="ordAmt" title="the profit file's gross sales, shared over the same units, so this chart and the one above are on the same money">Amounts</button></span></label>
     </div>
     <div class="legend" id="ordLegend"></div>
-    <div class="chart" id="ordPlot"><canvas id="ordBars"></canvas></div>
+    <div class="chart" id="ordPlot">
+      <div class="tools">
+        <button class="ctl" id="ordZoom" title="Show only this chart, with every value labelled">&#x2921; Expand</button>
+      </div>
+      <canvas id="ordBars"></canvas></div>
     <div class="hint" id="ordHint"></div>
   </div>
 
@@ -374,6 +399,9 @@ const state = {
   // 'amount' compares sizes between bars; 'pct' normalises every bar to 100%
   // and compares the mix inside them, which a tall bar otherwise drowns out.
   stkScale: 'amount',
+  // Which chart, if any, has the window to itself. Expanding is also what
+  // turns the per-bar numbers on: that is the room they need.
+  zoom: null,
   // The orders chart counts units, which is what the two exports agree on.
   // Amounts put it on the same money as the chart above so the two can be
   // read against each other - the profit file's gross, shared out over the
@@ -885,7 +913,16 @@ function render() {
   const sl = splitLevel();
   step(sl === null ? 'by month' : `by month, split by ${DATA.levels[sl].name}`,
        null);
-  document.getElementById('backBtn').disabled = !state.filter.some(v => v >= 0);
+  const atTop = !state.filter.some(v => v >= 0);
+  document.getElementById('backBtn').disabled = atTop;
+  document.getElementById('stkBack').disabled = atTop;
+  ['stkZoom', 'ordZoom'].forEach((id, i) => {
+    const b = document.getElementById(id);
+    const mine = state.zoom === (i ? 'ord' : 'stk');
+    b.innerHTML = mine ? '&#x2715; Close' : '&#x2921; Expand';
+    b.title = mine ? 'Back to the whole page'
+                   : 'Show only this chart, with every value labelled';
+  });
 
   document.getElementById('tableBtn').classList.toggle('active', state.table);
   // The basis only exists where an order export was read alongside the profit.
@@ -966,6 +1003,50 @@ function splitStrip() {
     slice rather than the month.</div>`;
 }
 
+/* Every bar's own number, written inside it. Off by default - on a page with
+   three charts it is clutter - and on when a chart is expanded, which is the
+   moment there is room for it and the reason anyone expanded it. A segment too
+   short to hold its text is left alone rather than given a number that spills
+   over its neighbours. */
+const barValues = {
+  id: 'barValues',
+  afterDatasetsDraw(c) {
+    const o = c.options.plugins.barValues;
+    if (!o || !o.on) return;
+    const { ctx } = c;
+    ctx.save();
+    ctx.font = '600 10px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    c.data.datasets.forEach((d, i) => {
+      if (d.type === 'line') return;
+      const meta = c.getDatasetMeta(i);
+      if (meta.hidden) return;
+      meta.data.forEach((el, j) => {
+        const v = d.data[j];
+        if (v == null || !v) return;
+        const h = Math.abs((el.base ?? el.y) - el.y);
+        if (h < 15) return;                 // no room: a number here would lie
+        const text = o.pct ? `${v.toFixed(1)}%` : fmt(v);
+        const w = ctx.measureText(text).width;
+        // A little overhang is fine - the plate sits over the bar either way.
+        // Twice the bar's width is not: that would read as the neighbour's.
+        if (w > (el.width || 0) + 12) return;
+        const y = (el.y + (el.base ?? el.y)) / 2;
+        ctx.globalAlpha = .88;
+        ctx.fillStyle = C.surface;
+        ctx.beginPath();
+        ctx.roundRect(el.x - w / 2 - 4, y - 8, w + 8, 16, 4);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = C.ink;
+        ctx.fillText(text, el.x, y + 1);
+      });
+    });
+    ctx.restore();
+  }
+};
+
 /* The percentage above each point of the line, on a plate in the surface
    colour so it stays readable where the line crosses a bar. */
 const pointLabels = {
@@ -1027,8 +1108,8 @@ function draw() {
      else  one bar a month, split by the level the drill is on - who it came
            from. Clicking a segment narrows to it and steps the split down.
 
-   The profit line is on both, on the right-hand scale, so switching never
-   loses it. */
+   The profit line is on both, each point carrying its own figure, so
+   switching never loses it. */
 let stkChart = null;
 function drawStack() {
   // The level that splits each bar. P&L has no split, so it ignores this.
@@ -1178,7 +1259,10 @@ function drawStack() {
   document.getElementById('stkLegend').innerHTML = series.map(d =>
     `<span><i style="background:${d.type === 'line' ? d.borderColor
       : d.backgroundColor}"></i>${d.label}</span>`).join('');
-  plot.style.height = Math.max(340, Math.min(560, xs.length * 46 + 180)) + 'px';
+  // Expanded, the stylesheet gives the plot the window; the inline height set
+  // here would win over it, so it steps aside.
+  plot.style.height = state.zoom === 'stk' ? ''
+    : Math.max(340, Math.min(560, xs.length * 46 + 180)) + 'px';
 
   // Clicking a segment narrows to it. The x axis does not move - it is time -
   // so the same months come back with only that member in them, which is the
@@ -1187,7 +1271,7 @@ function drawStack() {
   if (stkChart) stkChart.destroy();
   stkChart = new Chart(document.getElementById('stkBars'), {
     type: 'bar', data: { labels: xs.map(r => r.name), datasets: series },
-    plugins: [pointLabels],
+    plugins: [pointLabels, barValues],
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
       interaction: { mode: 'index', intersect: false },
@@ -1212,7 +1296,9 @@ function drawStack() {
       scales: {
         // Two stack names on a stacked axis put the figure and the costs
         // side by side on the same tick; one name leaves a single bar centred.
-        x: { stacked: true, offset: pnlMode, grid: { display: false },
+        // offset is on in both: without it the first and last bars sit hard on
+        // the axis ends and lose half their width off the edge of the plot.
+        x: { stacked: true, offset: true, grid: { display: false },
              border: { display: false },
              ticks: { color: C.ink2, autoSkip: false, maxRotation: 0 } },
         y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
@@ -1225,14 +1311,16 @@ function drawStack() {
              ticks: { color: C.ink3,
                       callback: v => (pctMode ? `${v}%`
                                               : Number(v).toLocaleString()) } },
+        // The line carries its own value over every point, so the axis it is
+        // scaled against has nothing left to tell anyone. It stays as a scale
+        // and stops being drawn, which gives the bars the width back.
         ...(hasLine ? { y1: {
-          position: 'right', grid: { drawOnChartArea: false },
-          border: { display: false }, suggestedMin: -10, suggestedMax: 10,
-          title: { display: true, text: 'Profit %', color: C.ink3 },
-          ticks: { color: C.ink3, callback: v => `${v}%` } } } : {}),
+          display: false, position: 'right',
+          suggestedMin: -10, suggestedMax: 10 } } : {}),
       },
       plugins: {
         legend: { display: false },
+        barValues: { on: state.zoom === 'stk', pct: pctMode },
         tooltip: { backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
           filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
@@ -1280,8 +1368,8 @@ function drawStack() {
           + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
                       + 'have a colour of their own, the same colour in every '
                       + 'month; the rest are folded into Other.' : '.'))
-    + (hasLine ? ` The line is ${label('profit')} over ${denom}, on the `
-                 + 'right-hand scale.' : '')
+    + (hasLine ? ` The line is ${label('profit')} over ${denom}, each point `
+                 + 'carrying its own figure.' : '')
     + (canDrill ? ` Click a band to keep only that ${DATA.levels[sl].name}`
                   + (slNext === null ? '.'
                      : `; the split then steps down to ${DATA.levels[slNext].name}.`)
@@ -1412,13 +1500,14 @@ function drawOrders() {
     spanGaps: true, order: -1,
   });
   const plot = document.getElementById('ordPlot');
-  plot.style.height = Math.max(300, Math.min(460, rows.length * 54 + 130)) + 'px';
+  plot.style.height = state.zoom === 'ord' ? ''
+    : Math.max(300, Math.min(460, rows.length * 54 + 130)) + 'px';
 
   if (ordChart) ordChart.destroy();
   ordChart = new Chart(document.getElementById('ordBars'), {
     type: 'bar',
     data: { labels: rows.map(r => r.name), datasets },
-    plugins: [pointLabels, barTags],
+    plugins: [pointLabels, barTags, barValues],
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
       interaction: { mode: 'index', intersect: false },
@@ -1435,10 +1524,9 @@ function drawOrders() {
              ticks: { color: C.ink3,
                       callback: v => (money ? fmt(v)
                                             : Number(v).toLocaleString()) } },
-        y1: { position: 'right', beginAtZero: true, suggestedMax: 100,
-              grid: { drawOnChartArea: false }, border: { display: false },
-              title: { display: true, text: 'Own demand', color: C.ink3 },
-              ticks: { color: C.ink3, callback: v => `${v}%` } },
+        // Same here: the share is printed over each point.
+        y1: { display: false, position: 'right', beginAtZero: true,
+              suggestedMax: 100 },
       },
       plugins: {
         legend: { display: false },
@@ -1448,6 +1536,7 @@ function drawOrders() {
         // chart above draws. Above it is next month's, which has not happened.
         barTags: { after: money ? 2 : 1,
                    text: DATA.carryIn ? 'as sold' : null },
+        barValues: { on: state.zoom === 'ord' },
         tooltip: { backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
           filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
@@ -1575,6 +1664,24 @@ document.getElementById('backBtn').onclick = () => {
 };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
+
+/* Expanding hands one chart the window. Chart.js sizes to its container, and
+   the container only changes once the class is on, so the redraw waits a frame
+   rather than measuring the old box. */
+function setZoom(which) {
+  state.zoom = state.zoom === which ? null : which;
+  document.body.classList.toggle('zoomed', state.zoom !== null);
+  document.getElementById('stkCard').classList.toggle('zoom', state.zoom === 'stk');
+  document.getElementById('ordCard').classList.toggle('zoom', state.zoom === 'ord');
+  requestAnimationFrame(render);
+}
+document.getElementById('stkZoom').onclick = () => setZoom('stk');
+document.getElementById('ordZoom').onclick = () => setZoom('ord');
+document.getElementById('stkBack').onclick = () =>
+  document.getElementById('backBtn').click();
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && state.zoom) setZoom(state.zoom);
+});
 document.getElementById('resetBtn').onclick = () => {
   startHere();
   state.stack = 'customer';

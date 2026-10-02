@@ -314,14 +314,31 @@ So there is one chart, and **Figure** chooses what it draws:
 | **P&L** | the statement: **two bars a month** - the gross, and what it went out on stacked beside it - with the profit line |
 | anything else | **one bar a month**, split by the level the drill is on - who it came from - with the profit line |
 
-The profit line is on both, on the right-hand scale, so switching between them
-never loses it. Choosing **Qty** therefore gives the units split with the profit
+The profit line is on both, each point labelled with its own figure, so
+switching between them never loses it. There is no right-hand axis: a line that
+writes its value over every point has nothing left for a scale to say, and
+dropping it gives the bars the width back. Choosing **Qty** therefore gives the units split with the profit
 line over it and **no cost bars**: costs share no scale with a count of units,
 and the same goes for a bar normalised to 100%.
 
 In P&L mode **Scale** disappears rather than greying out - normalising to 100%
 is about a mix and the P&L is not one, and a disabled button still costs a row
 of a menu that is already tall.
+
+### The chart's own controls
+
+Top-right of each chart, over the plot:
+
+| | |
+|---|---|
+| **← Back** | the same step as the menu's. By the time you have drilled three levels the menu is a long way from the bar you just clicked, and the step back belongs next to the step in |
+| **⤡ Expand** | that chart takes the window and everything else stands down |
+
+Expanding is also what turns **the number inside every bar** on. Off by default,
+because three charts' worth of numbers on one page is clutter; on when a chart
+is expanded, which is both the moment there is room for them and the reason
+anyone expanded it. A segment too short to hold its text is left alone rather
+than given a number that spills over its neighbours. **Esc** closes.
 
 ### The orders chart
 
@@ -479,10 +496,10 @@ up again. The drill runs the whole chain - Channel, Type, Portal Group, Type2,
 then Division and Category - so it carries on into the product side once the
 customer levels are used up.
 
-The line is a percentage and the bars are amounts, so the line carries its own
-scale on the right - the one place in these pages with two y axes, because the
-two cannot share one. Each point is labelled, so the right-hand scale rarely
-needs reading.
+The line is a percentage and the bars are amounts, so the line is scaled apart
+from them - the two cannot share one axis. That scale is **not drawn**: each
+point carries its own figure, which leaves a right-hand axis with nothing to
+say, and the width it was taking goes back to the bars.
 
 Costs are drawn as amounts whichever sign the export stores them with. The six
 figures are found by header name and the build prints what it matched:
