@@ -167,12 +167,42 @@ tried joined as well, and the words the plan uses are in the table.
 Both sides go through one vocabulary. Any agreement figure read before this
 understated itself twice over.
 
-**And the run now shows what the disagreements are** - the commonest
+**The run shows what the disagreements are** - the commonest
 `rule says / plan says` pairs, with a line count each. A count on its own cannot
 tell a promotion that ran off plan from one of the two sides being read wrong;
-the pairs can. A pair that is plainly the same thing written two ways is a word
-missing from `MECHANIC`. A pair like `PWP / Gift with Purchase` is a real
-difference, and worth asking about.
+the pairs can.
+
+### They are not two vocabularies. They describe different things.
+
+The pairs settled it. On August, with the two sides finally read properly, the
+cross-check still said 14% - and 74% of every disagreement was one pair:
+
+| the rule says | the plan says | lines |
+|---|---|---|
+| `Discount + PWP` | Bundle | 1,719 |
+| `Discount + PWP + Voucher` | Bundle | 605 |
+| `PWP` | Bundle | 214 |
+| … | Bundle | 2,967 in all, **78%** |
+
+A **bundle** is sold as purchase-with-purchase at a discount. The plan names
+what the offer **is**; the rule names what the engine **did** to deliver it.
+They are the same promotion described one level apart, and comparing them as
+though they were synonyms measures nothing.
+
+So a plan type is now compared against the mechanics it is **executed as**, and
+the run prints both readings:
+
+| | |
+|---|---|
+| **the same mechanic** | the strict comparison, kept so nothing is hidden |
+| **the plan's offer as run** | a Bundle delivered as `PWP + Discount` counts here |
+| **neither** | what is left, and the pair table says what it is |
+
+`EXECUTED_AS` holds the equivalences and is meant to be read and argued with.
+Only what is genuinely implied is in it - a voucher is a discount applied by
+code, a trade-in is a discount for the trade. **`Discount` stays strict**: a
+plan that says Discount against a rule that says PWP is a difference worth
+keeping.
 
 ## The plan
 

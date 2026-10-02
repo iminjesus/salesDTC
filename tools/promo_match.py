@@ -81,6 +81,27 @@ MECHANIC = {'DISC': 'Discount', 'DISCOUNT': 'Discount', 'PWP': 'PWP',
 NOISE = {'PROMOTEXT', 'RULE', 'EXECUTE', 'ALL', 'AU', 'THE', 'AND', 'OF'}
 
 
+# The plan and the store are not two vocabularies for one thing. The plan names
+# what the offer **is** - a Bundle, a Voucher - and the rule names what the
+# engine **did** to deliver it. A bundle is sold as purchase-with-purchase at a
+# discount, so the plan's `Bundle` and the rule's `PWP + Discount` are the same
+# promotion described one level apart, and comparing them as if they were
+# synonyms measures nothing: on August that one pair alone was 74% of every
+# disagreement the cross-check found.
+#
+# So a plan type is compared against the mechanics it is *executed* as. Only
+# where the execution is genuinely implied - a voucher is a discount applied by
+# code, a trade-in is a discount for the trade. `Discount` stays strict: a plan
+# that says Discount and a rule that says PWP is a difference worth keeping.
+EXECUTED_AS = {
+    'Bundle':   {'Bundle', 'PWP', 'Discount'},
+    'Voucher':  {'Voucher', 'Discount'},
+    'Trade-In': {'Trade-In', 'Trade-Up', 'Discount'},
+    'Trade-Up': {'Trade-Up', 'Trade-In', 'Discount'},
+    'GWP':      {'GWP', 'PWP'},
+}
+
+
 def mechanics_in(text: str) -> tuple[list, list]:
     """The mechanics named anywhere in a code, and what is left of it.
 
@@ -609,7 +630,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
     near_code = 0
     slack_used = 0
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
-    agree = {'same': 0, 'differ': 0, 'outside': 0}
+    agree = {'same': 0, 'differ': 0, 'outside': 0, 'as_run': 0, 'apart': 0}
     clash = collections.Counter()
     by_promo: dict[tuple, list[float]] = {}
     cancelled = 0
@@ -660,9 +681,15 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
                 for d in rules:
                     kinds.update(mechanics_in(d['what'])[0])
                 want = set(mechanics_in(guess['type'])[0]) or {guess['type']}
+                # Widened to how the plan's offer is actually delivered.
+                wide = set(want)
+                for w in want:
+                    wide |= EXECUTED_AS.get(w, set())
                 if kinds:
-                    ok = bool(kinds & want)
-                    agree['same' if ok else 'differ'] += 1
+                    strict = bool(kinds & want)
+                    ok = bool(kinds & wide)
+                    agree['same' if strict else 'differ'] += 1
+                    agree['as_run' if ok else 'apart'] += 1
                     if not ok:
                         clash[(' + '.join(sorted(kinds)), guess['type'])] += 1
             if order['date'] is not None:
@@ -781,10 +808,14 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         print(f'  {source[k]:>8,}  {source[k] * 100 / n:>5.1f}%  {label}')
     both = agree['same'] + agree['differ']
     if both:
-        print(f'  of {both:,} line(s) the rule and the plan both answered for, '
-              f"the mechanic matches on {agree['same']:,} "
-              f"({agree['same'] * 100 / both:.0f}%) and differs on "
-              f"{agree['differ']:,}")
+        print(f'  of {both:,} line(s) the rule and the plan both answered for:')
+        print(f"    the same mechanic         {agree['same']:>8,}  "
+              f"{agree['same'] * 100 / both:>5.0f}%")
+        print(f"    the plan's offer as run   {agree['as_run']:>8,}  "
+              f"{agree['as_run'] * 100 / both:>5.0f}%   "
+              '<- a Bundle delivered as PWP + Discount counts here')
+        print(f"    neither                   {agree['apart']:>8,}  "
+              f"{agree['apart'] * 100 / both:>5.0f}%")
     # A disagreement count on its own says nothing about whether the two really
     # disagree or whether one of them was read wrong. The pairs say which.
     if clash:
