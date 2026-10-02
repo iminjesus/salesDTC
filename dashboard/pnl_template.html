@@ -167,11 +167,17 @@ select:disabled { opacity: .5; }
 .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block;
   margin-right: 6px; vertical-align: -1px; }
 .chart { position: relative; height: 420px; }
-/* The chart's own controls, over its top-right corner. Back is in the menu too,
-   but by the time you have drilled three levels the menu is a long way from the
-   bar you just clicked, and the step back belongs next to the step in. */
-.tools { position: absolute; top: 0; right: 0; z-index: 2; display: flex;
-  gap: 4px; }
+/* The chart's own controls. Back is in the menu too, but by the time you have
+   drilled three levels the menu is a long way from the bar you just clicked,
+   and the step back belongs next to the step in.
+
+   They sit on the legend's row rather than over the plot: inside the plot they
+   covered whatever the top of the chart happened to be - a tall bar's label, a
+   point on the profit line - and which number got hidden depended on the data. */
+.chartHead { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; }
+.chartHead .legend { flex: 1 1 auto; }
+.tools { flex: 0 0 auto; display: flex; gap: 4px; }
 .ctl { font: inherit; font-size: 12px; line-height: 1; padding: 5px 8px;
   border: 1px solid var(--line); border-radius: 7px; background: var(--surface);
   color: var(--ink-2); cursor: pointer; }
@@ -231,13 +237,14 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   </div>
 
   <div class="card" id="stkCard">
-    <div class="legend" id="stkLegend"></div>
-    <div class="chart" id="stkPlot">
+    <div class="chartHead">
+      <div class="legend" id="stkLegend"></div>
       <div class="tools">
         <button class="ctl" id="stkBack" title="Widen the deepest narrowing">&larr; Back</button>
         <button class="ctl" id="stkZoom" title="Show only this chart, with every value labelled">&#x2921; Expand</button>
       </div>
-      <canvas id="stkBars"></canvas></div>
+    </div>
+    <div class="chart" id="stkPlot"><canvas id="stkBars"></canvas></div>
     <div class="hint" id="stkHint"></div>
   </div>
 

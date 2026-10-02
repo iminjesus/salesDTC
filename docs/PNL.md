@@ -337,7 +337,8 @@ of a menu that is already tall.
 
 ### The chart's own controls
 
-Top-right of each chart, over the plot:
+Top-right, on the legend's row - not over the plot, where they covered whatever
+the top of the chart happened to be:
 
 | | |
 |---|---|
