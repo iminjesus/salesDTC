@@ -118,9 +118,8 @@ than merged: a month has its own customers, its own products and its own levels,
 and merging them would invent a key that was in neither.
 
 Switching month starts the drill again, because the levels are that month's.
-How the page is being *read* - the basis, amounts or per unit, which chain
-stacks, % of bar - carries over, since that is about the reader rather than the
-data.
+How the page is being *read* - which figure, which chain stacks, % of bar -
+carries over, since that is about the reader rather than the data.
 
 With one month in the folder the button row is not there at all.
 
@@ -186,11 +185,9 @@ stack. `--find` and `--where` are what chase them down.
 | the breadcrumb | go back to any step of the path; **All** returns to the top |
 | **← Back** | step out one level |
 | a level name | put the bars on it, clearing what was narrowed at and below it |
-| **Stack by** | which chain splits each bar of the stacked chart |
-| **Figure** | what the stacked chart charts |
-| **Amount / % of bar** | sizes between bars, or the mix inside each one |
-| **Amounts / Per unit** | money, or every figure divided by the units behind it |
-| **Basis** | whose month the figures describe - see below. Only there when an order export was read |
+| **Stack by** | which chain splits each bar |
+| **Figure** | **P&L**, **Net Amount (AUD)** or **Qty** - what the chart draws |
+| **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
 | **Table** | every figure behind the bars, with quantity, ASP and the margin |
 | **Reset** | back to the opening view |
 
@@ -231,21 +228,10 @@ says which basis it used and how it came out against the month as sold.
 
 A cancelled or rejected order belongs to no month and is in none of the three.
 
-**Basis** reads the whole page on one of those:
-
-| | | |
-|---|---|---|
-| **Sales** | the month as the profit file reports it | measured |
-| **Own orders** | `booked` - last month's carry-over stripped out | measured |
-| **Carried in** | `carried in` - what **last month's** orders earned here, on its own. These units really were sold this month, so their profit is read rather than projected | measured |
-| **Carried out** | `carried out` - what this month's unshipped orders are worth at **this month's** rates | a projection |
-| **Own + to come** | `booked + carried out` - this month's own orders in full | part projected |
-
-Every one of them is a share of the same denominator, `booked + carried in`, so
-**Sales = Own orders + Carried in** and the month decomposes exactly. Picking
-*Carried in* reads the whole page - gross, every cost, operating profit, profit
-%, ASP - for the carry-over alone, which is how a month's carried-over business
-gets compared with the business it won itself.
+There used to be a **Basis** control that read the whole page on one of those
+slices. It is gone: the profit split above the chart prints all three at once,
+which is what it was being used to read, and one number beats a mode you have to
+remember you are in.
 
 The build prints the same split outright, so the carry-over's own profit is a
 number on the way past rather than something to go and switch to:
@@ -424,22 +410,20 @@ splits the slice rather than the month.
 
 The same split prints on the build, with the export's own total marked.
 
-### Per unit, and ASP
+### ASP
 
-**Per unit** divides every bar by the quantity behind it. The gross bar becomes
-the **average selling price** and the stack becomes what a unit costs, so the
-gap between them is profit per unit. The profit line does not move - a
-percentage is the same figure either way - which is what lets price and profit
-be read off one chart.
+There was a **Per unit** mode that divided every bar by the quantity behind it.
+It is one tile now - **ASP**, in the row under the menu - because that was the
+only per-unit figure anyone read off it, and a mode you have to remember you are
+in costs more than the one number it was carrying.
 
 ASP is the weighted price: the totals divided, never the average of the rows'
 own prices. It sits in the KPI row and in the table as `ASP`, always on net
-sales over net quantity, whichever mode the chart is in. The drill runs down to
-the **SKU**, so a category price can be opened until the model behind it shows.
+sales over net quantity. The drill runs down to the **SKU**, so a category price
+can be opened until the model behind it shows.
 
 A group with no net quantity - returns cancelling its sales - has no price, so
-its bar is left empty and the hint counts them. A blank is the honest answer
-where a zero would read as "free".
+it reads as a blank rather than a zero, which would read as "free".
 
 `tools\asp.py` computes the same figures as csvs, for a spreadsheet rather
 than a page; `docs\ASP.md` covers it.

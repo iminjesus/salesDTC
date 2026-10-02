@@ -209,15 +209,6 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
         <button class="btn" id="stkAmt">Amount</button
         ><button class="btn" id="stkPct">% of bar</button></span></label>
-      <label class="f"><span>Values</span><span class="seg">
-        <button class="btn" id="unitAmt">Amounts</button
-        ><button class="btn" id="unitPer">Per unit</button></span></label>
-      <label class="f" id="basisBox" hidden><span>Basis</span><span class="seg">
-        <button class="btn" id="bSales" title="the month as the profit file reports it">Sales</button
-        ><button class="btn" id="bOrd" title="only what this month's own orders earned - last month's carry-over stripped out">Own orders</button
-        ><button class="btn" id="bIn" title="only what last month's orders earned here - measured, these units really were sold this month">Carried in</button
-        ><button class="btn" id="bOut" title="what this month's unshipped orders are worth at this month's rates - a projection, next month has not happened">Carried out</button
-        ><button class="btn" id="bAll" title="this month's own orders in full: what they earned here plus what they will earn next month">Own + to come</button></span></label>
       <button class="btn" id="tableBtn">Table</button>
       <button class="btn" id="resetBtn">Reset</button>
     </div>
@@ -278,13 +269,11 @@ const fmt = n => Math.round(n).toLocaleString();
 /* A per-unit figure is a price, so it keeps its cents. */
 const unitFmt = n => n.toLocaleString(undefined, { minimumFractionDigits: 2,
                                                    maximumFractionDigits: 2 });
-/* One figure of a group, as an amount or divided by the units behind it.
-   Without a quantity there is no price, so it comes back blank rather than
-   as a zero that would read as "free". */
-function each(r, key) {
-  if (state.unit !== 'per') return r[key];
-  return r.qty ? r[key] / r.qty : null;
-}
+/* Figures are amounts. Per unit was a mode on every chart; it is one tile now -
+   ASP, in the row under the menu - because that is the only per-unit figure
+   anyone read off it, and a mode you have to remember you are in costs more
+   than the one number it was carrying. */
+const each = (r, key) => r[key];
 let has = {};
 let COSTS = [];
 let CHAINS = { customer: [], product: [] };
@@ -309,16 +298,12 @@ const state = {
   month: 0,
   filter: [],
   dim: 0,
-  // 'amount' charts the money; 'per' divides every figure by quantity, which
-  // turns the gross bar into the average selling price and the stack into what
-  // each unit costs. The profit line is a percentage either way.
-  unit: 'amount',
   table: false,
-  // Which month's business the figures describe - see basisOf().
-  basis: 'sales',
-  // Which chain the stacked chart splits each bar by, and the figure it charts.
+  // Which chain the chart splits each bar by, and what it draws: the whole
+  // statement, the money, or the units. It opens on the statement, which is
+  // the page's title.
   stack: 'customer',
-  stkFig: 'net',
+  stkFig: 'pnl',
   // 'amount' compares sizes between bars; 'pct' normalises every bar to 100%
   // and compares the mix inside them, which a tall bar otherwise drowns out.
   stkScale: 'amount',
@@ -394,12 +379,11 @@ const scaled = m => !ORDERED.some(k => has[k] === m);
    compares against the measured answer. The build says which it used.
 
    A cancelled or rejected order is in none of the three. */
-/* Which slice of the month each basis keeps. 'in' and 'out' are the two halves
-   the month is usually read without: what last month sent here, and what this
-   month sends on. Keeping one on its own is how its profit gets read - the page
-   is already carrying every figure for it. */
-const BASES = [['bSales', 'sales'], ['bOrd', 'orders'], ['bIn', 'in'],
-               ['bOut', 'out'], ['bAll', 'all']];
+/* The basis chose which slice of the month to keep - what last month sent here,
+   what this month sends on. It is off the menu now: the profit split above the
+   chart prints all three at once, which is what it was being used to read, and
+   one number beats a mode you have to remember you are in. basisOf() stays and
+   returns 1, so nothing downstream has to know. */
 const bookedOf = c => c.v[has.oqty];
 const cameIn = c => c.v[has.iqty];
 const goesOut = c => c.v[has.xqty];
@@ -426,16 +410,7 @@ const goesOut = c => c.v[has.xqty];
 
    A key the orders never reached weighs nothing, and the build says how much of
    the month that leaves out. */
-function basisOf(c) {
-  if (state.basis === 'sales' || !hasOrders()) return 1;
-  const month = bookedOf(c) + cameIn(c);
-  if (!month) return 0;
-  const want = state.basis === 'all' ? bookedOf(c) + goesOut(c)
-             : state.basis === 'in' ? cameIn(c)
-             : state.basis === 'out' ? goesOut(c)
-             : bookedOf(c);
-  return want / month;
-}
+const basisOf = () => 1;
 
 /* How the two counts of a slice overlap. The minimum is taken per key and then
    added up, never the other way round: one product shipping more than it sold
@@ -799,18 +774,7 @@ function render() {
   readColours();
   document.getElementById('pageTitle').textContent = DATA.title;
   document.getElementById('pageSub').textContent =
-    `${DATA.file} · ${DATA.rows.toLocaleString()} rows`
-    + ({
-      sales: '',
-      orders: ' · allocated to what this month\'s own orders earned, with last '
-              + 'month\'s carry-over stripped out',
-      in: ' · allocated to what last month\'s orders earned here - measured, '
-          + 'these units were sold this month',
-      out: ' · allocated to what this month\'s unshipped orders are worth at '
-           + 'this month\'s rates - a projection, not a measurement',
-      all: ' · allocated to this month\'s own orders in full, the unshipped '
-           + 'part priced at the same rates',
-    }[state.basis] || '');
+    `${DATA.file} · ${DATA.rows.toLocaleString()} rows`;
   buildFilters();
 
   const picked = DATA.levels
@@ -860,18 +824,6 @@ function render() {
   // The basis only exists where an order export was read alongside the profit.
   ALL.months.forEach((_, i) => document.getElementById('month' + i)
     .classList.toggle('active', state.month === i));
-  // Stripping the carry-over out of a month whose carry-in was never read
-  // would not strip anything: the basis would be Sales under another name.
-  const canBasis = hasOrders() && DATA.carryIn;
-  document.getElementById('basisBox').hidden = !canBasis;
-  if (!canBasis) state.basis = 'sales';
-  BASES.forEach(([id, v]) =>
-    document.getElementById(id).classList.toggle('active', state.basis === v));
-  const canUnit = has.qty !== undefined;
-  if (!canUnit) state.unit = 'amount';
-  document.getElementById('unitAmt').classList.toggle('active', state.unit === 'amount');
-  document.getElementById('unitPer').classList.toggle('active', state.unit === 'per');
-  document.getElementById('unitPer').disabled = !canUnit;
   // Amounts on the orders chart need the profit file's gross to share out.
   const canOrdAmt = has.gross !== undefined;
   if (!canOrdAmt) state.ordUnit = 'units';
@@ -882,12 +834,11 @@ function render() {
   document.getElementById('ordAmt').disabled = !canOrdAmt;
 
   const all = totals();
-  const per = state.unit === 'per';
-  const money = v => (v == null ? '-' : per ? unitFmt(v) : fmt(v));
+  const money = v => (v == null ? '-' : fmt(v));
   document.getElementById('kpis').innerHTML = [
-    [label('gross') + (per ? ' / unit' : ''), money(each(all, 'gross')), ''],
-    ...COSTS.map(k => [label(k) + (per ? ' / unit' : ''), money(each(all, k)), '']),
-    [label('profit') + (per ? ' / unit' : ''), money(each(all, 'profit')),
+    [label('gross'), money(each(all, 'gross')), ''],
+    ...COSTS.map(k => [label(k), money(each(all, k)), '']),
+    [label('profit'), money(each(all, 'profit')),
      all.profit < 0 ? 'neg' : ''],
     ['Profit %', all.margin == null ? '-' : all.margin.toFixed(1) + '%',
      all.margin < 0 ? 'neg' : ''],
@@ -1014,12 +965,24 @@ function drawStack() {
   // read badly - four stacked costs beside eight stacked categories is two
   // questions answered at once and neither of them clearly.
   const PNL = 'pnl';
+  // Three, not fourteen. Every cost figure is already a band of the P&L chart,
+  // so offering each of them its own bar chart was offering the same numbers
+  // twice; and the order series are the chart below this one. What is left is
+  // the choice that actually changes the question: the whole statement, the
+  // money, or the units.
+  const MEASURES = [
+    [PNL, 'P&L'],
+    [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
+    ['qty', 'Qty'],
+  ];
   const figBox = document.getElementById('stkFig');
   figBox.className = 'vals seg';
   figBox.innerHTML = '';
-  const figs = [...(has.profit !== undefined
-                    ? [{ key: PNL, label: 'P&L' }] : []),
-                ...DATA.series.filter(x => has[x.key] !== undefined)];
+  const figs = MEASURES
+    .filter(([k]) => (k === PNL ? has.profit !== undefined
+                                : has[k] !== undefined))
+    .map(([key, label]) => ({ key, label }));
+  if (!figs.length) return;
   if (!figs.some(x => x.key === state.stkFig)) state.stkFig = figs[0].key;
   figs.forEach(x => {
     const b = document.createElement('button');
@@ -1129,24 +1092,21 @@ function drawStack() {
       borderWidth: 1, borderColor: C.surface, maxBarThickness: 54,
     });
   }
-  const per = state.unit === 'per';
-  const unitOf = r => (fin.get(r.name) || {}).qty || 0;
   const at = (r, k) => {
     const f = fin.get(r.name) || {};
-    const v = k === 'gross' ? (f.gross || 0) : Math.abs(f[k] || 0);
-    return per ? (unitOf(r) ? v / unitOf(r) : null) : v;
+    return k === 'gross' ? (f.gross || 0) : Math.abs(f[k] || 0);
   };
   // In P&L mode the bars are the statement: what came in on the left, what it
   // went out on stacked on the right.
   if (pnlMode) {
     series.push({
-      label: label('gross') + (per ? ' / unit' : ''), stack: 'in',
+      label: label('gross'), stack: 'in',
       data: xs.map(r => at(r, 'gross')),
       backgroundColor: C.gross, borderRadius: 4, borderSkipped: false,
       borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
     });
     COSTS.forEach(k => series.push({
-      label: label(k) + (per ? ' / unit' : ''), stack: 'out',
+      label: label(k), stack: 'out',
       data: xs.map(r => at(r, k)),
       backgroundColor: C[k], borderRadius: 4, borderSkipped: false,
       borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
@@ -1207,9 +1167,8 @@ function drawStack() {
              max: pctMode ? 100 : undefined,
              title: { display: true, color: C.ink3,
                       text: pctMode ? 'Share of the bar'
-                        : pnlMode ? (per ? 'Per unit' : 'Amount')
-                        : (DATA.series.find(x => x.key === state.stkFig).label
-                           + (per ? ' / unit' : '')) },
+                        : pnlMode ? 'Amount'
+                        : (figs.find(x => x.key === state.stkFig) || {}).label },
              ticks: { color: C.ink3,
                       callback: v => pctMode ? `${v}%`
                         : Number(v).toLocaleString() } },
@@ -1231,14 +1190,13 @@ function drawStack() {
               : pctMode
                 ? `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%  (${
                     fmt(c.dataset.amounts[c.dataIndex])})`
-                : `${c.dataset.label}: ` + (per ? unitFmt(c.parsed.y)
-                                                : fmt(c.parsed.y)),
+                : `${c.dataset.label}: ${fmt(c.parsed.y)}`,
             footer: items => {
               const r = xs[items[0].dataIndex];
               const f = fin.get(r.name) || {};
               return [...(pnlMode ? [`Costs: ${fmt(COSTS.reduce(
                         (a, k) => a + Math.abs(f[k] || 0), 0))}`]
-                       : [`${DATA.series.find(x => x.key === state.stkFig).label}`
+                       : [`${(figs.find(x => x.key === state.stkFig) || {}).label}`
                           + `: ${fmt(r.total)}`]),
                       ...(hasLine ? [`${label('profit')}: ${fmt(f.profit || 0)}`]
                                   : []),
@@ -1253,10 +1211,8 @@ function drawStack() {
   document.getElementById('stkHint').textContent =
     (pnlMode
       ? `${label('gross')} beside what it went out on, by ${xl.name}`
-        + (per ? ', divided by the units behind it - so the left bar is the '
-                 + 'average selling price and the right one is what a unit costs.'
-               : '. Costs are drawn as amounts.')
-      : `${DATA.series.find(x => x.key === state.stkFig).label} by ${xl.name}, `
+        + '. Costs are drawn as amounts.'
+      : `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${xl.name}, `
         + `each split by ${DATA.levels[sl].name}`
         + (pctMode ? ', every bar normalised to its own total - the mix, not '
                      + 'the size. The tooltip keeps the amount behind each share'
@@ -1520,7 +1476,6 @@ function drawOrders() {
 function renderTable(rows, dimName, ofTotal) {
   document.getElementById('tableCard').hidden = !state.table;
   if (!state.table) return;
-  const per = state.unit === 'per';
   const sum = k => rows.reduce((a, r) => a + r[k], 0);
   // The table mirrors the chart, so its total covers the rows charted - say
   // so when that is not all of them, rather than let it read as the whole file.
@@ -1530,19 +1485,18 @@ function renderTable(rows, dimName, ofTotal) {
                 net: sum('net'), qty: sum('qty') };
   COSTS.forEach(k => { tot[k] = sum(k); });
   tot.asp = tot.qty ? tot.net / tot.qty : null;
-  const suffix = per ? ' / unit' : '';
-  const head = [dimName, label('gross') + suffix,
-                ...COSTS.map(k => label(k) + suffix), 'Costs' + suffix,
-                label('profit') + suffix, 'Profit %',
+  const head = [dimName, label('gross'),
+                ...COSTS.map(k => label(k)), 'Costs',
+                label('profit'), 'Profit %',
                 ...(has.qty === undefined ? [] : ['Qty (net)', 'ASP'])];
-  const cell = v => (v == null ? '-' : per ? unitFmt(v) : fmt(v));
+  const cell = v => (v == null ? '-' : fmt(v));
   const line = r => {
     const costs = COSTS.reduce((a, k) => a + r[k], 0);
     const m = r.net ? (r.profit / r.net) * 100 : null;
     const p = r.profit;
     return [`<td>${r.name}</td>`, `<td>${cell(each(r, 'gross'))}</td>`,
             ...COSTS.map(k => `<td>${cell(each(r, k))}</td>`),
-            `<td>${cell(per ? (r.qty ? costs / r.qty : null) : costs)}</td>`,
+            `<td>${cell(costs)}</td>`,
             `<td class="${p < 0 ? 'neg' : ''}">${cell(each(r, 'profit'))}</td>`,
             `<td class="${m < 0 ? 'neg' : ''}">${
               m == null ? '-' : m.toFixed(1) + '%'}</td>`,
@@ -1564,19 +1518,11 @@ document.getElementById('backBtn').onclick = () => {
 };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
-BASES.forEach(([id, v]) => {
-  document.getElementById(id).onclick = () => { state.basis = v; render(); };
-});
 document.getElementById('resetBtn').onclick = () => {
   state.filter = DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1));
   state.dim = DATA.levels.length > 1 ? 1 : 0;
-  state.basis = 'sales';
   render();
 };
-document.getElementById('unitAmt').onclick = () => {
-  state.unit = 'amount'; render(); };
-document.getElementById('unitPer').onclick = () => {
-  state.unit = 'per'; render(); };
 document.getElementById('stkCust').onclick = () => {
   state.stack = 'customer'; render(); };
 document.getElementById('stkProd').onclick = () => {
