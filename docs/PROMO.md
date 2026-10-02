@@ -158,9 +158,21 @@ string, it tested `AU_` and said the two differ every single time:
 | `AU_EPP_T2-T3_all_welcome-voucher_-_percentage-discount` | Discount | differ | **same** |
 | `AU_SCOM_WEB_SP_14AUG26_09SEP26_PWP_FOLD-WATCH-30PCT` | PWP | same | same |
 
-Both sides now go through one vocabulary. Any agreement figure read before this
-understated itself by however many dateless rules the months held - on MX that
-was a fifth of the promoted units.
+There was a second gap on the other side. The store writes `TRADEUP` as one
+token; the plan writes **Trade-Up**, **Cash Back**, **Gift with Purchase** - and
+splitting those gives TRADE and UP, neither of which is a mechanic, so the plan
+side fell back to its raw wording and could never match. Adjacent words are now
+tried joined as well, and the words the plan uses are in the table.
+
+Both sides go through one vocabulary. Any agreement figure read before this
+understated itself twice over.
+
+**And the run now shows what the disagreements are** - the commonest
+`rule says / plan says` pairs, with a line count each. A count on its own cannot
+tell a promotion that ran off plan from one of the two sides being read wrong;
+the pairs can. A pair that is plainly the same thing written two ways is a word
+missing from `MECHANIC`. A pair like `PWP / Gift with Purchase` is a real
+difference, and worth asking about.
 
 ## The plan
 

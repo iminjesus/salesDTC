@@ -20,6 +20,7 @@ disagreeing is worth more than either on its own.
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import re
 import sys
@@ -67,7 +68,13 @@ NAMES = {
 MECHANIC = {'DISC': 'Discount', 'DISCOUNT': 'Discount', 'PWP': 'PWP',
             'GWP': 'GWP', 'BUNDLE': 'Bundle', 'BDL': 'Bundle',
             'CASHBACK': 'Cashback', 'CB': 'Cashback', 'TRADEUP': 'Trade-Up',
-            'TRADEIN': 'Trade-In', 'VOUCHER': 'Voucher', 'PROMO': 'Discount'}
+            'TRADEIN': 'Trade-In', 'VOUCHER': 'Voucher', 'PROMO': 'Discount',
+            # How the plan writes the same six - in words, with separators,
+            # where the store writes one token.
+            'PURCHASEWITHPURCHASE': 'PWP', 'GIFTWITHPURCHASE': 'GWP',
+            'FREEGIFT': 'GWP', 'TRADEUPTRADEIN': 'Trade-In',
+            'REDEMPTION': 'Cashback', 'PRICEOFF': 'Discount',
+            'INSTANTDISCOUNT': 'Discount'}
 
 
 # Words that sit beside the mechanic and say nothing about which it was.
@@ -83,14 +90,31 @@ def mechanics_in(text: str) -> tuple[list, list]:
     saw a single word that is in no vocabulary - which left a fifth of the
     promoted units with no mechanic, and made every one of them disagree with
     the plan in the cross-check below.
+
+    Adjacent words are tried joined as well. The store writes `TRADEUP` as one
+    token; the plan writes `Trade-Up`, and splitting that gives TRADE and UP,
+    neither of which is a mechanic. The two sides spell the same thing with and
+    without a separator, so both spellings have to be looked for or the plan
+    side never matches at all.
     """
-    kinds, rest = [], []
-    for w in (p for p in re.split(r'[^A-Za-z0-9]+', text) if p):
-        u = w.upper()
-        if u in MECHANIC:
-            kinds.append(MECHANIC[u])
-        elif u not in NOISE:
-            rest.append(w)
+    words = [w for w in re.split(r'[^A-Za-z0-9]+', text) if w]
+    kinds, rest, used = [], [], set()
+    for i, w in enumerate(words):
+        if i in used:
+            continue
+        for n in (3, 2):                    # the longest join wins
+            if i + n <= len(words):
+                j = ''.join(words[i:i + n]).upper()
+                if j in MECHANIC:
+                    kinds.append(MECHANIC[j])
+                    used.update(range(i, i + n))
+                    break
+        else:
+            u = w.upper()
+            if u in MECHANIC:
+                kinds.append(MECHANIC[u])
+            elif u not in NOISE:
+                rest.append(w)
     return kinds, rest
 
 
@@ -586,6 +610,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
     slack_used = 0
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
     agree = {'same': 0, 'differ': 0, 'outside': 0}
+    clash = collections.Counter()
     by_promo: dict[tuple, list[float]] = {}
     cancelled = 0
     for r in o_body:
@@ -636,7 +661,10 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
                     kinds.update(mechanics_in(d['what'])[0])
                 want = set(mechanics_in(guess['type'])[0]) or {guess['type']}
                 if kinds:
-                    agree['same' if kinds & want else 'differ'] += 1
+                    ok = bool(kinds & want)
+                    agree['same' if ok else 'differ'] += 1
+                    if not ok:
+                        clash[(' + '.join(sorted(kinds)), guess['type'])] += 1
             if order['date'] is not None:
                 for d in rules:
                     if (d['start'] and order['date'] < d['start']) or \
@@ -754,8 +782,21 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
     both = agree['same'] + agree['differ']
     if both:
         print(f'  of {both:,} line(s) the rule and the plan both answered for, '
-              f"the mechanic matches on {agree['same']:,} and differs on "
+              f"the mechanic matches on {agree['same']:,} "
+              f"({agree['same'] * 100 / both:.0f}%) and differs on "
               f"{agree['differ']:,}")
+    # A disagreement count on its own says nothing about whether the two really
+    # disagree or whether one of them was read wrong. The pairs say which.
+    if clash:
+        print('\n  where they differ, the commonest pairs:')
+        print(f'    {"the rule says":<28}{"the plan says":<28}{"lines":>8}')
+        for (a, b), n in clash.most_common(12):
+            print(f'    {a[:27]:<28}{b[:27]:<28}{n:>8,}')
+        if len(clash) > 12:
+            print(f'    and {len(clash) - 12:,} more pair(s)')
+        print('    a pair that is plainly the same thing in two vocabularies is '
+              'a word missing\n    from MECHANIC, not a promotion that ran off '
+              'plan.')
     if agree['outside']:
         print(f"  {agree['outside']:,} line(s) carry a rule whose own dates do "
               'not cover the order date - the rule names its window, so this '
