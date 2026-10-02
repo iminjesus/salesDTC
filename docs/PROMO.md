@@ -131,6 +131,37 @@ after says what the offer was. The shape is read off the dates rather than off
 fixed positions, because the positions vary. One cell can hold several rules,
 comma-separated; all of them are kept.
 
+## Did the orders come in on the promotions that were planned?
+
+That is what the run's last block answers, and it compares the two sides four
+ways:
+
+| | |
+|---|---|
+| **where the answer came from** | how many lines the store's own rule answered for, how many a voucher did, how many only the plan could infer, and how many nothing fits |
+| **rule vs plan** | of the lines both answered for, how often the **mechanic** agrees. The two name promotions in different vocabularies - a rule says `PWP`, the plan says "Black Friday / PWP" - so the mechanic is the part both spell |
+| **outside its own window** | lines carrying a rule whose own dates do not cover the order date. The rule names its window, so this needs no plan at all |
+| **price paid vs plan price** | the median gap. Far from zero means the two quote prices on different bases - `--gst`, `--amount-is` |
+
+It also reports what **looser matching would buy**: how many of the plan matches
+only fit because of `--window-slack`, and how many more lines each extra day
+would catch. Each one is a looser rule, not a better one, and the row says which
+lines it brought in.
+
+**The mechanic comparison was wrong until now.** It took the first three
+characters of whatever the code happened to start with and looked for the plan's
+word in them - so on a rule carrying no dates, which comes back as one unbroken
+string, it tested `AU_` and said the two differ every single time:
+
+| rule | plan says | old | now |
+|---|---|---|---|
+| `AU_EPP_T2-T3_all_welcome-voucher_-_percentage-discount` | Discount | differ | **same** |
+| `AU_SCOM_WEB_SP_14AUG26_09SEP26_PWP_FOLD-WATCH-30PCT` | PWP | same | same |
+
+Both sides now go through one vocabulary. Any agreement figure read before this
+understated itself by however many dateless rules the months held - on MX that
+was a fifth of the promoted units.
+
 ## The plan
 
 `MX_product` has no single promotion-name column, so the label is built from

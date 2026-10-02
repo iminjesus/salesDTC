@@ -37,7 +37,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                         # noqa: E402
-from promo_match import MECHANIC, parse_rule, split_rules       # noqa: E402
+from promo_match import (MECHANIC, mechanics_in, parse_rule,    # noqa: E402
+                         split_rules)
 from rawdata import (find, key_norm, master, norm_stem,         # noqa: E402
                      parse_number, pick_file, pick_series, read_any)
 
@@ -56,9 +57,6 @@ D_STATUS = ('order_status', 'Order Status', 'Status')
 
 NONE = '(no promotion)'
 
-
-# Words that appear beside the mechanic and say nothing about which it was.
-NOISE = {'PROMOTEXT', 'RULE', 'EXECUTE', 'ALL', 'AU', 'THE', 'AND', 'OF'}
 
 # What an offer *does*, which is the level a person can hold in their head.
 #

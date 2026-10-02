@@ -70,6 +70,30 @@ MECHANIC = {'DISC': 'Discount', 'DISCOUNT': 'Discount', 'PWP': 'PWP',
             'TRADEIN': 'Trade-In', 'VOUCHER': 'Voucher', 'PROMO': 'Discount'}
 
 
+# Words that sit beside the mechanic and say nothing about which it was.
+NOISE = {'PROMOTEXT', 'RULE', 'EXECUTE', 'ALL', 'AU', 'THE', 'AND', 'OF'}
+
+
+def mechanics_in(text: str) -> tuple[list, list]:
+    """The mechanics named anywhere in a code, and what is left of it.
+
+    Split on every non-alphanumeric, not on whitespace. A code carrying no
+    dates comes back from parse_rule as one unbroken underscore string, so
+    splitting on spaces looked at `welcome-voucher_-_percentage-discount` and
+    saw a single word that is in no vocabulary - which left a fifth of the
+    promoted units with no mechanic, and made every one of them disagree with
+    the plan in the cross-check below.
+    """
+    kinds, rest = [], []
+    for w in (p for p in re.split(r'[^A-Za-z0-9]+', text) if p):
+        u = w.upper()
+        if u in MECHANIC:
+            kinds.append(MECHANIC[u])
+        elif u not in NOISE:
+            rest.append(w)
+    return kinds, rest
+
+
 def mechanic_of(rules: list[dict]) -> tuple[str, str]:
     """The offer type and detail a set of rules describes.
 
@@ -77,17 +101,16 @@ def mechanic_of(rules: list[dict]) -> tuple[str, str]:
     two things run together in its code. Reading the mechanic out of the rule
     lets both sides sit on one pair of levels instead of two vocabularies that
     cannot be charted together.
+
+    The set is sorted, so a rule naming PWP and a discount lands in one bucket
+    however the two were ordered in the cell.
     """
     kinds, rest = [], []
     for d in rules:
-        words = d['what'].split()
-        hit = next((w for w in words if w.upper() in MECHANIC), '')
-        if hit:
-            kinds.append(MECHANIC[hit.upper()])
-            rest.append(' '.join(w for w in words if w != hit) or d['what'])
-        else:
-            rest.append(d['what'])
-    return (' + '.join(dict.fromkeys(kinds)) or '(not named in the rule)',
+        k, r = mechanics_in(d['what'])
+        kinds += k
+        rest.append(' '.join(r) or d['what'])
+    return (' + '.join(sorted(set(kinds))) or '(not named in the rule)',
             ' + '.join(dict.fromkeys(rest)) or '(no detail)')
 
 
@@ -604,10 +627,16 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
             # would measure nothing. The mechanic is the part both spell, and
             # the rule's own window is a check that needs no plan at all.
             if guess['type']:
-                kinds = {t[:3].upper() for d in rules for t in d['what'].split()}
+                # Both sides through the same vocabulary. Comparing the first
+                # three characters of whatever the code happened to start with
+                # against the plan's own words was not a comparison at all: on
+                # a dateless rule it tested 'AU_' and always said they differ.
+                kinds = set()
+                for d in rules:
+                    kinds.update(mechanics_in(d['what'])[0])
+                want = set(mechanics_in(guess['type'])[0]) or {guess['type']}
                 if kinds:
-                    agree['same' if guess['type'][:3].upper() in kinds
-                          else 'differ'] += 1
+                    agree['same' if kinds & want else 'differ'] += 1
             if order['date'] is not None:
                 for d in rules:
                     if (d['start'] and order['date'] < d['start']) or \
