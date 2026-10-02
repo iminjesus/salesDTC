@@ -206,7 +206,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         ><button class="btn" id="stkProd">Product</button></span></label>
       <label class="f"><span>Figure</span>
         <span class="vals" id="stkFig"></span></label>
-      <label class="f"><span>Scale</span><span class="seg">
+      <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
         <button class="btn" id="stkAmt">Amount</button
         ><button class="btn" id="stkPct">% of bar</button></span></label>
       <label class="f"><span>Values</span><span class="seg">
@@ -233,9 +233,6 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   <div class="card">
     <div class="kpis" id="kpis"></div>
     <div class="split" id="split" hidden></div>
-    <div class="legend" id="legend"></div>
-    <div class="chart" id="plot"><canvas id="bars"></canvas></div>
-    <div class="hint" id="hint"></div>
   </div>
 
   <div class="card" id="ordCard" hidden>
@@ -983,7 +980,9 @@ const pointLabels = {
   }
 };
 
-let chart = null;
+/* What the page is on: the slice's own rows at the drill level, which the KPIs
+   and the table read. The chart itself is drawn by drawStack(), which puts this
+   same P&L beside the figure's breakdown rather than in a second chart. */
 function draw() {
   const lv = DATA.levels[state.dim];
   const rows = lv.values
@@ -991,115 +990,6 @@ function draw() {
     .filter(r => r.rows && (r.gross || r.profit));
   rows.sort((a, b) => Math.abs(b.gross) - Math.abs(a.gross));
   const top = rows.slice(0, 12);
-  const labels = top.map(r => r.name);
-  const canDrill = state.dim + 1 < DATA.levels.length;
-
-  const bar = (key, colour, stack) => ({
-    type: 'bar', label: label(key) + (state.unit === 'per' ? ' / unit' : ''),
-    stack, data: top.map(r => each(r, key)),
-    backgroundColor: colour, borderRadius: 4, borderSkipped: false,
-    // A 2px gap in the surface colour keeps stacked segments from bleeding into
-    // each other, and the two grouped bars apart.
-    borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
-  });
-  const datasets = [bar('gross', C.gross, 'in')];
-  COSTS.forEach(k => datasets.push(bar(k, C[k], 'out')));
-  const denom = has.net !== undefined ? label('net') : label('gross');
-  // The line is a percentage and the bars are amounts, so it carries its own
-  // scale on the right. It goes last so it takes no column of its own in the
-  // bar grouping, and order:-1 draws it over them.
-  datasets.push({
-    type: 'line', label: `${label('profit')} % of ${denom}`, yAxisID: 'y1',
-    data: top.map(r => r.margin),
-    borderColor: C.profit, backgroundColor: C.profit, borderWidth: 2,
-    pointRadius: 4, pointHoverRadius: 7, tension: 0.25, fill: false,
-    spanGaps: true, order: -1,
-  });
-
-  document.getElementById('legend').innerHTML = datasets.map(d =>
-    `<span><i style="background:${d.type === 'line' ? d.borderColor
-      : d.backgroundColor}"></i>${d.label}</span>`).join('');
-
-  if (chart) chart.destroy();
-  chart = new Chart(document.getElementById('bars'), {
-    type: 'bar',
-    data: { labels, datasets },
-    plugins: [pointLabels],
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      animation: { duration: 220 },
-      interaction: { mode: 'index', intersect: false },
-      datasets: { bar: { categoryPercentage: 0.8, barPercentage: 0.95 } },
-      onHover: (e, els) => {
-        e.native.target.style.cursor = (els.length && canDrill) ? 'pointer' : '';
-      },
-      onClick: (e, els) => {
-        if (!canDrill || !els.length) return;
-        const name = labels[els[0].index];
-        // render() destroys this chart, and Chart.js is still inside its own
-        // event dispatch - so the redraw waits for the next task.
-        defer(() => setFilter(state.dim, lv.values.indexOf(name)));
-      },
-      scales: {
-        // stacked:true with two stack names puts the pair side by side and
-        // centred on the tick; same-stack datasets pile up.
-        x: { stacked: true, offset: true, grid: { display: false },
-             border: { display: false },
-             ticks: { color: C.ink2, autoSkip: false, maxRotation: 30,
-                      callback(v) { const t = this.getLabelForValue(v);
-                        return t.length > 18 ? t.slice(0, 17) + '…' : t; } } },
-        y: { beginAtZero: true, grid: { color: C.grid },
-             border: { display: false },
-             title: { display: true, color: C.ink3,
-                      text: state.unit === 'per' ? 'Per unit' : 'Amount' },
-             ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
-        y1: { position: 'right', grid: { drawOnChartArea: false },
-              border: { display: false }, suggestedMin: -10, suggestedMax: 10,
-              title: { display: true, text: 'Profit %', color: C.ink3 },
-              ticks: { color: C.ink3, callback: v => `${v}%` } }
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: C.surface, titleColor: C.ink, bodyColor: C.ink2,
-          borderColor: C.grid, borderWidth: 1, padding: 10,
-          callbacks: {
-            label: ctx => ctx.dataset.yAxisID === 'y1'
-              ? `${ctx.dataset.label}: ` + (ctx.parsed.y == null
-                  ? 'no net sales' : ctx.parsed.y.toFixed(1) + '%')
-              : `${ctx.dataset.label}: ` + (ctx.parsed.y == null ? 'no units'
-                  : state.unit === 'per' ? unitFmt(ctx.parsed.y)
-                  : Number(ctx.parsed.y).toLocaleString()),
-            footer(items) {
-              const r = top[items[0].dataIndex];
-              const out = COSTS.reduce((a, k) => a + r[k], 0);
-              return [`Costs: ${state.unit === 'per'
-                        ? (r.qty ? unitFmt(out / r.qty) : 'no units') : fmt(out)}`,
-                      `${label('profit')}: ${fmt(r.profit)}`,
-                      ...(has.qty === undefined ? [] : [
-                        `Qty: ${fmt(r.qty)}`,
-                        `ASP: ${r.asp == null ? '-' : unitFmt(r.asp)}`])];
-            }
-          }
-        }
-      }
-    }
-  });
-
-  const blanks = top.filter(r => !r.qty).length;
-  document.getElementById('hint').textContent =
-    `${label('gross')} beside what it went out on, by ${lv.name}`
-    + (rows.length > top.length ? ` (top ${top.length} of ${rows.length})` : '')
-    + (state.unit === 'per'
-        ? `, divided by the units behind it - so the ${label('gross')} bar is `
-          + 'the average selling price and the stack is what a unit costs.'
-          + (blanks ? ` ${blanks} of them have no units, so no price.` : '')
-        : `. Costs are drawn as amounts;`)
-    + ` The line is ${label('profit')} over ${denom}, on the right-hand scale.`
-    + (canDrill
-        ? ` Click a bar to open it by ${DATA.levels[state.dim + 1].name}.`
-        : ' This is the last level; Back steps out.');
-
   renderTable(top, lv.name, rows.length);
   drawStack();
   drawOrders();
@@ -1118,22 +1008,41 @@ function drawStack() {
     b.classList.toggle('active', state.stack === (i ? 'product' : 'customer'));
     b.disabled = !(i ? CHAINS.product : CHAINS.customer).length;
   });
+  // P&L is a figure like the others as far as the buttons go, but it draws a
+  // different chart: the whole statement on one bar pair rather than one figure
+  // split by who it came from. Putting both in one chart drew well enough and
+  // read badly - four stacked costs beside eight stacked categories is two
+  // questions answered at once and neither of them clearly.
+  const PNL = 'pnl';
   const figBox = document.getElementById('stkFig');
   figBox.className = 'vals seg';
   figBox.innerHTML = '';
-  DATA.series.filter(x => has[x.key] !== undefined).forEach(x => {
+  const figs = [...(has.profit !== undefined
+                    ? [{ key: PNL, label: 'P&L' }] : []),
+                ...DATA.series.filter(x => has[x.key] !== undefined)];
+  if (!figs.some(x => x.key === state.stkFig)) state.stkFig = figs[0].key;
+  figs.forEach(x => {
     const b = document.createElement('button');
     b.className = 'btn' + (state.stkFig === x.key ? ' active' : '');
     b.textContent = x.label;
-    b.onclick = () => { state.stkFig = x.key; render(); };
+    // render() rebuilds this very button, and removing the click's own target
+    // mid-dispatch lets the enclosing <label> activate the first button in the
+    // fresh row instead - so every figure snapped back to the first one. The
+    // redraw waits for the next task, as it does for a click on a bar.
+    b.onclick = () => { state.stkFig = x.key; defer(render); };
     figBox.appendChild(b);
   });
-  const pctMode = state.stkScale === 'pct';
+  const pnlMode = state.stkFig === PNL;
+  // Normalising to 100% is about a mix, and the P&L is not one. The control
+  // goes away rather than greying out: a disabled button still costs a row of
+  // the menu, and this menu is already tall.
+  const pctMode = state.stkScale === 'pct' && !pnlMode;
+  document.getElementById('scaleBox').hidden = pnlMode;
   document.getElementById('stkAmt').classList.toggle('active', !pctMode);
   document.getElementById('stkPct').classList.toggle('active', pctMode);
 
   const plot = document.getElementById('stkPlot');
-  if (sl === null) {
+  if (sl === null && !pnlMode) {
     if (stkChart) { stkChart.destroy(); stkChart = null; }
     plot.style.height = '0px';
     document.getElementById('stkLegend').innerHTML = '';
@@ -1143,7 +1052,7 @@ function drawStack() {
     return;
   }
 
-  const fig = has[state.stkFig];
+  const fig = has[state.stkFig];       // undefined in P&L mode, which has none
   const slice = DATA.combos.filter(c =>
     state.filter.every((want, i) => want < 0 || c.k[i] === want));
   /* Costs are carried negative in the export. The whole figure is flipped when
@@ -1153,6 +1062,21 @@ function drawStack() {
   const amount = c => c.v[fig] * (keep ? basisOf(c) : 1);
   const flip = fig !== undefined
     && slice.reduce((a, c) => a + amount(c), 0) < 0 ? -1 : 1;
+  // Every x member's own P&L, which the profit line reads in both modes and
+  // the bars read in P&L mode. It is a sum over the same slice, so it agrees
+  // with the KPIs above by construction rather than by coincidence.
+  const fin = new Map();
+  for (const c of slice) {
+    const x = xl.values[c.k[xi]];
+    let f = fin.get(x);
+    if (!f) fin.set(x, f = { qty: 0, net: 0, gross: 0, profit: 0,
+                             deduction: 0, cogs: 0, opex: 0 });
+    const b = basisOf(c);
+    for (const k of ['qty', 'net', 'gross', 'profit', ...COSTS]) {
+      if (has[k] !== undefined) f[k] += c.v[has[k]] * b;
+    }
+  }
+
   const grid = new Map();                 // x member -> stack member -> value
   const stackTotal = new Map();
   for (const c of slice) {
@@ -1170,10 +1094,14 @@ function drawStack() {
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
   const named = members.slice(0, 8);
   const folded = members.length > 8;
-  const xs = [...grid.entries()]
-    .map(([name, row]) => ({ name, idx: xl.values.indexOf(name),
-                             total: [...row.values()].reduce((a, b) => a + b, 0),
-                             row }))
+  const xs = (pnlMode
+    ? [...fin.entries()]
+        .map(([name, f]) => ({ name, idx: xl.values.indexOf(name),
+                               total: f.gross || f.profit, row: new Map() }))
+    : [...grid.entries()]
+        .map(([name, row]) => ({ name, idx: xl.values.indexOf(name),
+                                 total: [...row.values()]
+                                   .reduce((a, b) => a + b, 0), row })))
     .filter(r => r.total)
     .sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
     .slice(0, 12);
@@ -1186,12 +1114,12 @@ function drawStack() {
   const scale = (vals) => pctMode
     ? vals.map((v, i) => (xs[i].total ? v / xs[i].total * 100 : 0))
     : vals;
-  const series = named.map((g, i) => ({
+  const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
     backgroundColor: C.stack[i], borderRadius: 3, borderSkipped: false,
     borderWidth: 1, borderColor: C.surface, maxBarThickness: 54,
   }));
-  if (folded) {
+  if (folded && !pnlMode) {
     const rest = xs.map(r => named.reduce((a, g) => a - (r.row.get(g) || 0),
                                           r.total));
     series.push({
@@ -1201,28 +1129,76 @@ function drawStack() {
       borderWidth: 1, borderColor: C.surface, maxBarThickness: 54,
     });
   }
-  document.getElementById('stkLegend').innerHTML = series.map(d =>
-    `<span><i style="background:${d.backgroundColor}"></i>${d.label}</span>`).join('');
-  plot.style.height = Math.max(300, Math.min(520, xs.length * 56 + 120)) + 'px';
+  const per = state.unit === 'per';
+  const unitOf = r => (fin.get(r.name) || {}).qty || 0;
+  const at = (r, k) => {
+    const f = fin.get(r.name) || {};
+    const v = k === 'gross' ? (f.gross || 0) : Math.abs(f[k] || 0);
+    return per ? (unitOf(r) ? v / unitOf(r) : null) : v;
+  };
+  // In P&L mode the bars are the statement: what came in on the left, what it
+  // went out on stacked on the right.
+  if (pnlMode) {
+    series.push({
+      label: label('gross') + (per ? ' / unit' : ''), stack: 'in',
+      data: xs.map(r => at(r, 'gross')),
+      backgroundColor: C.gross, borderRadius: 4, borderSkipped: false,
+      borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
+    });
+    COSTS.forEach(k => series.push({
+      label: label(k) + (per ? ' / unit' : ''), stack: 'out',
+      data: xs.map(r => at(r, k)),
+      backgroundColor: C[k], borderRadius: 4, borderSkipped: false,
+      borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
+    }));
+  }
+  const denom = has.net !== undefined ? label('net') : label('gross');
+  const marginAt = r => {
+    const f = fin.get(r.name) || {};
+    const base = f.net || f.gross;
+    return base ? f.profit / base * 100 : null;
+  };
+  const hasLine = has.profit !== undefined;
+  if (hasLine) {
+    series.push({
+      type: 'line', label: `${label('profit')} % of ${denom}`, yAxisID: 'y1',
+      data: xs.map(marginAt),
+      borderColor: C.profit, backgroundColor: C.profit, borderWidth: 2,
+      pointRadius: 4, pointHoverRadius: 7, tension: .25, fill: false,
+      spanGaps: true, order: -1,
+    });
+  }
 
+  document.getElementById('stkLegend').innerHTML = series.map(d =>
+    `<span><i style="background:${d.type === 'line' ? d.borderColor
+      : d.backgroundColor}"></i>${d.label}</span>`).join('');
+  plot.style.height = Math.max(340, Math.min(560, xs.length * 56 + 140)) + 'px';
+
+  // P&L has no split to hand down, so opening a bar just steps the x axis on.
   const to = stackDrill();
-  const canDrill = to !== null;
+  const canDrill = pnlMode ? (stackLevel() !== null) : (to !== null);
   if (stkChart) stkChart.destroy();
   stkChart = new Chart(document.getElementById('stkBars'), {
     type: 'bar', data: { labels: xs.map(r => r.name), datasets: series },
+    plugins: [pointLabels],
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
       interaction: { mode: 'index', intersect: false },
+      datasets: { bar: { categoryPercentage: 0.8, barPercentage: 0.95 } },
       onHover: (e, els) => {
         e.native.target.style.cursor = (els.length && canDrill) ? 'pointer' : '';
       },
       onClick: (e, els) => {
         if (!canDrill || !els.length) return;
         const idx = xs[els[0].index].idx;
-        defer(() => { state.filter[xi] = idx; state.dim = to; render(); });
+        const next = pnlMode ? stackLevel() : to;
+        defer(() => { state.filter[xi] = idx; state.dim = next; render(); });
       },
       scales: {
-        x: { stacked: true, grid: { display: false }, border: { display: false },
+        // Two stack names on a stacked axis put the figure and the costs
+        // side by side on the same tick; one name leaves a single bar centred.
+        x: { stacked: true, offset: pnlMode, grid: { display: false },
+             border: { display: false },
              ticks: { color: C.ink2, autoSkip: false, maxRotation: 28,
                       callback(v) { const t = this.getLabelForValue(v);
                         return t.length > 18 ? t.slice(0, 17) + '…' : t; } } },
@@ -1231,34 +1207,67 @@ function drawStack() {
              max: pctMode ? 100 : undefined,
              title: { display: true, color: C.ink3,
                       text: pctMode ? 'Share of the bar'
-                        : DATA.series.find(x => x.key === state.stkFig).label },
+                        : pnlMode ? (per ? 'Per unit' : 'Amount')
+                        : (DATA.series.find(x => x.key === state.stkFig).label
+                           + (per ? ' / unit' : '')) },
              ticks: { color: C.ink3,
                       callback: v => pctMode ? `${v}%`
                         : Number(v).toLocaleString() } },
+        ...(hasLine ? { y1: {
+          position: 'right', grid: { drawOnChartArea: false },
+          border: { display: false }, suggestedMin: -10, suggestedMax: 10,
+          title: { display: true, text: 'Profit %', color: C.ink3 },
+          ticks: { color: C.ink3, callback: v => `${v}%` } } } : {}),
       },
       plugins: {
         legend: { display: false },
         tooltip: { backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
-          filter: c => c.parsed.y !== 0,
+          filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
           callbacks: {
-            label: c => pctMode
-              ? `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%  (${
-                  fmt(c.dataset.amounts[c.dataIndex])})`
-              : `${c.dataset.label}: ${fmt(c.parsed.y)}`,
-            footer: items => [`Total: ${fmt(xs[items[0].dataIndex].total)}`,
-              ...(canDrill ? [`click to open by ${DATA.levels[sl].name}`] : [])] } },
+            label: c => c.dataset.yAxisID === 'y1'
+              ? `${c.dataset.label}: ` + (c.parsed.y == null ? 'no net sales'
+                  : c.parsed.y.toFixed(1) + '%')
+              : pctMode
+                ? `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%  (${
+                    fmt(c.dataset.amounts[c.dataIndex])})`
+                : `${c.dataset.label}: ` + (per ? unitFmt(c.parsed.y)
+                                                : fmt(c.parsed.y)),
+            footer: items => {
+              const r = xs[items[0].dataIndex];
+              const f = fin.get(r.name) || {};
+              return [...(pnlMode ? [`Costs: ${fmt(COSTS.reduce(
+                        (a, k) => a + Math.abs(f[k] || 0), 0))}`]
+                       : [`${DATA.series.find(x => x.key === state.stkFig).label}`
+                          + `: ${fmt(r.total)}`]),
+                      ...(hasLine ? [`${label('profit')}: ${fmt(f.profit || 0)}`]
+                                  : []),
+                      ...(f.qty ? [`Qty: ${fmt(f.qty)}`] : []),
+                      ...(canDrill
+                          ? [`click to open by ${DATA.levels[sl].name}`] : [])];
+            } } },
       },
     },
   });
+  const openBy = pnlMode ? stackLevel() : sl;
   document.getElementById('stkHint').textContent =
-    `${DATA.series.find(x => x.key === state.stkFig).label} by ${xl.name}, each `
-    + `split by ${DATA.levels[sl].name}`
-    + (pctMode ? ', every bar normalised to its own total - the mix, not the '
-                 + 'size. The tooltip keeps the amount behind each share' : '')
-    + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s have `
-                + `a colour of their own; the rest are folded into Other.` : '.')
-    + (canDrill ? ` Click a bar to open it by ${DATA.levels[sl].name}.` : '');
+    (pnlMode
+      ? `${label('gross')} beside what it went out on, by ${xl.name}`
+        + (per ? ', divided by the units behind it - so the left bar is the '
+                 + 'average selling price and the right one is what a unit costs.'
+               : '. Costs are drawn as amounts.')
+      : `${DATA.series.find(x => x.key === state.stkFig).label} by ${xl.name}, `
+        + `each split by ${DATA.levels[sl].name}`
+        + (pctMode ? ', every bar normalised to its own total - the mix, not '
+                     + 'the size. The tooltip keeps the amount behind each share'
+                   : '')
+        + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
+                    + 'have a colour of their own; the rest are folded into '
+                    + 'Other.' : '.'))
+    + (hasLine ? ` The line is ${label('profit')} over ${denom}, on the `
+                 + 'right-hand scale.' : '')
+    + (canDrill && openBy !== null
+       ? ` Click a bar to open it by ${DATA.levels[openBy].name}.` : '');
 }
 
 /* The two counts side by side, one pair per member of the level the bars are

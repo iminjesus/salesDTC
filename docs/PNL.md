@@ -300,6 +300,30 @@ The build then says what the model makes of the month beside what was sold. A
 gap wider than 15% means the booking rule does not describe this export, and it
 says to go and run `tools/cohort.py` rather than leave the page quietly wrong.
 
+### One chart, two modes
+
+There were two charts: a P&L under a stacked breakdown, on **different x axes**.
+Reading one against the other meant holding two sets of labels in your head, and
+drawing them on top of each other was worse - four stacked costs beside eight
+stacked categories is two questions answered at once and neither of them
+clearly.
+
+So there is one chart, and **Figure** chooses what it draws:
+
+| Figure | |
+|---|---|
+| **P&L** | the statement: the gross bar, what it went out on stacked beside it, and the profit line |
+| anything else | that figure split by the level below - who it came from - and the profit line |
+
+The profit line is on both, on the right-hand scale, so switching between them
+never loses it. Choosing **Qty** therefore gives the units split with the profit
+line over it and **no cost bars**: costs share no scale with a count of units,
+and the same goes for a bar normalised to 100%.
+
+In P&L mode **Scale** disappears rather than greying out - normalising to 100%
+is about a mix and the P&L is not one, and a disabled button still costs a row
+of a menu that is already tall.
+
 ### The orders chart
 
 Under the profit chart, **one stack** per member of the level the bars are on,
