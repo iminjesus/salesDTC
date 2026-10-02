@@ -358,6 +358,17 @@ function readColours() {
         stack: [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => css('--k' + n)) };
 }
 
+/* A colour at partial strength, for a mark that has to be present without
+   competing. Hex in, rgba out; anything else is handed back as it came, since
+   a colour we cannot read is better left alone than guessed at. */
+function fade(colour, a) {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((colour || '').trim());
+  if (!m) return colour;
+  const h = m[1].length === 3 ? m[1].replace(/./g, c => c + c) : m[1];
+  const n = parseInt(h, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
 const fmt = n => Math.round(n).toLocaleString();
 /* A per-unit figure is a price, so it keeps its cents. */
 const unitFmt = n => n.toLocaleString(undefined, { minimumFractionDigits: 2,
@@ -1279,12 +1290,16 @@ function drawStack() {
       named.forEach((g, i) => {
         const a = finBy.get(g);
         if (!a) return;
+        // Faint on purpose: the solid line is the answer, and these are the
+        // spread around it. At full strength eight of them read as the chart
+        // and the bars underneath read as the background, which is backwards.
         series.push({
           type: 'line', label: `${g} margin`, yAxisID: 'y1',
           data: xs.map(r => marginOf(a[r.mi])),
-          borderColor: C.stack[i], backgroundColor: C.stack[i],
-          borderWidth: 1.5, borderDash: [4, 3],
-          pointRadius: 2, pointHoverRadius: 6, tension: .25, fill: false,
+          borderColor: fade(C.stack[i], .45),
+          backgroundColor: fade(C.stack[i], .45),
+          borderWidth: 1.2, borderDash: [3, 3],
+          pointRadius: 0, pointHoverRadius: 5, tension: .25, fill: false,
           spanGaps: true, order: -1, bandLine: true,
         });
       });

@@ -325,7 +325,9 @@ says how big every member is and nothing at all about how well it did - and two
 members the same size can be a long way apart on margin, which is usually the
 question the sizes raise. Only the solid line's points are labelled; eight
 labelled lines would bury the chart they are drawn over, and the dotted ones
-are read against it rather than off a number. Choosing **Qty** therefore gives the units split with the profit
+are read against it rather than off a number. They are drawn faint, and with no
+point markers, for the same reason: at full strength eight of them read as the
+chart and the bars underneath read as the background, which is backwards. Choosing **Qty** therefore gives the units split with the profit
 line over it and **no cost bars**: costs share no scale with a count of units,
 and the same goes for a bar normalised to 100%.
 
