@@ -140,6 +140,28 @@ select:disabled { opacity: .5; }
 .kpi .v { font-size: 19px; font-weight: 650; letter-spacing: -.01em;
   font-variant-numeric: tabular-nums; }
 .kpi .v.neg { color: var(--neg); }
+/* The month's profit split by where the order behind it came from. A table
+   rather than more KPI tiles: the rows add up, and a reader has to be able to
+   see that they add up to the export's own total. */
+.split { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 8px;
+  overflow: hidden; }
+.split table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.split caption { text-align: left; font-size: 11px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px 6px;
+  background: var(--chip); }
+.split caption em { font-style: normal; text-transform: none; letter-spacing: 0;
+  color: var(--ink-3); }
+.split th, .split td { padding: 5px 12px; text-align: right;
+  font-variant-numeric: tabular-nums; }
+.split th { font-weight: 500; font-size: 11px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .04em; }
+.split th:first-child, .split td:first-child { text-align: left; }
+.split td.v { font-weight: 600; }
+.split td.neg { color: var(--neg); }
+.split tr.sum td { border-top: 1px solid var(--line); font-weight: 700; }
+.split tr.sum td:first-child { font-weight: 600; }
+.split .why { color: var(--ink-3); font-size: 11px; padding: 6px 12px 9px;
+  line-height: 1.5; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12px;
   color: var(--ink-2); margin-bottom: 8px; }
 .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block;
@@ -210,12 +232,18 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
 
   <div class="card">
     <div class="kpis" id="kpis"></div>
+    <div class="split" id="split" hidden></div>
     <div class="legend" id="legend"></div>
     <div class="chart" id="plot"><canvas id="bars"></canvas></div>
     <div class="hint" id="hint"></div>
   </div>
 
   <div class="card" id="ordCard" hidden>
+    <div class="row bar" style="margin:0 0 10px">
+      <label class="f"><span>Orders in</span><span class="seg">
+        <button class="btn" id="ordQty" title="units - what the two exports agree on">Units</button
+        ><button class="btn" id="ordAmt" title="the profit file's gross sales, shared over the same units, so this chart and the one above are on the same money">Amounts</button></span></label>
+    </div>
     <div class="legend" id="ordLegend"></div>
     <div class="chart" id="ordPlot"><canvas id="ordBars"></canvas></div>
     <div class="hint" id="ordHint"></div>
@@ -297,6 +325,11 @@ const state = {
   // 'amount' compares sizes between bars; 'pct' normalises every bar to 100%
   // and compares the mix inside them, which a tall bar otherwise drowns out.
   stkScale: 'amount',
+  // The orders chart counts units, which is what the two exports agree on.
+  // Amounts put it on the same money as the chart above so the two can be
+  // read against each other - the profit file's gross, shared out over the
+  // same units.
+  ordUnit: 'units',
 };
 
 /* Where the drill starts: one channel - the online business - with everything
@@ -413,7 +446,10 @@ function basisOf(c) {
 function orderSplit(extra) {
   const o = { booked: 0, came: 0, goes: 0, sold: 0, soldAmt: 0, ordAmt: 0,
               ownGross: 0, ownNet: 0, ownProfit: 0,
-              inGross: 0, inNet: 0, inProfit: 0 };
+              inGross: 0, inNet: 0, inProfit: 0,
+              goesGross: 0, goesNet: 0, goesProfit: 0,
+              totGross: 0, totNet: 0, totProfit: 0,
+              otherGross: 0, otherNet: 0, otherProfit: 0 };
   if (!hasOrders()) return o;
   for (const c of DATA.combos) {
     if (!inSlice(c, extra)) continue;
@@ -426,9 +462,15 @@ function orderSplit(extra) {
     // The money each slice earned, on the same share of units the basis uses -
     // so the carry-over's own profit is a figure on the page rather than
     // something to go and switch Basis for.
+    const at = k => (has[k] === undefined ? 0 : c.v[has[k]]);
+    // The slice's own total, summed straight off the profit export with no
+    // share applied. This is the figure that has to hold: whatever the split
+    // does, the three parts add back to the number the file reports.
+    o.totGross += at('gross');
+    o.totNet += at('net');
+    o.totProfit += at('profit');
     const month = bookedOf(c) + cameIn(c);
     if (month) {
-      const at = k => (has[k] === undefined ? 0 : c.v[has[k]]);
       const own = bookedOf(c) / month;
       const inn = cameIn(c) / month;
       o.ownGross += at('gross') * own;
@@ -437,8 +479,23 @@ function orderSplit(extra) {
       o.inGross += at('gross') * inn;
       o.inNet += at('net') * inn;
       o.inProfit += at('profit') * inn;
+      // The carry-out at this month's rates. Those units have not been sold,
+      // so this is a projection and never part of any total - it is here so
+      // the orders chart can be drawn in money instead of units.
+      const out = goesOut(c) / month;
+      o.goesGross += at('gross') * out;
+      o.goesNet += at('net') * out;
+      o.goesProfit += at('profit') * out;
     }
   }
+  // Everything the split could not place: a sale whose product and customer
+  // carry no order at all - an offline row, a marketplace, a code the two
+  // files spell differently. It is the residual rather than a figure of its
+  // own, so the total stays exactly the profit export's and any drift lands
+  // here instead of in the number anyone quotes.
+  o.otherGross = o.totGross - o.ownGross - o.inGross;
+  o.otherNet = o.totNet - o.ownNet - o.inNet;
+  o.otherProfit = o.totProfit - o.ownProfit - o.inProfit;
   o.month = o.booked + o.came;        // what the model says the month earned
   o.demand = o.booked + o.goes;       // what the month's own orders will earn
   return o;
@@ -818,6 +875,14 @@ function render() {
   document.getElementById('unitAmt').classList.toggle('active', state.unit === 'amount');
   document.getElementById('unitPer').classList.toggle('active', state.unit === 'per');
   document.getElementById('unitPer').disabled = !canUnit;
+  // Amounts on the orders chart need the profit file's gross to share out.
+  const canOrdAmt = has.gross !== undefined;
+  if (!canOrdAmt) state.ordUnit = 'units';
+  document.getElementById('ordQty')
+    .classList.toggle('active', state.ordUnit === 'units');
+  document.getElementById('ordAmt')
+    .classList.toggle('active', state.ordUnit === 'amount');
+  document.getElementById('ordAmt').disabled = !canOrdAmt;
 
   const all = totals();
   const per = state.unit === 'per';
@@ -846,7 +911,46 @@ function render() {
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
   ).join('');
 
+  splitStrip();
   draw();
+}
+
+/* The month's profit split by where the order behind it came from.
+   The total is the one number that has to be right: it is summed straight off
+   the profit export with no share applied, and the parts are made to add back
+   to it - so "no order matched" is a residual rather than a figure of its own,
+   and any drift lands there instead of in the total anyone quotes. */
+function splitStrip() {
+  const box = document.getElementById('split');
+  box.hidden = !(hasOrders() && DATA.carryIn && has.profit !== undefined);
+  if (box.hidden) return;
+  const o = orderSplit();
+  const pc = v => (o.totProfit ? (v / o.totProfit * 100).toFixed(0) + '%' : '-');
+  const mg = (pr, base) => (base ? (pr / base * 100).toFixed(1) + '%' : '-');
+  const row = (name, pr, base, note) =>
+    `<tr><td>${name}${note ? ` <span class="note">${note}</span>` : ''}</td>`
+    + `<td class="v ${pr < 0 ? 'neg' : ''}">${fmt(pr)}</td>`
+    + `<td>${pc(pr)}</td><td>${mg(pr, base)}</td></tr>`;
+  box.innerHTML = `<table>
+    <caption>Operating profit, by the month the order came from
+      &middot; <em>the total is ${DATA.file}'s own</em></caption>
+    <tr><th>where it came from</th><th>operating profit</th>
+        <th>share</th><th>margin</th></tr>
+    ${row("This month's own orders", o.ownProfit, o.ownNet)}
+    ${row('Rolled in from ' + (DATA.before || 'the month before'),
+          o.inProfit, o.inNet)}
+    ${row('No order matched', o.otherProfit, o.otherNet,
+          'offline, a marketplace, or a code the two files spell differently')}
+    <tr class="sum"><td>Total &mdash; ${DATA.file}</td>
+      <td class="v ${o.totProfit < 0 ? 'neg' : ''}">${fmt(o.totProfit)}</td>
+      <td>100%</td><td>${mg(o.totProfit, o.totNet)}</td></tr>
+  </table>
+  <div class="why">The split is of units: each combination's money is shared
+    out on the share of its units that came from each place, which holds as far
+    as one combination's units being worth about the same as each other. The
+    total is not split or rebuilt - it is read off the file, and the three rows
+    are made to sum to it. Amounts follow the filter, so drilling in splits the
+    slice rather than the month.</div>`;
 }
 
 /* The percentage above each point of the line, on a plate in the surface
@@ -1169,37 +1273,51 @@ function drawStack() {
 /* Which of a pair is which, written over each bar. Two bars on one tick share
    the tick's label, so without this the colours are the only thing saying that
    the left one is the month's sales and the right one the month's orders. */
+/* A rule across one bar partway up, where a stack holds two totals at once.
+   The orders chart stacks carried in, booked and carried out: the first two
+   are the month as the profit file reports it, and the chart above draws that
+   same number - so a line at the top of the second segment is where the two
+   charts should agree, and it is drawn rather than left to be worked out. */
 const barTags = {
   id: 'barTags',
   afterDatasetsDraw(c) {
-    const tags = (c.options.plugins.barTags || {}).tags;
-    if (!tags) return;
+    const o = (c.options.plugins.barTags || {});
+    if (o.after == null || !c.data.datasets[o.after]) return;
     const { ctx } = c;
     ctx.save();
     ctx.font = '600 10px -apple-system, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    const done = new Set();
-    c.data.datasets.forEach((d, i) => {
-      if (!d.stack || done.has(d.stack) || !tags[d.stack]) return;
-      done.add(d.stack);
-      // The first dataset of a stack is drawn at its base, so the top of the
-      // whole bar is the smallest y of anything in it.
-      const tops = c.data.datasets.map((d2, j) => (d2.stack === d.stack
-        ? c.getDatasetMeta(j).data.map(el => el.y) : null)).filter(Boolean);
-      c.getDatasetMeta(i).data.forEach((el, n) => {
-        const y = Math.min(...tops.map(t => t[n]));
-        const text = tags[d.stack];
-        const w = ctx.measureText(text).width;
-        ctx.globalAlpha = .85;
-        ctx.fillStyle = C.surface;
-        ctx.beginPath();
-        ctx.roundRect(el.x - w / 2 - 4, y - 16, w + 8, 14, 3);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = C.ink3;
-        ctx.fillText(text, el.x, y - 4);
-      });
+    // A stacked bar element's y is the top of its own segment, so the top of
+    // the second one is exactly where the two parts below it end.
+    c.getDatasetMeta(o.after).data.forEach((el, n) => {
+      const seg = c.data.datasets[o.after].data[n];
+      if (!seg && seg !== 0) return;
+      const half = (el.width || 40) / 2 + 3;
+      ctx.strokeStyle = C.ink3;
+      ctx.globalAlpha = .55;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 2]);
+      ctx.beginPath();
+      ctx.moveTo(el.x - half, el.y);
+      ctx.lineTo(el.x + half, el.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (!o.text) { ctx.globalAlpha = 1; return; }
+      // Hard against the right end of the rule rather than centred on it: the
+      // line's own point label is centred, and the two land at the same height
+      // whenever the share is near the rule.
+      const w = ctx.measureText(o.text).width;
+      ctx.globalAlpha = .9;
+      ctx.fillStyle = C.surface;
+      ctx.beginPath();
+      ctx.roundRect(el.x + half + 2, el.y - 7, w + 7, 13, 3);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = C.ink3;
+      ctx.textAlign = 'left';
+      ctx.fillText(o.text, el.x + half + 5, el.y + 5);
+      ctx.textAlign = 'center';
     });
     ctx.restore();
   }
@@ -1214,30 +1332,56 @@ function drawOrders() {
     return;
   }
   const lv = DATA.levels[state.dim];
-  const rows = lv.values
+  const money = state.ordUnit === 'amount';
+  const size = r => (money ? Math.abs(r.inGross) + Math.abs(r.ownGross)
+                             + Math.abs(r.goesGross)
+                           : r.month + r.demand);
+  const ranked = lv.values
     .map((name, i) => ({ name, ...orderSplit({ level: state.dim, value: i }) }))
     .filter(r => r.month || r.demand)
-    .sort((a, b) => (b.month + b.demand) - (a.month + a.demand))
-    .slice(0, 12);
+    .sort((a, b) => size(b) - size(a));
+  const rows = ranked.slice(0, 12);
+  // Past twelve the chart shows the biggest and drops the rest, so its bars no
+  // longer add up to the chart above and the two cannot be read against each
+  // other on height. Saying so beats letting the gap look like a disagreement.
+  const cut = ranked.length - rows.length;
 
-  const bar = (label, stack, key, colour) => ({
-    label, stack, data: rows.map(r => r[key]), backgroundColor: colour,
-    borderRadius: 3, borderSkipped: false, borderWidth: 1,
-    borderColor: C.surface, maxBarThickness: 46,
+  // One stack of three, bottom to top: what came in, what the month booked
+  // itself, what it hands on. Drawing 'booked' twice - once per side-by-side
+  // bar - said nothing the one stack does not, and the one stack says it
+  // better, because both totals can be read off it at once:
+  //
+  //     carried out    ┐ the month's own demand (what its orders will earn)
+  //     booked         ┘ ┐
+  //     carried in       ┘ the month's revenue (what it actually earned)
+  //
+  // so the bottom two are the month as the profit file reports it, and the
+  // chart above is that same number.
+  const K = money ? { came: 'inGross', booked: 'ownGross', goes: 'goesGross',
+                     other: 'otherGross' }
+                  : { came: 'came', booked: 'booked', goes: 'goes' };
+  const bar = (label, key, colour) => ({
+    label, stack: 'one', data: rows.map(r => r[K[key]]),
+    backgroundColor: colour, borderRadius: 3, borderSkipped: false,
+    borderWidth: 1, borderColor: C.surface, maxBarThickness: 46,
   });
-  // 'booked' is one set of units in both bars - the month's own orders, which
-  // it both took and earned. What sits above it is what the other bar has not:
-  // last month's leftovers on the revenue side, next month's on the demand one.
+  // In amounts the whole point is to line up with the chart above, and that
+  // chart draws the file's total - so the sales no order could be matched to
+  // have to be here too. Leaving them out would put this bar below that one by
+  // exactly the residual, every time, and read as the two charts disagreeing
+  // when they do not. In units the two exports are counting different things
+  // and the gap between them is the finding, so it stays in the tooltip.
+  // The grey is the palette's neutral slot and belongs to the bucket that is
+  // genuinely "other" - the sales no order could be matched to. Carried in is
+  // a real category and takes a real colour.
   const datasets = [
-    bar('Booked on this month\'s own orders', 'month', 'booked', C.stack[0]),
-    bar('Carried in from last month', 'month', 'came', C.stack[8]),
-    bar('Booked on this month\'s own orders', 'demand', 'booked', C.stack[0]),
-    bar('Carried out to next month', 'demand', 'goes', C.stack[3]),
+    bar('Carried in from last month', 'came', C.stack[4]),
+    bar('Booked and earned in this month', 'booked', C.stack[0]),
+    ...(money ? [bar('No order matched', 'other', C.stack[8])] : []),
+    bar('Carried out to next month (a projection)', 'goes', C.stack[3]),
   ];
-  const seen = new Set();
   document.getElementById('ordLegend').innerHTML = datasets
-    .filter(d => !seen.has(d.label) && seen.add(d.label)
-                 && d.data.some(v => Math.abs(v) > 0.5))
+    .filter(d => d.data.some(v => Math.abs(v) > 0.5))
     .map(d => `<span><i style="background:${d.backgroundColor}"></i>${d.label}</span>`)
     .join('');
   datasets.push({
@@ -1267,8 +1411,11 @@ function drawOrders() {
                         return t.length > 18 ? t.slice(0, 17) + '…' : t; } } },
         y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
              border: { display: false },
-             title: { display: true, text: 'Units', color: C.ink3 },
-             ticks: { color: C.ink3, callback: v => Number(v).toLocaleString() } },
+             title: { display: true, text: money ? label('gross') : 'Units',
+                      color: C.ink3 },
+             ticks: { color: C.ink3,
+                      callback: v => (money ? fmt(v)
+                                            : Number(v).toLocaleString()) } },
         y1: { position: 'right', beginAtZero: true, suggestedMax: 100,
               grid: { drawOnChartArea: false }, border: { display: false },
               title: { display: true, text: 'Own demand', color: C.ink3 },
@@ -1278,20 +1425,31 @@ function drawOrders() {
         legend: { display: false },
         // Without the carry-in the left bar is not the month's earnings, so it
         // is not labelled as if it were.
-        barTags: { tags: { month: DATA.carryIn ? 'earned' : 'own orders',
-                           demand: 'ordered' } },
+        // Everything below the rule is the month as sold - the same figure the
+        // chart above draws. Above it is next month's, which has not happened.
+        barTags: { after: money ? 2 : 1,
+                   text: DATA.carryIn ? 'as sold' : null },
         tooltip: { backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
           filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
           callbacks: {
             label: c => c.dataset.type === 'line'
               ? `${c.dataset.label}: ${c.parsed.y.toFixed(0)}%`
-              : `${c.dataset.label}: ${fmt(c.parsed.y)} units`,
+              : `${c.dataset.label}: ${fmt(c.parsed.y)}`
+                + (money ? '' : ' units'),
             footer: items => {
               const r = rows[items[0].dataIndex];
-              return [`Earned ${fmt(r.month)} units, ${fmt(r.sold)} in the `
-                      + `profit file (${fmt(r.soldAmt)})`,
-                      `Its own orders: ${fmt(r.demand)} units, ${fmt(r.ordAmt)}`];
+              // The two readings the one stack holds, spelled out: the bottom
+              // two segments and the top two.
+              return money
+                ? [`Earned this month: ${fmt(r.inGross + r.ownGross)}`
+                   + ` (${fmt(r.ownGross)} its own + ${fmt(r.inGross)} carried in)`,
+                   `Its own orders in full: ${fmt(r.ownGross + r.goesGross)}`
+                   + ` - the carry-out at this month's rates`,
+                   `The profit file reports ${fmt(r.soldAmt)} net for this slice`]
+                : [`Earned ${fmt(r.month)} units, ${fmt(r.sold)} in the `
+                   + `profit file (${fmt(r.soldAmt)})`,
+                   `Its own orders: ${fmt(r.demand)} units, ${fmt(r.ordAmt)}`];
             } } },
       },
     },
@@ -1304,7 +1462,8 @@ function drawOrders() {
   // page that charts it as nil claims the month earned all of its own revenue.
   if (!DATA.carryIn) {
     document.getElementById('ordHint').textContent =
-      `Units by ${lv.name}: what this month's own orders earned, and the `
+      `${money ? label('gross') : 'Units'} by ${lv.name}: what this month's `
+      + `own orders earned, and the `
       + `${fmt(all.goes)} units they leave for the next month. What the month `
       + 'BEFORE carried into this one is not drawn, because its orders were not '
       + 'read - so the bars are not the whole month, and the share above is of '
@@ -1313,8 +1472,15 @@ function drawOrders() {
     return;
   }
   document.getElementById('ordHint').textContent =
-    `Units by ${lv.name}: what the month earned, beside what its own orders `
-    + `took. ${pct}% of the revenue came from orders placed in the month; the `
+    `${money ? label('gross') : 'Units'} by ${lv.name}, in one stack: `
+    + (money
+       ? 'everything below the dashed rule is the month as the profit file '
+         + 'reports it - the same total the chart above draws - and the band on '
+         + 'top is next month\'s, at this month\'s rates. '
+       : 'the bottom two segments are what the month earned, the top two what '
+         + 'its own orders took. ')
+    + `${pct}% of the revenue came from orders placed in the `
+    + `month; the `
     + `rest, ${fmt(all.came)} units, was carried in from the month before. `
     + `${fmt(all.goes)} units are carried out to the next one`
     + (Math.abs(net) > all.month * 0.05
@@ -1325,6 +1491,9 @@ function drawOrders() {
             : 'built'} rather than demand ${net > 0 ? 'earned' : 'lost'}`
        : '')
     + '.'
+    + (cut > 0 ? ` Only the biggest ${rows.length} of ${ranked.length} are `
+                 + `drawn, so these bars are short of the chart above by the `
+                 + `${cut} not shown.` : '')
     + (all.came && has.profit !== undefined
        ? ` Those ${fmt(all.came)} carried-in units earned ${fmt(all.inGross)}`
          + ` gross and ${fmt(all.inProfit)} operating profit`
@@ -1407,6 +1576,10 @@ document.getElementById('stkAmt').onclick = () => {
   state.stkScale = 'amount'; render(); };
 document.getElementById('stkPct').onclick = () => {
   state.stkScale = 'pct'; render(); };
+document.getElementById('ordQty').onclick = () => {
+  state.ordUnit = 'units'; render(); };
+document.getElementById('ordAmt').onclick = () => {
+  state.ordUnit = 'amount'; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 
 /* One button per month the build found, hidden when there is only one. */

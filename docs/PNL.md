@@ -302,16 +302,36 @@ says to go and run `tools/cohort.py` rather than leave the page quietly wrong.
 
 ### The orders chart
 
-Under the profit chart, the month's two sides - one pair per member of the level
-the bars are on, `earned` on the left and `ordered` on the right. Units, not
-money: both files carry a quantity that means one thing, a unit shipped, while
-the amounts differ by tax, by currency and by what each file calls revenue.
+Under the profit chart, **one stack** per member of the level the bars are on,
+read bottom to top:
 
-`booked` is drawn in one colour across **both** bars, because it is one set of
-units: the orders this month both took and earned. What sits above it is what
-the other bar does not have - last month's leftovers on the revenue side, next
-month's on the demand one. The line is the share of the month's revenue its own
-orders earned.
+```
+  carried out    ┐ the month's own demand - what its orders will earn in all
+  booked         ┘ ┐
+  carried in       ┘ the month's revenue - what it actually earned
+```
+
+Two side-by-side bars drew `booked` twice and said nothing the one stack does
+not. The one stack says it better, because **both** totals come off it at once:
+the segments below the dashed rule are the month as sold, the two above the
+carried-in band are its own demand. The line is the share of the month's revenue
+its own orders earned.
+
+**Units or Amounts.** Units is what the two exports genuinely agree on - both
+mean one unit shipped, while the amounts differ by tax, by currency and by what
+each file calls revenue. Amounts puts the chart on the profit file's gross,
+shared over those same units, so it can be read against the chart above it.
+
+In Amounts a fourth band appears: **no order matched**. Without it this bar
+would sit below the chart above by exactly the sales the join could not place -
+every time - and that gap reads as the two charts disagreeing when they do not.
+With it, everything below the rule adds to the profit file's own total, which is
+the number the chart above draws. The grey is the palette's neutral slot and
+belongs to that bucket; carried in is a real category and takes a real colour.
+
+Past twelve members the chart draws the biggest and drops the rest, and then its
+bars are **not** the whole month. The hint says so rather than letting the
+shortfall look like a disagreement.
 
 When a month takes in more than it hands on, its revenue is **flattered by the
 difference** - a backlog cleared, not demand earned - and the hint says so in
@@ -354,6 +374,31 @@ could never have sold.
 Under the booking rule every status has somewhere to go, so none is left
 unread. `tools/reconcile.py --statuses` still lists them all with how its own
 shipped/not-shipped reading takes each one.
+
+### The profit split
+
+Above the profit chart, three figures and a total:
+
+| | |
+|---|---|
+| This month's own orders | ordered in the month and earned in it |
+| Rolled in from *the month before* | ordered before the month, earned in it |
+| No order matched | sold with no order behind it - offline, a marketplace, or a code the two files spell differently |
+| **Total** | **the profit export's own figure** |
+
+The total is the one number that has to be right, so it is **not** split or
+rebuilt: it is summed straight off the export with no share applied, and the
+three rows are made to add back to it. "No order matched" is therefore a
+residual rather than a figure in its own right, and any drift lands there
+instead of in the total anyone quotes.
+
+The first two rows come from sharing each combination's money on the share of
+its units that came from each place. That holds as far as one combination's
+units being worth about the same as each other - the same assumption the
+per-unit view already runs on. Everything follows the filter, so drilling in
+splits the slice rather than the month.
+
+The same split prints on the build, with the export's own total marked.
 
 ### Per unit, and ASP
 

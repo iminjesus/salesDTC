@@ -292,25 +292,40 @@ def split_money(combos, keys, oi, ym):
             pr += v[at['profit']] * f
         out[name] = (q, g, n, pr)
 
+    # The file's own total, with no share applied to anything. The two attributed
+    # rows only cover combinations that carry an order at all, so the rest - an
+    # offline row, a marketplace, a code the two files spell differently - is the
+    # difference. Printing it as a residual is what keeps the total exactly the
+    # export's: the split is made to add back to the file rather than the file
+    # being rebuilt out of the split.
+    tot = [0.0] * 4
+    for v in combos.values():
+        tot[0] += abs(v[at['qty']]) if 'qty' in at else 0
+        tot[1] += v[at['gross']] if 'gross' in at else 0
+        tot[2] += v[at['net']] if 'net' in at else 0
+        tot[3] += v[at['profit']]
+    out['no order matched'] = tuple(
+        tot[i] - out['its own orders'][i] - out['carried in'][i]
+        for i in range(4))
+
     before = month_before(ym) if ym else '-'
     after = (ym + 1 if ym % 100 < 12 else (ym // 100 + 1) * 100 + 1) if ym else '-'
     label = {'its own orders': f'ordered in {ym} and earned in it',
              'carried in': f'ordered in {before}, earned in {ym}',
+             'no order matched': 'no order matched (offline, other)',
              'carried out': f'ordered in {ym}, earns in {after}'}
     print(f'\n  what the month earned, by the month the order came from')
     print(f'  {"":<34} {"units":>10} {"gross":>15} {"op profit":>15} {"margin":>8}')
-    for name in ('its own orders', 'carried in'):
+    for name in ('its own orders', 'carried in', 'no order matched'):
         q, g, n, pr = out[name]
         base = n or g
         print(f'  {label[name]:<34} {q:>10,.0f} {g:>15,.0f} {pr:>15,.0f} '
               + (f'{pr / base * 100:>7.1f}%' if base else f'{"-":>8}'))
-    q = sum(out[k][0] for k in ('its own orders', 'carried in'))
-    g = sum(out[k][1] for k in ('its own orders', 'carried in'))
-    n = sum(out[k][2] for k in ('its own orders', 'carried in'))
-    pr = sum(out[k][3] for k in ('its own orders', 'carried in'))
+    q, g, n, pr = tot
     base = n or g
     print(f'  {"= the month as sold":<34} {q:>10,.0f} {g:>15,.0f} {pr:>15,.0f} '
-          + (f'{pr / base * 100:>7.1f}%' if base else f'{"-":>8}'))
+          + (f'{pr / base * 100:>7.1f}%' if base else f'{"-":>8}')
+          + '   <- the export\'s own total')
     q, g, n, pr = out['carried out']
     base = n or g
     print(f'  {label["carried out"]:<34} {q:>10,.0f} {g:>15,.0f} {pr:>15,.0f} '
@@ -941,6 +956,9 @@ def build_month(folder, target, args):
                                 'Profit' if ym else 'Profit'),
         'file': target.name,
         'rows': len(body),
+        # Named rather than derived in the page: the carry-in came from a real
+        # month, and "rolled in from Jul" reads where "rolled in" does not.
+        'before': (MONTHS[(month_before(ym) % 100) - 1] if ym else ''),
         'custDepth': CUST_DEPTH,
         # Whether the month before's orders were read at all. Without them the
         # carry-in is not nil, it is unknown, and a page that charts it as nil
