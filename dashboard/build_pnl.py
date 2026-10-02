@@ -456,6 +456,7 @@ def build_month(folder, target, args):
     # That is an allocation and nothing more; it says where an order could have
     # gone, in the proportions the month itself gives.
     n_measures = len(keys)
+    carry_in_known = False
 
     def merge_orders(by_key, drop=()):
         """Add an order side onto the combinations, spreading only what has to be.
@@ -547,11 +548,14 @@ def build_month(folder, target, args):
                                for t in args.skip_sku.split(',') if t.strip()))
             if got_sap:
                 SAP.report(got_sap, ym)
-                if not any(f for f in sap_files
-                           if month_before(ym) == month_of(
-                               [], [], f.stem, say=lambda *a: None)):
+                carry_in_known = any(
+                    f for f in sap_files
+                    if month_before(ym) == month_of([], [], f.stem,
+                                                    say=lambda *a: None))
+                if not carry_in_known:
                     print(f'  no {month_before(ym)} export, so what that month '
-                          'carried into this one is missing')
+                          'carried into this one is not nil - it is unknown, '
+                          'and\n  the page says so rather than charting a zero')
                 merge_orders(got_sap.by_key)
                 oi = n_measures
                 own = sum(v[oi] for k, v in combos.items())
@@ -630,6 +634,7 @@ def build_month(folder, target, args):
 
             # Six slots per key: what this month's own orders booked, what the
             # month before carried in, and what this month carries on.
+            carry_in_known = before is not None
             by_key_store = {}
             for key in set(this.by_key) | (set(before.by_key) if before else set()):
                 own = this.by_key.get(key) or [0.0] * 4
@@ -757,6 +762,11 @@ def build_month(folder, target, args):
         'file': target.name,
         'rows': len(body),
         'custDepth': CUST_DEPTH,
+        # Whether the month before's orders were read at all. Without them the
+        # carry-in is not nil, it is unknown, and a page that charts it as nil
+        # says the month earned all its own revenue - which is a finding, and a
+        # wrong one.
+        'carryIn': carry_in_known,
         'levels': levels,
         'series': series,
         'start': index[levels[0]['name']].get(start, -1) if start else -1,

@@ -773,8 +773,11 @@ function render() {
   // The basis only exists where an order export was read alongside the profit.
   ALL.months.forEach((_, i) => document.getElementById('month' + i)
     .classList.toggle('active', state.month === i));
-  document.getElementById('basisBox').hidden = !hasOrders();
-  if (!hasOrders()) state.basis = 'sales';
+  // Stripping the carry-over out of a month whose carry-in was never read
+  // would not strip anything: the basis would be Sales under another name.
+  const canBasis = hasOrders() && DATA.carryIn;
+  document.getElementById('basisBox').hidden = !canBasis;
+  if (!canBasis) state.basis = 'sales';
   [['bSales', 'sales'], ['bOrd', 'orders'], ['bAll', 'all']].forEach(([id, v]) =>
     document.getElementById(id).classList.toggle('active', state.basis === v));
   const canUnit = has.qty !== undefined;
@@ -799,9 +802,11 @@ function render() {
     ]),
     ...(!hasOrders() ? [] : (() => {
       const o = orderSplit();
-      return [['Own demand', o.month ? (o.booked / o.month * 100).toFixed(0)
-                                       + '% of units' : '-', ''],
-              ['Carried in', fmt(o.came) + ' units', ''],
+      return [['Own demand', !DATA.carryIn ? 'not known'
+               : o.month ? (o.booked / o.month * 100).toFixed(0) + '% of units'
+               : '-', ''],
+              ['Carried in', DATA.carryIn ? fmt(o.came) + ' units'
+               : 'month before not read', ''],
               ['Carried out', fmt(o.goes) + ' units', '']];
     })()),
   ].map(([k, v, cls]) =>
@@ -1238,7 +1243,10 @@ function drawOrders() {
       },
       plugins: {
         legend: { display: false },
-        barTags: { tags: { month: 'earned', demand: 'ordered' } },
+        // Without the carry-in the left bar is not the month's earnings, so it
+        // is not labelled as if it were.
+        barTags: { tags: { month: DATA.carryIn ? 'earned' : 'own orders',
+                           demand: 'ordered' } },
         tooltip: { backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
           filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
@@ -1259,6 +1267,18 @@ function drawOrders() {
   const all = orderSplit();
   const pct = all.month ? Math.round(all.booked / all.month * 100) : 0;
   const net = all.came - all.goes;
+  // Without the month before's orders the carry-in is unknown, not nil, and a
+  // page that charts it as nil claims the month earned all of its own revenue.
+  if (!DATA.carryIn) {
+    document.getElementById('ordHint').textContent =
+      `Units by ${lv.name}: what this month's own orders earned, and the `
+      + `${fmt(all.goes)} units they leave for the next month. What the month `
+      + 'BEFORE carried into this one is not drawn, because its orders were not '
+      + 'read - so the bars are not the whole month, and the share above is of '
+      + 'what is here rather than of what was sold. Add that month\'s order '
+      + 'export and both come back.';
+    return;
+  }
   document.getElementById('ordHint').textContent =
     `Units by ${lv.name}: what the month earned, beside what its own orders `
     + `took. ${pct}% of the revenue came from orders placed in the month; the `
