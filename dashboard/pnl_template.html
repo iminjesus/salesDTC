@@ -1141,6 +1141,9 @@ function drawStack() {
                                 : has[k] !== undefined))
     .map(([key, label]) => ({ key, label }));
   if (!figs.length) return;
+  // Switching Stack by keeps the figure wherever both modes have it, so the
+  // chart does not change what it is measuring under the reader. Only P&L,
+  // which has no split, has to give way.
   if (!figs.some(x => x.key === state.stkFig)) state.stkFig = figs[0].key;
   figs.forEach(x => {
     const b = document.createElement('button');
@@ -1186,11 +1189,18 @@ function drawStack() {
      really does run the other way still points the other way inside it. */
   const flip = fig !== undefined
     && slice.reduce((a, c) => a + c.v[fig], 0) < 0 ? -1 : 1;
+  // The figure over the whole slice, month by month, with nothing left out.
+  // This is what the y axis is scaled to - not the drawn bars - so switching
+  // Stack by never rescales the chart. "When ordered" leaves things out by
+  // design, and those bars should read as short rather than be stretched to
+  // fill the plot.
+  const whole = DATA.months.map(() => 0);
   for (const c of slice) {
     const f = fin[c.m];
     for (const k of ['qty', 'net', 'gross', 'profit', ...COSTS]) {
       if (has[k] !== undefined) f[k] += c.v[has[k]];
     }
+    if (fig !== undefined) whole[c.m] += c.v[fig] * flip;
     if (ordMode) {
       // The same revenue, cut by the month the order behind it was placed.
       // Carried out is left out because it has not been earned yet, and a
@@ -1285,6 +1295,15 @@ function drawStack() {
   }
   const denom = has.net !== undefined ? label('net') : label('gross');
   const hasLine = has.profit !== undefined;
+  // P&L draws two bars a side, and the cost stack can be taller than the gross
+  // bar; everything else is one bar of the figure itself.
+  const pnlSide = i => COSTS.reduce((a, k) => a + Math.abs(fin[i][k] || 0), 0);
+  const ceiling = DATA.months.map((_, i) => (pnlMode
+    ? Math.max(Math.abs(fin[i].gross || 0), pnlSide(i))
+    : Math.abs(whole[i])));
+  const axisTop = Math.max(0, ...ceiling);
+  const axisBottom = Math.min(0, ...(pnlMode ? [0] : whole));
+
   const marginOf = f => {
     const base = f.net || f.gross;
     return base ? f.profit / base * 100 : null;
@@ -1372,6 +1391,10 @@ function drawStack() {
         y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
              border: { display: false },
              max: pctMode ? 100 : undefined,
+             // Not a hard max: a bar bigger than the slice's own figure - the
+             // P&L's cost stack can be - still gets the room it needs.
+             suggestedMax: pctMode ? undefined : axisTop,
+             suggestedMin: pctMode ? undefined : axisBottom,
              title: { display: true, color: C.ink3,
                       text: pctMode ? 'Share of the bar'
                         : pnlMode ? 'Amount'

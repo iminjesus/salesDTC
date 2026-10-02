@@ -377,9 +377,19 @@ exists for: how much of the month's profit the month actually earned, and how
 much was last month's backlog clearing. Net Amount and Qty are still there; P&L
 is not, since it is the whole statement and has no split.
 
-A month knows its carry-in only when the month before it was read. The first
-month in any folder never does - so it is drawn **empty**, not as nil, which
-would claim it earned everything itself. The hint names which months those are.
+A month knows its carry-in only when the month before it was read - so January
+needs **December's order export in the folder**, even though December has no
+profit export of its own and never appears on the chart. A month without it is
+drawn **empty**, not as nil, which would claim it earned everything itself, and
+the hint names which months those are.
+
+**The y axis does not move when Stack by does.** It is scaled to the figure over
+the whole slice, not to the bars actually drawn - so Customer, Product and When
+ordered all share one scale, and the figure carries across wherever both modes
+have it. This view leaves things out by design, and those bars are meant to read
+as **short**: the gap to the top of the axis is the revenue no order could be
+placed against. Stretching them to fill the plot would hide exactly what the
+view is for.
 
 This replaced a second chart under the first. That chart drew the same split
 against the drill level instead of time, with a line for the share of revenue
