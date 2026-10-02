@@ -22,6 +22,7 @@ Two readings come out of that:
 from __future__ import annotations
 
 import argparse
+import calendar
 import collections
 import csv
 import datetime
@@ -29,8 +30,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rawdata import (find, norm_stem, parse_number,             # noqa: E402
-                     pick_series, read_any)
+import re                                                       # noqa: E402
+from rawdata import (find, key_norm, master, month_name,        # noqa: E402
+                     norm_stem, parse_number, pick_file, pick_series, read_any)
+from link import order_key                                      # noqa: E402
+from promo_match import MECHANIC                                # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -41,6 +45,16 @@ C_QTY = ('Confirmed Quantity (Item)', 'Order Quantity (Item)', 'Quantity')
 C_AMT = ('Net Value (Item)', 'Net Value')
 C_WHO = ('Sold-To Party Name', 'Sold-to Party Name', 'Customer Name')
 C_REF = ('Customer Reference (Header)', 'Customer Reference')
+C_SKU = ('Material', 'Material Number', 'Product Code', 'SKU')
+# The store's own export, which is the only place a promotion is written down.
+D_ORDER = ('Order Code', 'Order No', 'Order Number', 'Order ID', 'order_code')
+D_SKU = ('Product Code', 'SKU', 'Material', 'Model Code', 'Product Number')
+D_RULE = ('promotion_rule', 'Promotion Rule', 'Promo Rule', 'Rule')
+D_PROMO = ('Nationwide_Campaign', 'DTC_Campaign1', 'Promotion Name',
+           'Promotion', 'Campaign')
+D_PORTAL = ('Portal', 'Portal Name', 'Portal Group', 'Store Portal')
+C_PROD = ('Material Description', 'Product Description', 'Material Text',
+          'Product Name')
 C_REJECT = ('Reason for Rejection', 'Rejection Reason')
 C_DSTAT = ('Overall Delivery Status Item Description',
            'Overall Delivery Status (All Items)')
@@ -69,6 +83,32 @@ def to_date(v):
     return None
 
 
+def cell(r, i):
+    return (r[i].strip() if i is not None and i < len(r) else '')
+
+
+def month_end(d):
+    return calendar.monthrange(d.year, d.month)[1]
+
+
+def wmedian(pairs):
+    """The median of (value, weight) pairs, weighted by the units behind it.
+
+    A line-level median would let one order of 1 unit count as much as one of
+    400, and the whole report is in units.
+    """
+    s = sorted(pairs)
+    total = sum(w for _, w in s)
+    if total <= 0:
+        return None
+    run = 0.0
+    for v, w in s:
+        run += w
+        if run >= total / 2:
+            return v
+    return s[-1][0]
+
+
 def band(days):
     for lo, hi, label in BANDS:
         if lo <= days <= hi:
@@ -82,8 +122,8 @@ def read_one(path, say=print):
     body = rows[1:]
     i = {k: find(head, *v) for k, v in
          {'made': C_MADE, 'gi': C_GI, 'del': C_DEL, 'qty': C_QTY, 'amt': C_AMT,
-          'who': C_WHO, 'ref': C_REF, 'reject': C_REJECT,
-          'dstat': C_DSTAT}.items()}
+          'who': C_WHO, 'ref': C_REF, 'reject': C_REJECT, 'sku': C_SKU,
+          'prod': C_PROD, 'dstat': C_DSTAT}.items()}
     say(f'  {path.name}: {info["format"]}, {len(body):,} rows')
     if i['made'] is None or i['gi'] is None:
         say('    no creation date or no goods issue date, so it cannot say how '
@@ -100,9 +140,370 @@ def read_one(path, say=print):
         out.append({'made': made, 'gi': gi, 'qty': qty,
                     'amt': parse_number(cell(r, i['amt'])) or 0.0,
                     'who': cell(r, i['who']), 'ref': cell(r, i['ref']),
+                    'sku': cell(r, i['sku']) or '(no product code)',
+                    'prod': cell(r, i['prod']),
                     'rejected': bool(cell(r, i['reject'])),
                     'delivered': cell(r, i['dstat']).upper() in DELIVERED})
     return out
+
+
+# ── what the carry-over is made of ──────────────────────────────────────────
+# The ladder says how much a month handed on. This says what it was made of,
+# and the dimension comes from one of three places:
+#
+#   the SAP line itself    the product code, the customer
+#   the product master     division, category, the product's name
+#   the store export       the promotion, the portal - SAP carries no promotion,
+#                          so these need the join on the stamped reference
+#
+# The run names where it got each one, and a dimension it could not source is
+# reported rather than quietly coming out as one big blank bucket.
+DIMS = {
+    'sku':       ('product code', 'line'),
+    'product':   ('product', 'master'),
+    'division':  ('division', 'master'),
+    'category':  ('category', 'master'),
+    'customer':  ('customer', 'line'),
+    'promotion': ('promotion', 'store'),
+    'offer':     ('offer type', 'store'),
+    'portal':    ('portal', 'store'),
+}
+UNKNOWN = '(not given)'
+# Where a dimension lives on the line, when it is not called the same thing.
+FIELD = {'customer': 'who'}
+
+
+def store_month(folder: Path, ym: str, prefix: str):
+    """The store's own export of a month, under either naming."""
+    y, m = int(ym[:4]), int(ym[5:])
+    digits = f'{str(y)[-2:]}{m:02d}'
+    for cand in pick_series(folder, prefix):
+        if digits in re.sub(r'\D', '', cand.stem):
+            return cand
+    return pick_file(folder, month_name(y * 100 + m))
+
+
+def enrich(months, folder: Path, dims, args, say=print) -> set:
+    """Hang a division and a promotion off the SAP lines that need one.
+
+    Returns the dimensions that could actually be sourced. Everything here is a
+    lookup onto lines that already exist - no line is added, dropped or
+    reweighted, so the carry-over totals are the same whichever dimension is
+    read.
+    """
+    got = {d for d in dims if DIMS[d][1] == 'line'}
+
+    if any(DIMS[d][1] == 'master' for d in dims):
+        want = {'product': ('Material Description', 'Product Description',
+                            'Product Name', 'Model', 'Model Name'),
+                'division': ('Product Division', 'Division', 'Div'),
+                'category': ('Product Category', 'Category', 'Sub Category')}
+        info, src = {}, None
+        for cand in pick_series(folder, args.product) + \
+                [c for c in [pick_file(folder, 'MX_product')] if c]:
+            try:
+                info = master(cand, ('SKU', 'Product Code', 'Material',
+                                     'Product Number', 'Model Code'), want,
+                             say=lambda *a: None)
+            except (ValueError, OSError, IndexError) as e:
+                say(f'  {cand.name}: {e} - trying the next one')
+                continue
+            if info:
+                src = cand
+                break
+        if info:
+            filled = {k: sum(1 for v in info.values() if v.get(k))
+                      for k in want}
+            say(f'  product master: {src.name}, {len(info):,} code(s) - '
+                + ', '.join(f'{k} on {n:,}' for k, n in filled.items() if n))
+            for lines in months.values():
+                for l in lines:
+                    row = info.get(key_norm(l['sku'])) or {}
+                    for k in want:
+                        l[k] = row.get(k) or ''
+            got |= {d for d in dims if DIMS[d][1] == 'master'
+                    and filled.get(d)}
+        else:
+            say('  no product master could be read, so division and category '
+                'have no source')
+
+    if any(DIMS[d][1] == 'store' for d in dims):
+        # SAP has no promotion on it. The store export does, and the stamped
+        # reference with its date taken off is what carries one to the other -
+        # the same key tools/link.py is built on.
+        total = hit = 0
+        for name, lines in months.items():
+            yms = sorted({l['made'].strftime('%Y-%m') for l in lines
+                          if l['made']},
+                         key=lambda y: -sum(1 for l in lines if l['made']
+                                            and l['made'].strftime('%Y-%m') == y))
+            sp = store_month(folder, yms[0], args.dtc) if yms else None
+            if sp is None:
+                say(f'  {name}: no store export for {yms[0] if yms else "?"}, '
+                    'so its promotions are unknown')
+                continue
+            rows, _ = read_any(sp)
+            head = [h.strip() for h in rows[0]]
+            i = {k: find(head, *v) for k, v in
+                 {'order': D_ORDER, 'rule': D_RULE, 'promo': D_PROMO,
+                  'portal': D_PORTAL, 'sku': D_SKU}.items()}
+            if i['order'] is None:
+                say(f'  {sp.name}: no order number, so it cannot be joined')
+                continue
+            by_key = {}
+            for r in rows[1:]:
+                k = order_key(cell(r, i['order']))
+                if not k:
+                    continue
+                raw = cell(r, i['rule']) or cell(r, i['promo'])
+                by_key.setdefault(k, {
+                    'promotion': raw or UNKNOWN,
+                    'offer': offer_of(raw),
+                    'portal': cell(r, i['portal']) or UNKNOWN})
+            say(f'  {sp.name}: {len(by_key):,} order(s) with a promotion field '
+                + (f'({head[i["rule"]]!r})' if i['rule'] is not None
+                   else f'({head[i["promo"]]!r})' if i['promo'] is not None
+                   else '- none found, so every line reads as not given'))
+            for l in lines:
+                total += 1
+                row = by_key.get(order_key(l['ref']))
+                if row:
+                    hit += 1
+                l.update(row or {k: UNKNOWN for k in
+                                 ('promotion', 'offer', 'portal')})
+        if total:
+            say(f'  {hit:,} of {total:,} SAP line(s) ({hit / total * 100:.0f}%) '
+                'found their order in the store export')
+            got |= {d for d in dims if DIMS[d][1] == 'store'}
+        if total and hit / total < 0.5:
+            say('  under half joined, so a promotion split read off this is '
+                'mostly the\n  unjoined bucket - treat it as a hint, not a '
+                'measurement')
+    return got
+
+
+def offer_of(rule: str) -> str:
+    """The mechanic a promotion rule names, where it names one."""
+    if not rule:
+        return UNKNOWN
+    up = re.sub(r'[^A-Z]', ' ', rule.upper())
+    for word in up.split():
+        if word in MECHANIC:
+            return MECHANIC[word]
+    return 'Other'
+
+
+def say_why(months, asof, gone, args, folder, say=print) -> None:
+    """Why each month carried out what it did, and what the carry-out was.
+
+    Two different things get called carry-over and they want different answers.
+    An order that arrived on the 30th was never going to ship in the month - it
+    carries out because the month ended, not because anything went wrong. An
+    order that arrived on the 3rd and had not shipped by the 31st sat.
+
+    The line between them is **the product's own** normal lead time, measured
+    across every month off the lines that did go. A single month-wide median
+    would be dominated by whatever sells fastest, and then a product that
+    always takes six weeks would read as sitting every single month. A product
+    with too little despatched to measure falls back to the overall median.
+
+    Which makes three reasons, not two, and they want three different
+    responses:
+
+      never in month   the product's normal lead time is longer than the month
+                       itself. It carries out whenever it is ordered - a
+                       preorder, a made-to-order line, a container on the
+                       water. Nothing about the month explains it and nothing
+                       about the month will fix it.
+      no time          the product could have shipped in the month, but this
+                       order arrived with less than its lead time left. A
+                       month-end promotion does this, and it is not a failure.
+      sat              the order had its product's normal lead time available
+                       and did not go. This is the only one that is a problem.
+    """
+    dims = [d for d in (x.strip().lower() for x in args.by.split(','))
+            if d in DIMS] or ['sku']
+    unknown = [x for x in (x.strip().lower() for x in args.by.split(','))
+               if x and x not in DIMS]
+    if unknown:
+        say(f'\n--by {", ".join(unknown)}: no such dimension. There is '
+            + ', '.join(DIMS))
+    say('\nwhere the breakdown gets each dimension from:')
+    got = enrich(months, folder, dims, args, say=say)
+
+    # How long each product normally takes, measured over every month. This is
+    # the yardstick the carry-out is judged against, so it is about the product
+    # rather than the month - a month cannot be blamed for a preorder.
+    by_sku = collections.defaultdict(list)
+    overall = []
+    for lines in months.values():
+        for l in lines:
+            if l['made'] and gone(l):
+                pair = ((l['gi'] - l['made']).days, l['qty'])
+                by_sku[key_norm(l['sku'])].append(pair)
+                overall.append(pair)
+    base_lead = wmedian(overall)
+    norm_lead = {s: wmedian(v) for s, v in by_sku.items()
+                 if sum(w for _, w in v) >= args.min_units}
+    if base_lead is None:
+        say('\nnothing in the folder has actually been despatched, so there is '
+            'no lead time to\n  judge a carry-out against.')
+        return
+    say(f'\nnormal lead time: {base_lead:,.0f} day(s) across everything, '
+        f'measured per product\n  on the {len(norm_lead):,} of {len(by_sku):,} '
+        f'product(s) with at least {args.min_units} unit(s) despatched '
+        '(--min-units)')
+
+    def lead_of(l):
+        return norm_lead.get(key_norm(l['sku']), base_lead)
+
+    # One pass: every line onto its creating month, with what it did.
+    per = {}
+    for lines in months.values():
+        for l in lines:
+            if not l['made'] or (l['rejected'] and not gone(l)):
+                continue
+            m = l['made'].strftime('%Y-%m')
+            w = per.setdefault(m, {'all': 0.0, 'out': 0.0, 'late': 0.0,
+                                   'sat': 0.0, 'never': 0.0, 'last7': 0.0,
+                                   'lead': [], 'held': [], 'by': {},
+                                   'own': {}, 'why': {}})
+            w['all'] += l['qty']
+            if l['made'].day > month_end(l['made']) - 7:
+                w['last7'] += l['qty']
+            if gone(l):
+                w['lead'].append(((l['gi'] - l['made']).days, l['qty']))
+            g = l['gi'].strftime('%Y-%m') if l['gi'] else None
+            if g is None or g > m:
+                w['out'] += l['qty']
+                days_left = month_end(l['made']) - l['made'].day
+                lead = lead_of(l)
+                w['held'].append(('never' if lead > month_end(l['made'])
+                                  else 'sat' if days_left >= lead
+                                  else 'late', l['qty']))
+                why = w['held'][-1][0]
+                for d in dims:
+                    key = (l.get(FIELD.get(d, d)) or '').strip() or UNKNOWN
+                    w['by'].setdefault(d, collections.Counter())[key] += l['qty']
+                    w['why'].setdefault((d, key),
+                                        collections.Counter())[why] += l['qty']
+            for d in dims:
+                key = (l.get(FIELD.get(d, d)) or '').strip() or UNKNOWN
+                w['own'].setdefault(d, collections.Counter())[key] += l['qty']
+    if not per:
+        return
+
+    say('\nwhy each month carried out what it did')
+    say('  judged against each product\'s own normal lead time, not the '
+        'month\'s:')
+    say('    never   the product takes longer than a month, so it carries out '
+        'whenever ordered')
+    say('    no time this order arrived with less than that left in the month')
+    say('    sat     it had that long available and did not go')
+    say(f'\n  {"month":<9}{"ordered":>10}{"carried":>9}{"rate":>6}'
+        f'{"never":>11}{"no time":>11}{"sat":>11}{"ordered late":>15}')
+    for m in sorted(per):
+        w = per[m]
+        lead = wmedian(w['lead'])
+        if lead is None:
+            continue
+        for why, q in w['held']:
+            w[why] += q
+        out = w['out'] or 1
+        say(f'  {m:<9}{w["all"]:>10,.0f}{w["out"]:>9,.0f}'
+            f'{w["out"] / (w["all"] or 1) * 100:>5.0f}%'
+            f'{w["never"]:>8,.0f}{w["never"] / out * 100:>3.0f}%'
+            f'{w["late"]:>8,.0f}{w["late"] / out * 100:>3.0f}%'
+            f'{w["sat"]:>8,.0f}{w["sat"] / out * 100:>3.0f}%'
+            f'{w["last7"]:>11,.0f}{w["last7"] / (w["all"] or 1) * 100:>4.0f}%')
+    say('\n  "ordered late" is the share of the whole month\'s orders that '
+        'arrived in its last\n  7 days, which is what drives the "no time" '
+        'column beside it.')
+    say('  A month whose carry-out is mostly "never" has a product mix '
+        'problem, not a\n  fulfilment one, and the same share will come back '
+        'every month it sells them.\n  Mostly "no time" means the demand '
+        'arrived too late to bill - look at when the\n  promotions ran. '
+        'Mostly "sat" is the only one that says something went wrong.')
+
+    focus = [m.strip() for m in args.focus.split(',') if m.strip()] \
+        if args.focus else [m for m in sorted(per, key=lambda m: -per[m]['out'])
+                            if per[m]['out']][:args.top_months]
+    focus = [m for m in sorted(per) if m in focus
+             or m.replace('-', '')[-4:] in [f[-4:] for f in focus]]
+    for m in focus:
+        w = per[m]
+        for d in dims:
+            if d not in got:
+                continue
+            counts = w['by'].get(d) or {}
+            if not counts:
+                continue
+            label, _ = DIMS[d]
+            say(f'\n  {m} carried out {w["out"]:,.0f} unit(s) - by {label}')
+            say(f'    {label:<34}{"carried out":>13}{"share":>7}'
+                f'{"of its own orders":>19}')
+            own = w['own'].get(d) or {}
+            shown = 0.0
+            for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:args.top]:
+                base = own.get(k, 0.0)
+                shown += v
+                say(f'    {k[:34]:<34}{v:>13,.0f}'
+                    f'{v / (w["out"] or 1) * 100:>6.0f}%'
+                    + (f'{v / base * 100:>18.0f}%' if base else f'{"-":>19}'))
+            rest = w['out'] - shown
+            if rest > 0:
+                say(f'    {f"and {len(counts) - args.top:,} more":<34}'
+                    f'{rest:>13,.0f}{rest / (w["out"] or 1) * 100:>6.0f}%')
+            say('    the last column is the share of what that '
+                + label + ' ordered in the month that\n    carried out. A '
+                'high share there is the thing itself being slow; a high\n'
+                '    share of the carry-out with a low share of its own '
+                'orders is just a big seller.')
+
+    out = Path(args.by_out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open('w', newline='', encoding='utf-8-sig') as fh:
+        wr = csv.writer(fh)
+        wr.writerow(['ordered in', 'by', 'value', 'carried out units',
+                     'units ordered in the month', 'share of its own orders',
+                     'never in month', 'no time left', 'sat'])
+        for m in sorted(per):
+            w = per[m]
+            for d in dims:
+                if d not in got:
+                    continue
+                for k, v in sorted((w['by'].get(d) or {}).items(),
+                                   key=lambda kv: -kv[1]):
+                    base = (w['own'].get(d) or {}).get(k, 0.0)
+                    r = w['why'].get((d, k)) or {}
+                    wr.writerow([m, DIMS[d][0], k, round(v), round(base),
+                                 f'{v / base:.4f}' if base else '',
+                                 round(r.get('never', 0)),
+                                 round(r.get('late', 0)),
+                                 round(r.get('sat', 0))])
+    say(f'\n-> {out.resolve()}')
+
+    # A product that carries out every month is a different problem from one
+    # that carried out once, and only looking across the months separates them.
+    for d in dims:
+        if d not in got or len(per) < 3:
+            continue
+        every = None
+        for m in sorted(per):
+            keys = {k for k, v in (per[m]['by'].get(d) or {}).items() if v > 0}
+            every = keys if every is None else (every & keys)
+        if every:
+            rank = collections.Counter()
+            for m in per:
+                for k, v in (per[m]['by'].get(d) or {}).items():
+                    if k in every:
+                        rank[k] += v
+            say(f'\n  carried out in every one of the {len(per)} months, '
+                f'by {DIMS[d][0]}:')
+            for k, v in rank.most_common(args.top):
+                say(f'    {k[:40]:<40}{v:>13,.0f} unit(s) in all')
+            say('    These are structural rather than a bad month - a thing '
+                'that is always\n    ordered before it can ship.')
 
 
 def main() -> int:
@@ -117,7 +518,33 @@ def main() -> int:
                     help='treat this as today when deciding which months have '
                          'had long enough to finish (default: the latest '
                          'despatch in any export)')
+    ap.add_argument('--by', default='sku', metavar='LIST',
+                    help='what to break the carry-over down by: '
+                         + ', '.join(DIMS) + '. Several at once, comma '
+                         'separated. division and category come off the '
+                         'product master; promotion, offer and portal come off '
+                         'the store export, joined on the stamped reference')
+    ap.add_argument('--focus', default=None, metavar='LIST',
+                    help='which months to break down, as 2602,2603 (default: '
+                         'the ones that carried out the most)')
+    ap.add_argument('--top-months', type=int, default=4, metavar='N',
+                    help='how many months to break down when --focus is not '
+                         'given')
+    ap.add_argument('--top', type=int, default=12, metavar='N',
+                    help='how many rows per breakdown')
+    ap.add_argument('--min-units', type=int, default=20, metavar='N',
+                    help='units a product must have despatched before its own '
+                         'lead time is trusted over the overall one (default 20)')
+    ap.add_argument('--product', default='product', metavar='STEM',
+                    help='how the product master is named (default: product)')
+    ap.add_argument('--dtc', default='dtc', metavar='STEM',
+                    help="how the store's exports are named (default: dtc; "
+                         "'26 DTC Aug' is also tried)")
     ap.add_argument('--out', default=str(ROOT / 'docs' / 'despatch.csv'))
+    ap.add_argument('--by-out', default=str(ROOT / 'docs' / 'carryout.csv'),
+                    metavar='PATH',
+                    help='every month x dimension x value of the carry-over, '
+                         'with its three reasons - for pivoting')
     args = ap.parse_args()
 
     folder = Path(args.dir)
@@ -319,6 +746,8 @@ def main() -> int:
         print('  A month whose predecessor is not in the folder reads as '
               'nothing carried in -\n  that is the export missing, not the '
               'carry-over being nil.')
+
+    say_why(months, asof, gone, args, folder)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -70,6 +70,68 @@ A month at the right-hand edge of the ladder always looks like it carries
 everything out, because the exports cannot see past themselves. Only a month
 with a full month of export after it has a carry-out worth reading.
 
+## Why a month carried out what it did
+
+The ladder says how much. This says why, and there are three different answers
+that want three different responses:
+
+| | |
+|---|---|
+| **never in month** | the product's own normal lead time is longer than the month. It carries out whenever it is ordered - a preorder, a made-to-order line, a container still on the water. Nothing about the month explains it and nothing about the month will fix it |
+| **no time** | the product could have shipped in the month, but this order arrived with less than its lead time left. A month-end promotion does exactly this. It is not a failure |
+| **sat** | the order had its product's normal lead time available and did not go. **This is the only one that is a problem** |
+
+The yardstick is **each product's own** median lead time, measured across every
+month off the lines that actually went - not one month-wide median, which would
+be dominated by whatever sells fastest and would then read a six-week product as
+sitting every single month. A product with fewer than `--min-units` despatched
+falls back to the overall median.
+
+Beside it, the share of the whole month's orders that arrived in its **last 7
+days**. That is what drives the "no time" column, and a month-end promotion
+shows up there before it shows up anywhere else.
+
+## What the carry-over was made of
+
+`--by` breaks the carry-out down, and the dimension comes from one of three
+places:
+
+| `--by` | from |
+|---|---|
+| `sku`, `customer` | the SAP line itself |
+| `product`, `division`, `category` | the product master |
+| `promotion`, `offer`, `portal` | **the store export** - SAP carries no promotion, so these need the join on the stamped reference |
+
+Several at once, comma separated. The run names where it got each one, and a
+dimension it could not source is reported and skipped rather than coming out as
+one big blank bucket. When the store join lands under half the lines it says so,
+because a promotion split read off that is mostly the unjoined bucket.
+
+```
+py tools\despatch.py --by division,promotion --focus 2602,2603,2607,2608
+```
+
+Each table has three columns and the **third** is the one to read:
+
+| | |
+|---|---|
+| carried out | units that month handed on |
+| share | of that month's whole carry-out |
+| **of its own orders** | of what *that* division, promotion or product ordered in the month |
+
+A big share of the carry-out with a low share of its own orders is just a big
+seller - of course it carries the most, it sells the most. A high share of its
+own orders is the thing **itself** being slow, whatever its size. Those are
+opposite findings and only the third column separates them.
+
+Last comes what carried out in **every** month. A promotion or a product in that
+list is structural: it is always ordered before it can ship, and no month's
+fulfilment is going to change it. Everything else is a month, and worth asking
+about.
+
+`docs\carryout.csv` has every month x dimension x value with its three reasons,
+for pivoting.
+
 ## A month cannot measure its own tail
 
 An export of September pulled on 30 September shows 73% of the month's orders
