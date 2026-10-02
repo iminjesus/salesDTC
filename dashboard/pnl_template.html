@@ -174,10 +174,10 @@ select:disabled { opacity: .5; }
    They sit on the legend's row rather than over the plot: inside the plot they
    covered whatever the top of the chart happened to be - a tall bar's label, a
    point on the profit line - and which number got hidden depended on the data. */
-/* P&L is a view of its own, not one of the figures: it draws the whole
-   statement and has no split, so Stack by and Figure say nothing about it.
-   Standing a little apart from them is the menu saying as much. */
-.btn.apart { margin-right: 10px; }
+/* P&L reads the slice everything to its left has narrowed down to, so it comes
+   after them on the menu rather than before: it is the last thing you choose,
+   not the first. The gap says it is not one of the figures. */
+.btn.apart { margin-left: 10px; }
 .chartHead { display: flex; align-items: flex-start; justify-content: space-between;
   gap: 12px; }
 .chartHead .legend { flex: 1 1 auto; }
@@ -225,13 +225,13 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div id="filters"></div>
     <div class="row bar">
       <button class="btn" id="backBtn">&larr; Back</button>
-      <button class="btn apart" id="pnlBtn" title="the whole statement: what came in beside what it went out on. It has no split, so Stack by and Figure do not apply to it">P&amp;L</button>
       <label class="f" id="stackBox"><span>Stack by</span><span class="seg">
         <button class="btn" id="stkCust">Customer</button
         ><button class="btn" id="stkProd">Product</button
         ><button class="btn" id="stkOrd" title="when the order behind the revenue was placed - this month's own, or the month before's">When ordered</button></span></label>
       <label class="f" id="figBox"><span>Figure</span>
         <span class="vals" id="stkFig"></span></label>
+      <button class="btn apart" id="pnlBtn" title="the whole statement for whatever is picked above: what came in beside what it went out on">P&amp;L</button>
       <label class="f" id="periodBox"><span>Period</span><span class="seg">
         <button class="btn" id="perMonth">Month</button
         ><button class="btn" id="perQtr">Quarter</button></span></label>
@@ -1152,15 +1152,15 @@ function drawStack() {
   const ORIGINS = [['own', 'Ordered this month'],
                    ['in', 'Carried in from the month before'],
                    ['none', 'No order matched']];
-  // Three, not fourteen. Every cost figure is already a band of the P&L view,
-  // so offering each of them its own bar chart was offering the same numbers
-  // twice, and the order series are a stack of their own.
+  // Two, not fourteen. Every cost figure - operating profit among them - is
+  // already a band of the P&L view, so offering each its own bar chart was
+  // offering the same numbers twice, and the order series are a stack of their
+  // own. What is left is the money and the units.
   //
   // The same three in every stack mode, which is what keeps the y axis still
   // when Stack by changes: there is no figure that one mode has and another
   // does not, so nothing has to be swapped out underneath the reader.
   const MEASURES = [
-    ['profit', 'Operating Profit'],
     [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
     ['qty', 'Qty'],
   ];

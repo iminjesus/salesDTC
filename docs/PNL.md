@@ -198,9 +198,9 @@ stack. `--find` and `--where` are what chase them down.
 | the breadcrumb | go back to any step of the path; **All** returns to the top. It lists **every** narrowing in force, from either chain, and ends with what the months are split by |
 | **← Back** | widen the deepest narrowing, whichever chain it was in |
 | a level name | split each month by it, clearing what was narrowed at and below it |
-| **P&L** | the whole statement. A view of its own, not a figure - picking a Stack by or a Figure leaves it |
+| **P&L** | the whole statement **for whatever is picked to its left**. A view of its own, not a figure - picking a Stack by or a Figure leaves it |
 | **Stack by** | **Customer**, **Product** or **When ordered** - what splits each bar |
-| **Figure** | **Operating Profit**, **Net Amount (AUD)** or **Qty** - the same three in every stack mode |
+| **Figure** | **Net Amount (AUD)** or **Qty** - the same two in every stack mode |
 | **Period** | **Month** or **Quarter** - how wide a bar is |
 | **Cumulative** | each bar becomes the running total up to and including it |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
@@ -317,8 +317,12 @@ So there is one chart, in one of two shapes:
 | **P&L** on | the statement: **two bars a period** - the gross, and what it went out on stacked beside it |
 | **P&L** off | **one bar a period**, split by whatever Stack by names, in whichever Figure |
 
-P&L sits **apart from Figure**, because it is not one. A figure is a measure a
-split can cut; the P&L is the whole statement and has no split.
+P&L sits **after Figure**, and apart from it. It is not a figure - a figure is
+a measure a split can cut, and the P&L is the whole statement with no split -
+and it comes last because it reads whatever everything to its left has narrowed
+down to. Drill into MX and press it and you get **MX's** P&L, not the file's.
+Operating profit is not in the Figure row for the same reason: it is already a
+band of this view.
 
 Stack by and Figure stay on the menu while it is on, and **picking one leaves
 the P&L** - which is what pressing a control that is plainly there should do.
