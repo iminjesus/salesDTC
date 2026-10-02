@@ -201,6 +201,7 @@ stack. `--find` and `--where` are what chase them down.
 | **Stack by** | **Customer**, **Product** or **When ordered** - what splits each month's bar |
 | **Figure** | **P&L**, **Net Amount (AUD)** or **Qty** - what the chart draws |
 | **Period** | **Month**, **Quarter** or **Year** - how wide a bar is |
+| **Cumulative** | each bar becomes the running total up to and including it |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
 | **Table** | every figure behind the bars, with quantity, ASP and the margin |
 | **Reset** | back to the opening view |
@@ -347,15 +348,18 @@ The totals are the same whichever period is showing - that is the point of it
 being a bucket rather than a different reading. Across every combination of
 period and stack, the span comes to one figure.
 
-**There is no "cumulative" option, and no total bar.** The whole-span total is
-already two places on the page - the KPI row under the menu, and the table's
-**Total** line - and a third copy in the chart would be a number to reconcile
-rather than a number to read. **Year** is the total where the folder holds one
-year.
+**Cumulative** sits beside it, as a toggle rather than another period, because
+it answers a different question: not how big each piece is but how the span is
+tracking. Every bar becomes itself plus everything before it, so the last one is
+the whole span.
 
-A running total is a different question (how is the year tracking?) rather than
-a wider bucket, and it is worth adding only if that is the question being asked
-of the page; it would have to be a toggle beside Period, not another period.
+It is applied to the **columns**, not to the drawn bars - so the bands, the
+margin lines, the axis and the tooltips all cumulate together and cannot drift
+apart. The profit line then reads as margin **to date**: profit so far over net
+so far, which is the figure a year-to-date number is usually quoted at.
+
+On **Year** the toggle is not there: one column is already the whole span, so
+there is nothing to run up to.
 
 ### The chart's own controls
 

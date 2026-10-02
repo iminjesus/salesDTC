@@ -231,6 +231,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         <button class="btn" id="perMonth">Month</button
         ><button class="btn" id="perQtr">Quarter</button
         ><button class="btn" id="perYear">Year</button></span></label>
+      <button class="btn" id="cumulBtn" title="each bar is the running total up to and including it, so the last bar is the whole span">Cumulative</button>
       <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
         <button class="btn" id="stkAmt">Amount</button
         ><button class="btn" id="stkPct">% of bar</button></span></label>
@@ -413,6 +414,10 @@ const state = {
   // How wide a bar is: one month, one quarter, one year. Nothing else changes -
   // the same slice, the same split, the same figure, summed into fewer columns.
   period: 'month',
+  // Running totals across the columns. A different question from a wider
+  // bucket - how the year is tracking, rather than how big each piece is - so
+  // it is a toggle beside Period rather than another period.
+  cumul: false,
   // Which chart, if any, has the window to itself. Expanding is also what
   // turns the per-bar numbers on: that is the room they need.
   zoom: null,
@@ -1183,6 +1188,11 @@ function drawStack() {
   [['perMonth', 'month'], ['perQtr', 'quarter'], ['perYear', 'year']]
     .forEach(([id, v]) => document.getElementById(id)
       .classList.toggle('active', state.period === v));
+  // One column is already the whole span, so there is nothing to run up to.
+  const canCumul = state.period !== 'year';
+  if (!canCumul) state.cumul = false;
+  document.getElementById('cumulBtn').classList.toggle('active', state.cumul);
+  document.getElementById('cumulBtn').hidden = !canCumul;
   document.getElementById('stkAmt').classList.toggle('active', !pctMode);
   document.getElementById('stkPct').classList.toggle('active', pctMode);
 
@@ -1285,6 +1295,25 @@ function drawStack() {
   }
   if (pnlMode) {
     xs.forEach((r, i) => { r.total = fin[i].gross || fin[i].profit; });
+  }
+
+  // Running totals, if asked: every column becomes itself plus everything
+  // before it, so the last one is the whole span. Applied here, to the columns
+  // rather than to the drawn series, so the bands, the margins, the axis and
+  // the tooltips all cumulate together and cannot drift apart.
+  if (state.cumul) {
+    for (let i = 1; i < xs.length; i++) {
+      // xs[i-1] is already cumulative by the time we reach i.
+      for (const [g, v] of xs[i - 1].row) {
+        xs[i].row.set(g, (xs[i].row.get(g) || 0) + v);
+      }
+      xs[i].total += xs[i - 1].total;
+      whole[i] += whole[i - 1];
+      for (const k of Object.keys(fin[i])) fin[i][k] += fin[i - 1][k];
+      for (const a of finBy.values()) {
+        for (const k of ['profit', 'net', 'gross']) a[i][k] += a[i - 1][k];
+      }
+    }
   }
 
   // Eight slots, in a fixed order by size across the whole span - so a member
@@ -1523,6 +1552,8 @@ function drawStack() {
           + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
                       + `have a colour of their own, the same colour in every `
                       + `${PER}; the rest are folded into Other.` : '.'))
+    + (state.cumul ? ` Running totals: every bar is itself plus everything `
+                     + `before it, so the last one is the whole span.` : '')
     + (hasLine ? ` The solid line is ${label('profit')} over ${denom} for the `
                  + 'whole slice, each point carrying its own figure'
                  + (pnlMode ? '.'
@@ -1625,6 +1656,8 @@ document.getElementById('stkProd').onclick = () => {
   state.stack = 'product'; render(); };
 document.getElementById('stkOrd').onclick = () => {
   state.stack = 'orders'; render(); };
+document.getElementById('cumulBtn').onclick = () => {
+  state.cumul = !state.cumul; render(); };
 [['perMonth', 'month'], ['perQtr', 'quarter'], ['perYear', 'year']]
   .forEach(([id, v]) => {
     document.getElementById(id).onclick = () => { state.period = v; render(); };
