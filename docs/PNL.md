@@ -200,6 +200,7 @@ stack. `--find` and `--where` are what chase them down.
 | a level name | split each month by it, clearing what was narrowed at and below it |
 | **Stack by** | **Customer**, **Product** or **When ordered** - what splits each month's bar |
 | **Figure** | **P&L**, **Net Amount (AUD)** or **Qty** - what the chart draws |
+| **Period** | **Month**, **Quarter** or **Year** - how wide a bar is |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
 | **Table** | every figure behind the bars, with quantity, ASP and the margin |
 | **Reset** | back to the opening view |
@@ -334,6 +335,27 @@ and the same goes for a bar normalised to 100%.
 In P&L mode **Scale** disappears rather than greying out - normalising to 100%
 is about a mix and the P&L is not one, and a disabled button still costs a row
 of a menu that is already tall.
+
+### Month, quarter, year
+
+**Period** sets how wide a bar is. Nothing else changes: the same slice, the
+same split, the same figure, summed into fewer columns. A month's `ym` is
+`YYYYMM`, so the quarter and the year fall straight out of it, and the months
+arrive in order so the columns do too.
+
+The totals are the same whichever period is showing - that is the point of it
+being a bucket rather than a different reading. Across every combination of
+period and stack, the span comes to one figure.
+
+**There is no "cumulative" option, and no total bar.** The whole-span total is
+already two places on the page - the KPI row under the menu, and the table's
+**Total** line - and a third copy in the chart would be a number to reconcile
+rather than a number to read. **Year** is the total where the folder holds one
+year.
+
+A running total is a different question (how is the year tracking?) rather than
+a wider bucket, and it is worth adding only if that is the question being asked
+of the page; it would have to be a toggle beside Period, not another period.
 
 ### The chart's own controls
 

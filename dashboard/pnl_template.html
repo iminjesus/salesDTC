@@ -227,6 +227,10 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         ><button class="btn" id="stkOrd" title="when the order behind the revenue was placed - this month's own, or the month before's">When ordered</button></span></label>
       <label class="f"><span>Figure</span>
         <span class="vals" id="stkFig"></span></label>
+      <label class="f" id="periodBox"><span>Period</span><span class="seg">
+        <button class="btn" id="perMonth">Month</button
+        ><button class="btn" id="perQtr">Quarter</button
+        ><button class="btn" id="perYear">Year</button></span></label>
       <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
         <button class="btn" id="stkAmt">Amount</button
         ><button class="btn" id="stkPct">% of bar</button></span></label>
@@ -406,6 +410,9 @@ const state = {
   // 'amount' compares sizes between bars; 'pct' normalises every bar to 100%
   // and compares the mix inside them, which a tall bar otherwise drowns out.
   stkScale: 'amount',
+  // How wide a bar is: one month, one quarter, one year. Nothing else changes -
+  // the same slice, the same split, the same figure, summed into fewer columns.
+  period: 'month',
   // Which chart, if any, has the window to itself. Expanding is also what
   // turns the per-bar numbers on: that is the room they need.
   zoom: null,
@@ -913,9 +920,10 @@ function render() {
     });
   });
   const sl = splitLevel();
-  step(state.stack === 'orders' ? 'by month, split by when ordered'
-       : sl === null ? 'by month'
-       : `by month, split by ${DATA.levels[sl].name}`, null);
+  const per = state.period === 'month' ? 'month' : state.period;
+  step(state.stack === 'orders' ? `by ${per}, split by when ordered`
+       : sl === null ? `by ${per}`
+       : `by ${per}, split by ${DATA.levels[sl].name}`, null);
   const atTop = !state.filter.some(v => v >= 0);
   document.getElementById('backBtn').disabled = atTop;
   document.getElementById('stkBack').disabled = atTop;
@@ -1172,6 +1180,9 @@ function drawStack() {
   // the menu, and this menu is already tall.
   const pctMode = state.stkScale === 'pct' && !pnlMode;
   document.getElementById('scaleBox').hidden = pnlMode;
+  [['perMonth', 'month'], ['perQtr', 'quarter'], ['perYear', 'year']]
+    .forEach(([id, v]) => document.getElementById(id)
+      .classList.toggle('active', state.period === v));
   document.getElementById('stkAmt').classList.toggle('active', !pctMode);
   document.getElementById('stkPct').classList.toggle('active', pctMode);
 
@@ -1180,19 +1191,39 @@ function drawStack() {
     state.filter.every((want, i) => want < 0 || c.k[i] === want));
   const fig = has[state.stkFig];      // undefined in P&L mode, which has none
 
-  // One column per month, in the order the build read them.
-  const xs = DATA.months.map((m, i) => ({ name: m.label, ym: m.ym, mi: i,
-                                          total: 0, row: new Map() }));
-  const fin = DATA.months.map(() => ({ qty: 0, net: 0, gross: 0, profit: 0,
-                                       deduction: 0, cogs: 0, opex: 0 }));
+  // One column per period. A month's ym is YYYYMM, so the quarter and the year
+  // fall straight out of it, and the months arrive in order, so the columns do
+  // too without sorting anything.
+  const PER = { month: 'month', quarter: 'quarter', year: 'year' }[state.period];
+  const keyOf = m => {
+    const y = Math.floor(m.ym / 100), mo = m.ym % 100;
+    return state.period === 'year' ? [`${y}`, `${y}`]
+         : state.period === 'quarter'
+           ? [`${y}Q${Math.ceil(mo / 3)}`, `${y} Q${Math.ceil(mo / 3)}`]
+           : [`${m.ym}`, m.label];
+  };
+  const xs = [];
+  const colAt = new Map();
+  const col = DATA.months.map(m => {
+    const [k, name] = keyOf(m);
+    let i = colAt.get(k);
+    if (i === undefined) {
+      i = xs.length;
+      colAt.set(k, i);
+      xs.push({ name, ym: m.ym, mi: i, total: 0, row: new Map(), months: [] });
+    }
+    xs[i].months.push(m);
+    return i;
+  });
+  const fin = xs.map(() => ({ qty: 0, net: 0, gross: 0, profit: 0,
+                              deduction: 0, cogs: 0, opex: 0 }));
   const stackTotal = new Map();
   // Each member's own profit and its own denominator, month by month, so the
   // split can carry a margin per band and not just a size per band.
   const finBy = new Map();
   const slotFor = g => {
     let a = finBy.get(g);
-    if (!a) finBy.set(g, a = DATA.months.map(() => ({ profit: 0, net: 0,
-                                                      gross: 0 })));
+    if (!a) finBy.set(g, a = xs.map(() => ({ profit: 0, net: 0, gross: 0 })));
     return a;
   };
   /* Costs are carried negative in the export. The whole figure is flipped when
@@ -1205,13 +1236,14 @@ function drawStack() {
   // Stack by never rescales the chart. "When ordered" leaves things out by
   // design, and those bars should read as short rather than be stretched to
   // fill the plot.
-  const whole = DATA.months.map(() => 0);
+  const whole = xs.map(() => 0);
   for (const c of slice) {
-    const f = fin[c.m];
+    const ci = col[c.m];
+    const f = fin[ci];
     for (const k of ['qty', 'net', 'gross', 'profit', ...COSTS]) {
       if (has[k] !== undefined) f[k] += c.v[has[k]];
     }
-    if (fig !== undefined) whole[c.m] += c.v[fig] * flip;
+    if (fig !== undefined) whole[ci] += c.v[fig] * flip;
     if (ordMode) {
       // The same revenue, cut by the month the order behind it was placed.
       // Carried out is left out because it has not been earned yet, and a
@@ -1228,27 +1260,27 @@ function drawStack() {
       ORIGINS.forEach(([key, name], oi) => {
         const share = shares[oi];
         if (!share) return;
-        const b = slotFor(name)[c.m];
+        const b = slotFor(name)[ci];
         for (const k of ['profit', 'net', 'gross']) {
           if (has[k] !== undefined) b[k] += c.v[has[k]] * share;
         }
-        const row = xs[c.m].row;
+        const row = xs[ci].row;
         row.set(name, (row.get(name) || 0) + v * share);
-        xs[c.m].total += v * share;
+        xs[ci].total += v * share;
         stackTotal.set(name, (stackTotal.get(name) || 0) + v * share);
       });
       continue;
     }
     if (pnlMode || sl === undefined) continue;
     const g = DATA.levels[sl].values[c.k[sl]];
-    const b = slotFor(g)[c.m];
+    const b = slotFor(g)[ci];
     for (const k of ['profit', 'net', 'gross']) {
       if (has[k] !== undefined) b[k] += c.v[has[k]];
     }
     const v = fig === undefined ? 0 : c.v[fig] * flip;
-    const row = xs[c.m].row;
+    const row = xs[ci].row;
     row.set(g, (row.get(g) || 0) + v);
-    xs[c.m].total += v;
+    xs[ci].total += v;
     stackTotal.set(g, (stackTotal.get(g) || 0) + v);
   }
   if (pnlMode) {
@@ -1314,11 +1346,12 @@ function drawStack() {
   // P&L draws two bars a side, and the cost stack can be taller than the gross
   // bar; everything else is one bar of the figure itself.
   const pnlSide = i => COSTS.reduce((a, k) => a + Math.abs(fin[i][k] || 0), 0);
-  const ceiling = DATA.months.map((_, i) => (pnlMode
+  const ceiling = xs.map((_, i) => (pnlMode
     ? Math.max(Math.abs(fin[i].gross || 0), pnlSide(i))
     : Math.abs(whole[i])));
   const axisTop = Math.max(0, ...ceiling);
   const axisBottom = Math.min(0, ...(pnlMode ? [0] : whole));
+  // How many columns there are decides how tall the plot needs to be.
 
   const marginOf = f => {
     const base = f.net || f.gross;
@@ -1461,8 +1494,8 @@ function drawStack() {
 
   document.getElementById('stkHint').textContent =
     (ordMode
-      ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by month, `
-        + 'split by when the order behind it was placed, with what no order '
+      ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}, `
+        + `split by when the order behind it was placed, with what no order `
         + 'could be matched to in grey - so the bar comes to the same total as '
         + 'every other way of stacking it. What the month ships but has not '
         + 'sold yet is not here: it is next month\'s.'
@@ -1475,21 +1508,21 @@ function drawStack() {
               : '';
           })()
       : pnlMode
-      ? `${label('gross')} beside what it went out on, by month. Costs are `
+      ? `${label('gross')} beside what it went out on, by ${PER}. Costs are `
         + 'drawn as amounts.'
       : sl === undefined
-        ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by month. `
+        ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}. `
           + `Every ${state.stack} level is narrowed to one value, so there is `
           + 'nothing left to split by - step one back to bring a split back.'
-        : `${(figs.find(x => x.key === state.stkFig) || {}).label} by month, `
+        : `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}, `
           + `each split by ${DATA.levels[sl].name}`
-          + (pctMode ? ', every month normalised to its own total - the mix, '
+          + (pctMode ? `, every ${PER} normalised to its own total - the mix, `
                        + 'not the size. The tooltip keeps the amount behind '
                        + 'each share'
                      : '')
           + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
-                      + 'have a colour of their own, the same colour in every '
-                      + 'month; the rest are folded into Other.' : '.'))
+                      + `have a colour of their own, the same colour in every `
+                      + `${PER}; the rest are folded into Other.` : '.'))
     + (hasLine ? ` The solid line is ${label('profit')} over ${denom} for the `
                  + 'whole slice, each point carrying its own figure'
                  + (pnlMode ? '.'
@@ -1592,6 +1625,10 @@ document.getElementById('stkProd').onclick = () => {
   state.stack = 'product'; render(); };
 document.getElementById('stkOrd').onclick = () => {
   state.stack = 'orders'; render(); };
+[['perMonth', 'month'], ['perQtr', 'quarter'], ['perYear', 'year']]
+  .forEach(([id, v]) => {
+    document.getElementById(id).onclick = () => { state.period = v; render(); };
+  });
 document.getElementById('stkAmt').onclick = () => {
   state.stkScale = 'amount'; render(); };
 document.getElementById('stkPct').onclick = () => {
