@@ -300,7 +300,14 @@ py dashboard\build_pnl.py --file profit_2609 # one month only
 py dashboard\build_pnl.py --no-orders        # sales only
 py dashboard\build_pnl.py --booked "COMPLETED,DELIVERED"
 py dashboard\build_pnl.py --skip-sku SMC-AU-
+py dashboard\build_pnl.py --columns          # what each month's export carries
 ```
+
+When the page draws a figure for one month and not another, that is nearly
+always the exports having been cut differently. `--columns` puts every profit
+export's columns side by side with each one's total, and marks the two lines
+that explain it: a column **not in every export**, and a column that is in both
+but **empty in one of them**.
 
 The two order exports are found **by month**: the profit file says which month
 it covers, in its own `YYYYMM` column where it has one, and the exports named
