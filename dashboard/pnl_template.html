@@ -1178,17 +1178,17 @@ function drawStack() {
     // render() rebuilds this very button, and removing the click's own target
     // mid-dispatch lets the enclosing <label> activate the first button in the
     // fresh row instead - so every figure snapped back to the first one.
-    b.onclick = () => { state.stkFig = x.key; defer(render); };
+    b.onclick = () => { state.stkFig = x.key; state.pnl = false; defer(render); };
     figBox.appendChild(b);
   });
-  // P&L is a view, not a figure: the whole statement, with no split. While it
-  // is on, Stack by and Figure have nothing to say about what is drawn, so
-  // they stand down rather than sit there looking as if they do.
+  // P&L is a view, not a figure: the whole statement, with no split. Stack by
+  // and Figure stay on the menu while it is on - hiding them meant a page that
+  // opened on P&L opened with most of its controls missing and nothing saying
+  // why. Picking one of them simply leaves the P&L, which is what pressing a
+  // control that is plainly there should do.
   const pnlMode = state.pnl && has.profit !== undefined;
   document.getElementById('pnlBtn').classList.toggle('active', pnlMode);
   document.getElementById('pnlBtn').hidden = has.profit === undefined;
-  document.getElementById('stackBox').hidden = pnlMode;
-  document.getElementById('figBox').hidden = pnlMode;
   // Normalising to 100% is about a mix, and the P&L is not one. The control
   // goes away rather than greying out: a disabled button still costs a row of
   // the menu, and this menu is already tall.
@@ -1659,12 +1659,14 @@ document.getElementById('resetBtn').onclick = () => {
   state.stack = 'customer';
   render();
 };
-document.getElementById('stkCust').onclick = () => {
-  state.stack = 'customer'; render(); };
-document.getElementById('stkProd').onclick = () => {
-  state.stack = 'product'; render(); };
-document.getElementById('stkOrd').onclick = () => {
-  state.stack = 'orders'; render(); };
+[['stkCust', 'customer'], ['stkProd', 'product'], ['stkOrd', 'orders']]
+  .forEach(([id, v]) => {
+    document.getElementById(id).onclick = () => {
+      // Asking for a split is asking to see one, so it leaves the P&L, which
+      // has none.
+      state.stack = v; state.pnl = false; render();
+    };
+  });
 document.getElementById('cumulBtn').onclick = () => {
   state.cumul = !state.cumul; render(); };
 document.getElementById('pnlBtn').onclick = () => {

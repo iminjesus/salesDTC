@@ -198,7 +198,7 @@ stack. `--find` and `--where` are what chase them down.
 | the breadcrumb | go back to any step of the path; **All** returns to the top. It lists **every** narrowing in force, from either chain, and ends with what the months are split by |
 | **← Back** | widen the deepest narrowing, whichever chain it was in |
 | a level name | split each month by it, clearing what was narrowed at and below it |
-| **P&L** | the whole statement. A view of its own, not a figure - while it is on, Stack by, Figure and Scale have nothing to say and stand down |
+| **P&L** | the whole statement. A view of its own, not a figure - picking a Stack by or a Figure leaves it |
 | **Stack by** | **Customer**, **Product** or **When ordered** - what splits each bar |
 | **Figure** | **Operating Profit**, **Net Amount (AUD)** or **Qty** - the same three in every stack mode |
 | **Period** | **Month**, **Quarter** or **Year** - how wide a bar is |
@@ -318,8 +318,13 @@ So there is one chart, in one of two shapes:
 | **P&L** off | **one bar a period**, split by whatever Stack by names, in whichever Figure |
 
 P&L sits **apart from Figure**, because it is not one. A figure is a measure a
-split can cut; the P&L is the whole statement and has no split, so Stack by and
-Figure say nothing about it and are hidden while it is on.
+split can cut; the P&L is the whole statement and has no split.
+
+Stack by and Figure stay on the menu while it is on, and **picking one leaves
+the P&L** - which is what pressing a control that is plainly there should do.
+They were hidden for one commit, which meant a page that opens on P&L opened
+with most of its controls missing and nothing saying why. Only **Scale** goes,
+since normalising to 100% is about a mix and the P&L is not one.
 
 That separation is also what holds the y axis still. The three figures are the
 same in **every** stack mode, so there is no figure one mode has and another
@@ -345,10 +350,8 @@ chart and the bars underneath read as the background, which is backwards.
 
 Choosing **Qty** gives the units split with the profit line over it and **no
 cost bars**: costs share no scale with a count of units, and the same goes for a
-bar normalised to 100%. **Scale** disappears in the P&L view for that reason -
-normalising to 100% is about a mix and the P&L is not one - and it disappears
-rather than greying out, since a dead button still costs a row of a menu that is
-already tall.
+bar normalised to 100%. Controls that do not apply disappear rather than greying
+out, since a dead button still costs a row of a menu that is already tall.
 
 ### Month, quarter, year
 
