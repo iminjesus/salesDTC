@@ -174,6 +174,10 @@ select:disabled { opacity: .5; }
    They sit on the legend's row rather than over the plot: inside the plot they
    covered whatever the top of the chart happened to be - a tall bar's label, a
    point on the profit line - and which number got hidden depended on the data. */
+/* P&L is a view of its own, not one of the figures: it draws the whole
+   statement and has no split, so Stack by and Figure say nothing about it.
+   Standing a little apart from them is the menu saying as much. */
+.btn.apart { margin-right: 10px; }
 .chartHead { display: flex; align-items: flex-start; justify-content: space-between;
   gap: 12px; }
 .chartHead .legend { flex: 1 1 auto; }
@@ -221,11 +225,12 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div id="filters"></div>
     <div class="row bar">
       <button class="btn" id="backBtn">&larr; Back</button>
-      <label class="f"><span>Stack by</span><span class="seg">
+      <button class="btn apart" id="pnlBtn" title="the whole statement: what came in beside what it went out on. It has no split, so Stack by and Figure do not apply to it">P&amp;L</button>
+      <label class="f" id="stackBox"><span>Stack by</span><span class="seg">
         <button class="btn" id="stkCust">Customer</button
         ><button class="btn" id="stkProd">Product</button
         ><button class="btn" id="stkOrd" title="when the order behind the revenue was placed - this month's own, or the month before's">When ordered</button></span></label>
-      <label class="f"><span>Figure</span>
+      <label class="f" id="figBox"><span>Figure</span>
         <span class="vals" id="stkFig"></span></label>
       <label class="f" id="periodBox"><span>Period</span><span class="seg">
         <button class="btn" id="perMonth">Month</button
@@ -407,7 +412,10 @@ const state = {
   // statement, the money, or the units. It opens on the statement, which is
   // the page's title.
   stack: 'customer',
-  stkFig: 'pnl',
+  // The whole statement, which the page opens on. Not a figure - it has no
+  // split, so neither Stack by nor Figure applies while it is on.
+  pnl: true,
+  stkFig: 'net',
   // 'amount' compares sizes between bars; 'pct' normalises every bar to 100%
   // and compares the mix inside them, which a tall bar otherwise drowns out.
   stkScale: 'amount',
@@ -1134,7 +1142,6 @@ function drawStack() {
     b.disabled = v === 'orders' ? !canOrd : !CHAINS[v].length;
   });
 
-  const PNL = 'pnl';
   // Where the month's revenue came from. The first two are the orders; the
   // third is everything they could not account for, and it is here so the bar
   // comes to the same total as every other way of stacking it - a month that
@@ -1145,29 +1152,24 @@ function drawStack() {
   const ORIGINS = [['own', 'Ordered this month'],
                    ['in', 'Carried in from the month before'],
                    ['none', 'No order matched']];
-  // Three, not fourteen. Every cost figure is already a band of the P&L chart,
+  // Three, not fourteen. Every cost figure is already a band of the P&L view,
   // so offering each of them its own bar chart was offering the same numbers
-  // twice, and the order series are the chart below this one.
-  // P&L is the whole statement and has no split, so it is not on offer in a
-  // mode whose whole point is the split.
-  const MEASURES = ordMode
-    ? [['profit', 'Operating Profit'],
-       [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
-       ['qty', 'Qty']]
-    : [[PNL, 'P&L'],
-       [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
-       ['qty', 'Qty']];
+  // twice, and the order series are a stack of their own.
+  //
+  // The same three in every stack mode, which is what keeps the y axis still
+  // when Stack by changes: there is no figure that one mode has and another
+  // does not, so nothing has to be swapped out underneath the reader.
+  const MEASURES = [
+    ['profit', 'Operating Profit'],
+    [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
+    ['qty', 'Qty'],
+  ];
   const figBox = document.getElementById('stkFig');
   figBox.className = 'vals seg';
   figBox.innerHTML = '';
-  const figs = MEASURES
-    .filter(([k]) => (k === PNL ? has.profit !== undefined
-                                : has[k] !== undefined))
+  const figs = MEASURES.filter(([k]) => has[k] !== undefined)
     .map(([key, label]) => ({ key, label }));
   if (!figs.length) return;
-  // Switching Stack by keeps the figure wherever both modes have it, so the
-  // chart does not change what it is measuring under the reader. Only P&L,
-  // which has no split, has to give way.
   if (!figs.some(x => x.key === state.stkFig)) state.stkFig = figs[0].key;
   figs.forEach(x => {
     const b = document.createElement('button');
@@ -1179,7 +1181,14 @@ function drawStack() {
     b.onclick = () => { state.stkFig = x.key; defer(render); };
     figBox.appendChild(b);
   });
-  const pnlMode = state.stkFig === PNL && !ordMode;
+  // P&L is a view, not a figure: the whole statement, with no split. While it
+  // is on, Stack by and Figure have nothing to say about what is drawn, so
+  // they stand down rather than sit there looking as if they do.
+  const pnlMode = state.pnl && has.profit !== undefined;
+  document.getElementById('pnlBtn').classList.toggle('active', pnlMode);
+  document.getElementById('pnlBtn').hidden = has.profit === undefined;
+  document.getElementById('stackBox').hidden = pnlMode;
+  document.getElementById('figBox').hidden = pnlMode;
   // Normalising to 100% is about a mix, and the P&L is not one. The control
   // goes away rather than greying out: a disabled button still costs a row of
   // the menu, and this menu is already tall.
@@ -1658,6 +1667,8 @@ document.getElementById('stkOrd').onclick = () => {
   state.stack = 'orders'; render(); };
 document.getElementById('cumulBtn').onclick = () => {
   state.cumul = !state.cumul; render(); };
+document.getElementById('pnlBtn').onclick = () => {
+  state.pnl = !state.pnl; render(); };
 [['perMonth', 'month'], ['perQtr', 'quarter'], ['perYear', 'year']]
   .forEach(([id, v]) => {
     document.getElementById(id).onclick = () => { state.period = v; render(); };
