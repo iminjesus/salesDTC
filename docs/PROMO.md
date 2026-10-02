@@ -18,8 +18,19 @@ far each gathers:
 | **offer** | what it was on, with the mechanic taken out - `S25-LAUNCH-10PCT` |
 | **rule** | the code itself, dates and all |
 
-A cell holding two rules keeps both. A line that ran under two offers ran under
-both, and picking one would quietly halve the other.
+A cell holding two rules keeps both, and the set is **sorted**: a line carrying
+PWP and a discount lands in one bucket however the two were ordered in the cell.
+Unsorted, `PWP + Discount` and `Discount + PWP` were two answers to one
+question, splitting 30% of MX across two rows of the same table.
+
+The code is split on **every non-alphanumeric**, not on whitespace. A code with
+no dates - `AU_EPP_T2-T3_all_welcome-voucher_-_percentage-discount` - comes back
+from the parser as one unbroken string, so splitting on spaces saw a single word
+that is in no vocabulary. That alone put a fifth of MX's promoted units in
+"mechanic not in the code"; read properly it is `Discount + Voucher`.
+
+`PROMOTEXT` and the like are dropped, and the parts are deduplicated case-blind,
+so `PROMOTEXT X, X` is one offer rather than `PROMOTEXT X + X`.
 
 The run prints, per level, how many distinct values there are and **what the
 eight biggest would cover** if a chart stacked by it - a level that gathers
@@ -44,6 +55,13 @@ The run measures exactly that, per level, on the finest key the two files share
 High on both and a stack by promotion is near enough a measurement. Low and the
 chart would be apportioning, which is worth knowing **before** it is built
 rather than after.
+
+When a level comes back with thousands of distinct values, it is not a level,
+it is a pile - and before a rule for grouping it can be written, the pieces have
+to be visible. `--tokens 40` counts the commonest pieces the offer strings are
+built from, by the units behind them. A token on a large share of the units is a
+grouping waiting to be named: a campaign, a mechanic the vocabulary is missing,
+or a wave code that only fragments what is otherwise one offer.
 
 `--division MX` asks the question of one division; `--month 2608` of one month.
 Output goes to `docs/promo_levels.csv`, which is **not** committed - like every

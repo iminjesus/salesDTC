@@ -57,27 +57,56 @@ D_STATUS = ('order_status', 'Order Status', 'Status')
 NONE = '(no promotion)'
 
 
+# Words that appear beside the mechanic and say nothing about which it was.
+NOISE = {'PROMOTEXT', 'RULE', 'EXECUTE', 'ALL', 'AU', 'THE', 'AND', 'OF'}
+
+
+def mechanics_in(text: str) -> tuple[list, list]:
+    """The mechanics named anywhere in a code, and what is left of it.
+
+    Split on every non-alphanumeric, not on whitespace. A code that carries no
+    dates comes back from parse_rule as one unbroken underscore string, so
+    splitting on spaces looked at `welcome-voucher_-_percentage-discount` and
+    saw a single word that is in no vocabulary - which is how a fifth of the
+    promoted units came back with no mechanic at all.
+    """
+    parts = [p for p in re.split(r'[^A-Za-z0-9]+', text) if p]
+    kinds, rest = [], []
+    for w in parts:
+        u = w.upper()
+        if u in MECHANIC:
+            kinds.append(MECHANIC[u])
+        elif u not in NOISE:
+            rest.append(w)
+    return kinds, rest
+
+
 def levels_of(raw: str) -> tuple[str, str, str]:
     """A rule code as offer type, offer, rule - widest to narrowest.
 
     One cell can hold several rules. They are kept together rather than picked
     between: a line that ran under two offers ran under both, and choosing one
-    would quietly halve the other.
+    would quietly halve the other. The set is **sorted**, so a line carrying
+    PWP and a discount lands in one bucket however the two were ordered in the
+    cell - unsorted, `PWP + Discount` and `Discount + PWP` were two different
+    answers to the same question.
     """
     rules = [parse_rule(r) for r in split_rules(raw)]
     if not rules:
         return NONE, NONE, NONE
     kinds, rest = [], []
     for d in rules:
-        words = d['what'].split()
-        hit = next((w for w in words if w.upper() in MECHANIC), '')
-        if hit:
-            kinds.append(MECHANIC[hit.upper()])
-            rest.append(' '.join(w for w in words if w != hit) or d['what'])
-        else:
-            rest.append(d['what'])
-    return (' + '.join(dict.fromkeys(kinds)) or '(mechanic not in the code)',
-            ' + '.join(dict.fromkeys(rest)) or '(no detail)',
+        k, r = mechanics_in(d['what'])
+        kinds += k
+        rest.append(' '.join(r) or d['what'])
+    # Deduplicated case-blind: `PROMOTEXT X, X` is one offer written twice.
+    seen, detail = set(), []
+    for r in rest:
+        if r.upper() not in seen:
+            seen.add(r.upper())
+            detail.append(r)
+    return (' + '.join(sorted(set(kinds))) or '(mechanic not in the code)',
+            ' + '.join(detail) or '(no detail)',
             ' + '.join(d['raw'] for d in rules))
 
 
@@ -131,6 +160,10 @@ def main() -> int:
     ap.add_argument('--month', metavar='YYMM',
                     help='one month only, by the digits in the file name')
     ap.add_argument('--top', type=int, default=12, metavar='N')
+    ap.add_argument('--tokens', type=int, default=0, metavar='N',
+                    help='also list the N commonest pieces the offer strings '
+                         'are built from, which is where a grouping rule comes '
+                         'from')
     ap.add_argument('--out', default=str(ROOT / 'docs' / 'promo_levels.csv'))
     args = ap.parse_args()
 
@@ -259,6 +292,24 @@ def main() -> int:
           'of rows whose units sit on a\n  single promotion; the last column is '
           'the average share held by each row\'s\n  biggest one. High means a '
           'stack by promotion is near enough a measurement.')
+
+    # ── what the offer level is made of ─────────────────────────────────────
+    # 10,000 distinct offers is not a level, it is a pile. Before any rule for
+    # grouping them can be written, the pieces they are built from have to be
+    # visible - so the commonest tokens are counted, by the units behind them.
+    if args.tokens:
+        tok = collections.Counter()
+        for l in on:
+            for w in set(p.upper() for p in
+                         re.split(r'[^A-Za-z0-9]+', l['offer']) if p):
+                tok[w] += l['qty']
+        print(f'\nthe pieces the offers are built from, by units')
+        for k, v in tok.most_common(args.tokens):
+            print(f'    {k[:40]:<40}{v:>12,.0f}{v / (on_q or 1) * 100:>6.0f}%')
+        print('  a token on a large share of the units is a grouping waiting to '
+              'be named - a\n  campaign, a mechanic the vocabulary is missing, '
+              'or a wave code that only\n  fragments what is otherwise one '
+              'offer.')
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
