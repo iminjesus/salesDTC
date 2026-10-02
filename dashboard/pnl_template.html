@@ -196,8 +196,6 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   <!-- One menu for the page: the levels, then how they are drawn. -->
   <div class="card">
     <div class="crumb" id="crumb"></div>
-    <label class="f" id="monthBox" hidden style="margin-bottom:10px">
-      <span>Month</span><span class="seg" id="months"></span></label>
     <div id="filters"></div>
     <div class="row bar">
       <button class="btn" id="backBtn">&larr; Back</button>
@@ -242,14 +240,84 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
-/* Every month the build found, each a complete payload of its own. They are
-   kept whole rather than merged because a month has its own customers, its own
-   products and its own set of levels, and merging them would invent a key that
-   was never in either. Switching month swaps the payload and starts the drill
-   again; how the page is being read - basis, units, which chain - carries over,
-   since that is about the reader rather than the data. */
+/* Every month the build found, each a complete payload of its own, and then
+   one dataset made of all of them.
+
+   The months arrive separate because each was read from its own export, with
+   its own customers, its own products and its own column positions. They are
+   joined here rather than in the build because the join is by **name**: a
+   customer is the same customer in two months when it is spelled the same, and
+   a figure is the same figure when its key is. Index 3 in August's Division
+   list is not index 3 in February's, so nothing is matched on position.
+
+   What comes out carries the month on every combination, which is what lets the
+   chart put time on the x axis and still answer every filter the page has. */
 const ALL = /*__DATA__*/null;
-let DATA = ALL.months[0];
+
+function unify(months) {
+  // The figures, by key. A month that is missing one contributes nothing to it
+  // rather than shifting everything after it along.
+  const series = [];
+  const sAt = new Map();
+  months.forEach(m => m.series.forEach(s => {
+    if (!sAt.has(s.key)) { sAt.set(s.key, series.length); series.push(s); }
+  }));
+
+  // The levels, by name, and each level's members by name. The widest month
+  // decides the shape; a month short of a level simply has no rows under it.
+  const shape = months.reduce((a, m) => (m.levels.length > a.levels.length ? m : a),
+                              months[0]);
+  const levels = shape.levels.map(lv => ({ name: lv.name, values: [] }));
+  const vAt = levels.map(() => new Map());
+  months.forEach(m => m.levels.forEach((lv, i) => {
+    if (i >= levels.length) return;
+    lv.values.forEach(v => {
+      if (!vAt[i].has(v)) { vAt[i].set(v, levels[i].values.length);
+                            levels[i].values.push(v); }
+    });
+  }));
+
+  const combos = [];
+  months.forEach((m, mi) => {
+    const kmap = m.levels.map((lv, i) => lv.values.map(v => vAt[i].get(v)));
+    const smap = m.series.map(s => sAt.get(s.key));
+    const blank = levels.map((lv, i) => {
+      // A month without this level reads as the placeholder, which is what the
+      // build writes for a row the master could not place.
+      let j = vAt[i].get('(blank)');
+      if (j === undefined) { j = levels[i].values.length;
+                             vAt[i].set('(blank)', j); levels[i].values.push('(blank)'); }
+      return j;
+    });
+    m.combos.forEach(c => {
+      const v = new Array(series.length).fill(0);
+      c.v.forEach((x, j) => { v[smap[j]] += x; });
+      const k = levels.map((lv, i) => (i < c.k.length ? kmap[i][c.k[i]] : blank[i]));
+      combos.push({ m: mi, k, v, n: c.n });
+    });
+  });
+
+  return {
+    levels, series, combos,
+    months: months.map(m => ({ ym: m.ym, label: m.month, file: m.file,
+                               carryIn: !!m.carryIn })),
+    custDepth: shape.custDepth,
+    file: months.length === 1 ? months[0].file
+          : `${months.length} exports, ${months[0].file} .. ${months[months.length - 1].file}`,
+    rows: months.reduce((a, m) => a + m.rows, 0),
+    title: months.length === 1 ? months[0].title
+           : `${months[0].month} - ${months[months.length - 1].month} Profit`,
+    // The carry-in is known for the page only where every month's predecessor
+    // was read; one month without it would make the split understate.
+    carryIn: months.every(m => m.carryIn),
+    start: (() => {
+      const want = shape.start >= 0 ? shape.levels[0].values[shape.start] : null;
+      return want === null ? -1 : vAt[0].get(want) ?? -1;
+    })(),
+  };
+}
+
+let DATA = unify(ALL.months);
 
 /* Chart.js cannot resolve a custom property, so the series colours are read off
    the stylesheet once per render - that way light and dark live in one place. */
@@ -295,7 +363,6 @@ function rebind() {
 /* The page opens on one channel - the online business - with everything else
    still in the file. Setting Channel back to All steps up and brings it in. */
 const state = {
-  month: 0,
   filter: [],
   dim: 0,
   table: false,
@@ -317,45 +384,25 @@ const state = {
 /* Where the drill starts: one channel - the online business - with everything
    else still in the file. Setting Channel back to All steps up and brings it
    in. Called afresh for each month, since the levels are that month's. */
+/* The level each month's bar is split by.
+
+   The x axis is time now, so a level is no longer something the bars sit on -
+   it is what the bar is cut into. state.dim is the one the reader asked for;
+   where that has been narrowed to a single value, or belongs to the other
+   chain, the first level of the chosen chain that is still open takes over, so
+   the split always shows something rather than one undivided bar. */
+function splitLevel() {
+  const chain = CHAINS[state.stack] || [];
+  if (chain.includes(state.dim) && state.filter[state.dim] < 0) return state.dim;
+  const at = chain.find(i => state.filter[i] < 0);
+  return at === undefined ? null : at;
+}
+
 function startHere() {
   state.filter = DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1));
   state.dim = DATA.levels.length > 1 ? 1 : 0;
 }
 
-function showMonth(n) {
-  state.month = Math.max(0, Math.min(ALL.months.length - 1, n));
-  DATA = ALL.months[state.month];
-  rebind();
-  startHere();
-  render();
-}
-
-/* The stacked chart sits one level above the bars: it puts the parent on the x
-   axis and splits it by the level the bars are on, so the page opens on a single
-   E-STORE bar split into EPP and S.com rather than on two bars that have to be
-   read against each other. Comparing sizes is the other chart's job. One level
-   drives both, which is why there is one Back button and one set of names. */
-function stackX(dim = state.dim) {
-  const chain = dim < DATA.custDepth ? CHAINS.customer : CHAINS.product;
-  const at = chain.indexOf(dim);
-  return at > 0 ? chain[at - 1] : dim;         // already at the top: no lag
-}
-/* What each bar is split by: the level below the x axis in the chosen chain, or
-   that chain's top level when the x axis is on the other one. */
-function stackLevel() {
-  const chain = CHAINS[state.stack] || [];
-  const at = chain.indexOf(stackX());
-  if (at < 0) return chain.length ? chain[0] : null;   // the other chain: start it
-  return at + 1 < chain.length ? chain[at + 1] : null; // nothing below this one
-}
-/* Opening a bar hands its stack level to the x axis, which then splits by the
-   level below that - so the bars move down one. Null at the end of the drill. */
-function stackDrill() {
-  const chain = CHAINS[state.stack] || [];
-  const at = chain.indexOf(stackX());
-  if (at < 0) return stackLevel();             // the other chain: start at its top
-  return at + 2 < chain.length ? chain[at + 2] : null;
-}
 /* The order half of a combination, when the build found an order export.
    These are counts of what was ordered, so the basis never scales them. */
 const ORDERED = ['oqty', 'oamt', 'iqty', 'iamt', 'xqty', 'xamt'];
@@ -477,6 +524,9 @@ function orderSplit(extra) {
    filter change is a sum over the matching combinations rather than a pass over
    the rows. */
 function inSlice(c, extra) {
+  // `extra` narrows one more thing than the filters do, without touching them:
+  // a level's value, or a month. It is how a chart asks for one column.
+  if (extra && extra.month !== undefined && c.m !== extra.month) return false;
   for (let i = 0; i < state.filter.length; i++) {
     const want = extra && extra.level === i ? extra.value : state.filter[i];
     if (want >= 0 && c.k[i] !== want) return false;
@@ -698,8 +748,16 @@ function mark(value, query) {
    same act, so they go through here. */
 function setFilter(i, v) {
   state.filter[i] = v;
-  if (v >= 0 && state.dim === i && i + 1 < DATA.levels.length) state.dim = i + 1;
-  if (v < 0 && state.dim > i) state.dim = i;
+  // Narrowing to one value leaves nothing to split by at that level, so the
+  // split steps on to the next open one in the same chain; widening steps back.
+  const chain = (i < DATA.custDepth ? CHAINS.customer : CHAINS.product);
+  if (v >= 0) {
+    state.stack = i < DATA.custDepth ? 'customer' : 'product';
+    const next = chain.find(j => j > i && state.filter[j] < 0);
+    if (next !== undefined) state.dim = next;
+  } else if (state.dim > i && chain.includes(state.dim)) {
+    state.dim = i;
+  }
   render();
 }
 
@@ -737,11 +795,14 @@ function levelCell(i) {
   name.className = 'lvName' + (state.dim === i ? ' on' : '')
                  + (seen.size <= 1 ? ' off' : '');
   name.textContent = lv.name;
-  name.title = state.dim === i ? `The bars are on ${lv.name}`
-                               : `Put the bars on ${lv.name}`;
+  name.title = state.dim === i ? `The bars are split by ${lv.name}`
+                               : `Split each month by ${lv.name}`;
   name.onclick = () => {
     state.dim = i;
-    // Moving the bars up to a level undoes the narrowing done at and below it.
+    // The chart splits by one chain at a time, so asking for a level asks for
+    // its chain too. Splitting by a level means not having narrowed to one of
+    // its values, nor to anything under it.
+    state.stack = i < DATA.custDepth ? 'customer' : 'product';
     for (let j = i; j < state.filter.length; j++) state.filter[j] = -1;
     render();
   };
@@ -806,24 +867,28 @@ function render() {
   };
   step('All', () => {
     state.filter = DATA.levels.map(() => -1);
-    state.dim = 0;
+    state.dim = DATA.levels.length > 1 ? 1 : 0;
     render();
   });
+  // Every narrowing, in level order - not just the ones above where the bars
+  // used to sit. With time on the x axis a filter from either chain is equally
+  // in force, and a crumb that hid half of them would be telling half the
+  // truth about what is on screen.
   DATA.levels.forEach((lv, i) => {
-    if (state.filter[i] < 0 || i >= state.dim) return;
+    if (state.filter[i] < 0) return;
     step(lv.values[state.filter[i]], () => {
       for (let j = i; j < state.filter.length; j++) state.filter[j] = -1;
       state.dim = i;
       render();
     });
   });
-  step(`by ${DATA.levels[state.dim].name}`, null);
-  document.getElementById('backBtn').disabled = state.dim === 0;
+  const sl = splitLevel();
+  step(sl === null ? 'by month' : `by month, split by ${DATA.levels[sl].name}`,
+       null);
+  document.getElementById('backBtn').disabled = !state.filter.some(v => v >= 0);
 
   document.getElementById('tableBtn').classList.toggle('active', state.table);
   // The basis only exists where an order export was read alongside the profit.
-  ALL.months.forEach((_, i) => document.getElementById('month' + i)
-    .classList.toggle('active', state.month === i));
   // Amounts on the orders chart need the profit file's gross to share out.
   const canOrdAmt = has.gross !== undefined;
   if (!canOrdAmt) state.ordUnit = 'units';
@@ -935,9 +1000,12 @@ const pointLabels = {
    and the table read. The chart itself is drawn by drawStack(), which puts this
    same P&L beside the figure's breakdown rather than in a second chart. */
 function draw() {
-  const lv = DATA.levels[state.dim];
+  // The table breaks the slice down by whatever the chart is splitting by, so
+  // the two always say the same thing.
+  const di = splitLevel() ?? state.dim;
+  const lv = DATA.levels[di];
   const rows = lv.values
-    .map((name, i) => ({ name, ...totals({ level: state.dim, value: i }) }))
+    .map((name, i) => ({ name, ...totals({ level: di, value: i }) }))
     .filter(r => r.rows && (r.gross || r.profit));
   rows.sort((a, b) => Math.abs(b.gross) - Math.abs(a.gross));
   const top = rows.slice(0, 12);
@@ -946,30 +1014,38 @@ function draw() {
   drawOrders();
 }
 
-/* The same slice, one bar per member of the level above the bars, each split by
-   the level the bars are on. The chart below says what a figure is made of;
-   this one says who it came from. */
+/* Time on the x axis, the whole file in one chart.
+
+   Every month the build read is a bar, in order, and what is drawn on it is the
+   slice the filters leave. So the page opens on the year rather than on one
+   month, and narrowing to MX redraws the same months with only MX in them -
+   the question "how did this move" is answered without changing charts.
+
+   Two shapes, chosen by Figure:
+
+     P&L   two bars a month: what came in, and what it went out on, stacked.
+     else  one bar a month, split by the level the drill is on - who it came
+           from. Clicking a segment narrows to it and steps the split down.
+
+   The profit line is on both, on the right-hand scale, so switching never
+   loses it. */
 let stkChart = null;
 function drawStack() {
-  const xi = stackX();
-  const xl = DATA.levels[xi];
-  const sl = stackLevel();
+  // The level that splits each bar. P&L has no split, so it ignores this.
+  const chain = CHAINS[state.stack] || [];
+  const sl = splitLevel() ?? undefined;
+  const slNext = sl === undefined ? null
+    : (chain[chain.indexOf(sl) + 1] ?? null);
   ['stkCust', 'stkProd'].forEach((id, i) => {
     const b = document.getElementById(id);
     b.classList.toggle('active', state.stack === (i ? 'product' : 'customer'));
     b.disabled = !(i ? CHAINS.product : CHAINS.customer).length;
   });
-  // P&L is a figure like the others as far as the buttons go, but it draws a
-  // different chart: the whole statement on one bar pair rather than one figure
-  // split by who it came from. Putting both in one chart drew well enough and
-  // read badly - four stacked costs beside eight stacked categories is two
-  // questions answered at once and neither of them clearly.
+
   const PNL = 'pnl';
   // Three, not fourteen. Every cost figure is already a band of the P&L chart,
   // so offering each of them its own bar chart was offering the same numbers
-  // twice; and the order series are the chart below this one. What is left is
-  // the choice that actually changes the question: the whole statement, the
-  // money, or the units.
+  // twice, and the order series are the chart below this one.
   const MEASURES = [
     [PNL, 'P&L'],
     [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
@@ -990,8 +1066,7 @@ function drawStack() {
     b.textContent = x.label;
     // render() rebuilds this very button, and removing the click's own target
     // mid-dispatch lets the enclosing <label> activate the first button in the
-    // fresh row instead - so every figure snapped back to the first one. The
-    // redraw waits for the next task, as it does for a click on a bar.
+    // fresh row instead - so every figure snapped back to the first one.
     b.onclick = () => { state.stkFig = x.key; defer(render); };
     figBox.appendChild(b);
   });
@@ -1005,78 +1080,54 @@ function drawStack() {
   document.getElementById('stkPct').classList.toggle('active', pctMode);
 
   const plot = document.getElementById('stkPlot');
-  if (sl === null && !pnlMode) {
-    if (stkChart) { stkChart.destroy(); stkChart = null; }
-    plot.style.height = '0px';
-    document.getElementById('stkLegend').innerHTML = '';
-    document.getElementById('stkHint').textContent =
-      `${xl.name} is the last ${state.stack} level, so there is nothing below `
-      + 'it to stack by. Stack by the other chain, or step back up.';
-    return;
-  }
-
-  const fig = has[state.stkFig];       // undefined in P&L mode, which has none
   const slice = DATA.combos.filter(c =>
     state.filter.every((want, i) => want < 0 || c.k[i] === want));
+  const fig = has[state.stkFig];      // undefined in P&L mode, which has none
+
+  // One column per month, in the order the build read them.
+  const xs = DATA.months.map((m, i) => ({ name: m.label, ym: m.ym, mi: i,
+                                          total: 0, row: new Map() }));
+  const fin = DATA.months.map(() => ({ qty: 0, net: 0, gross: 0, profit: 0,
+                                       deduction: 0, cogs: 0, opex: 0 }));
+  const stackTotal = new Map();
   /* Costs are carried negative in the export. The whole figure is flipped when
      its total is, so a cost stack stands up like the others - and a member that
      really does run the other way still points the other way inside it. */
-  const keep = fig !== undefined && scaled(fig);
-  const amount = c => c.v[fig] * (keep ? basisOf(c) : 1);
   const flip = fig !== undefined
-    && slice.reduce((a, c) => a + amount(c), 0) < 0 ? -1 : 1;
-  // Every x member's own P&L, which the profit line reads in both modes and
-  // the bars read in P&L mode. It is a sum over the same slice, so it agrees
-  // with the KPIs above by construction rather than by coincidence.
-  const fin = new Map();
+    && slice.reduce((a, c) => a + c.v[fig], 0) < 0 ? -1 : 1;
   for (const c of slice) {
-    const x = xl.values[c.k[xi]];
-    let f = fin.get(x);
-    if (!f) fin.set(x, f = { qty: 0, net: 0, gross: 0, profit: 0,
-                             deduction: 0, cogs: 0, opex: 0 });
-    const b = basisOf(c);
+    const f = fin[c.m];
     for (const k of ['qty', 'net', 'gross', 'profit', ...COSTS]) {
-      if (has[k] !== undefined) f[k] += c.v[has[k]] * b;
+      if (has[k] !== undefined) f[k] += c.v[has[k]];
     }
-  }
-
-  const grid = new Map();                 // x member -> stack member -> value
-  const stackTotal = new Map();
-  for (const c of slice) {
-    const x = xl.values[c.k[xi]];
+    if (pnlMode || sl === undefined) continue;
     const g = DATA.levels[sl].values[c.k[sl]];
-    const v = fig === undefined ? 0 : amount(c) * flip;
-    const row = grid.get(x) || new Map();
+    const v = fig === undefined ? 0 : c.v[fig] * flip;
+    const row = xs[c.m].row;
     row.set(g, (row.get(g) || 0) + v);
-    grid.set(x, row);
+    xs[c.m].total += v;
     stackTotal.set(g, (stackTotal.get(g) || 0) + v);
   }
-  // Eight slots, in a fixed order by size. A ninth member folds into Other
-  // rather than being handed a generated hue.
+  if (pnlMode) {
+    xs.forEach((r, i) => { r.total = fin[i].gross || fin[i].profit; });
+  }
+
+  // Eight slots, in a fixed order by size across the whole span - so a member
+  // keeps its colour from month to month, which is the only way a stacked bar
+  // can be read along a time axis at all. A ninth folds into Other.
   const members = [...stackTotal.entries()]
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
   const named = members.slice(0, 8);
   const folded = members.length > 8;
-  const xs = (pnlMode
-    ? [...fin.entries()]
-        .map(([name, f]) => ({ name, idx: xl.values.indexOf(name),
-                               total: f.gross || f.profit, row: new Map() }))
-    : [...grid.entries()]
-        .map(([name, row]) => ({ name, idx: xl.values.indexOf(name),
-                                 total: [...row.values()]
-                                   .reduce((a, b) => a + b, 0), row })))
-    .filter(r => r.total)
-    .sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
-    .slice(0, 12);
 
   // In percentage mode each bar is normalised to its own total, so the mix
-  // inside a small bar reads as clearly as the mix inside a large one. The
+  // inside a small month reads as clearly as the mix inside a large one. The
   // amount is kept on the row for the tooltip - a share with no size behind
   // it is how a rounding error comes to look like a trend.
   const raw = g => xs.map(r => r.row.get(g) || 0);
-  const scale = (vals) => pctMode
+  const scale = vals => (pctMode
     ? vals.map((v, i) => (xs[i].total ? v / xs[i].total * 100 : 0))
-    : vals;
+    : vals);
   const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
     backgroundColor: C.stack[i], borderRadius: 3, borderSkipped: false,
@@ -1092,37 +1143,32 @@ function drawStack() {
       borderWidth: 1, borderColor: C.surface, maxBarThickness: 54,
     });
   }
-  const at = (r, k) => {
-    const f = fin.get(r.name) || {};
-    return k === 'gross' ? (f.gross || 0) : Math.abs(f[k] || 0);
-  };
-  // In P&L mode the bars are the statement: what came in on the left, what it
-  // went out on stacked on the right.
+
+  const at = (i, k) => (k === 'gross' ? (fin[i].gross || 0)
+                                      : Math.abs(fin[i][k] || 0));
   if (pnlMode) {
     series.push({
       label: label('gross'), stack: 'in',
-      data: xs.map(r => at(r, 'gross')),
+      data: xs.map(r => at(r.mi, 'gross')),
       backgroundColor: C.gross, borderRadius: 4, borderSkipped: false,
       borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
     });
     COSTS.forEach(k => series.push({
-      label: label(k), stack: 'out',
-      data: xs.map(r => at(r, k)),
+      label: label(k), stack: 'out', data: xs.map(r => at(r.mi, k)),
       backgroundColor: C[k], borderRadius: 4, borderSkipped: false,
       borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
     }));
   }
   const denom = has.net !== undefined ? label('net') : label('gross');
-  const marginAt = r => {
-    const f = fin.get(r.name) || {};
-    const base = f.net || f.gross;
-    return base ? f.profit / base * 100 : null;
-  };
   const hasLine = has.profit !== undefined;
   if (hasLine) {
     series.push({
       type: 'line', label: `${label('profit')} % of ${denom}`, yAxisID: 'y1',
-      data: xs.map(marginAt),
+      data: xs.map(r => {
+        const f = fin[r.mi];
+        const base = f.net || f.gross;
+        return base ? f.profit / base * 100 : null;
+      }),
       borderColor: C.profit, backgroundColor: C.profit, borderWidth: 2,
       pointRadius: 4, pointHoverRadius: 7, tension: .25, fill: false,
       spanGaps: true, order: -1,
@@ -1132,11 +1178,12 @@ function drawStack() {
   document.getElementById('stkLegend').innerHTML = series.map(d =>
     `<span><i style="background:${d.type === 'line' ? d.borderColor
       : d.backgroundColor}"></i>${d.label}</span>`).join('');
-  plot.style.height = Math.max(340, Math.min(560, xs.length * 56 + 140)) + 'px';
+  plot.style.height = Math.max(340, Math.min(560, xs.length * 46 + 180)) + 'px';
 
-  // P&L has no split to hand down, so opening a bar just steps the x axis on.
-  const to = stackDrill();
-  const canDrill = pnlMode ? (stackLevel() !== null) : (to !== null);
+  // Clicking a segment narrows to it. The x axis does not move - it is time -
+  // so the same months come back with only that member in them, which is the
+  // comparison the click was asking for.
+  const canDrill = !pnlMode && sl !== undefined;
   if (stkChart) stkChart.destroy();
   stkChart = new Chart(document.getElementById('stkBars'), {
     type: 'bar', data: { labels: xs.map(r => r.name), datasets: series },
@@ -1148,20 +1195,26 @@ function drawStack() {
       onHover: (e, els) => {
         e.native.target.style.cursor = (els.length && canDrill) ? 'pointer' : '';
       },
-      onClick: (e, els) => {
-        if (!canDrill || !els.length) return;
-        const idx = xs[els[0].index].idx;
-        const next = pnlMode ? stackLevel() : to;
-        defer(() => { state.filter[xi] = idx; state.dim = next; render(); });
+      onClick(e, els) {
+        if (!canDrill) return;
+        // The index-mode elements Chart.js hands over are the whole column,
+        // line dataset first, so they say which month was clicked and not
+        // which band. Asking again for what the pointer is actually inside is
+        // the difference between "a bar was clicked" and "MX was clicked".
+        const hit = this.getElementsAtEventForMode(
+          e, 'nearest', { intersect: true }, true)[0] || els[0];
+        const d = hit && this.data.datasets[hit.datasetIndex];
+        if (!d || d.type === 'line' || !d.label) return;
+        const j = DATA.levels[sl].values.indexOf(d.label);
+        if (j < 0) return;                       // the folded Other, not a member
+        defer(() => setFilter(sl, j));
       },
       scales: {
         // Two stack names on a stacked axis put the figure and the costs
         // side by side on the same tick; one name leaves a single bar centred.
         x: { stacked: true, offset: pnlMode, grid: { display: false },
              border: { display: false },
-             ticks: { color: C.ink2, autoSkip: false, maxRotation: 28,
-                      callback(v) { const t = this.getLabelForValue(v);
-                        return t.length > 18 ? t.slice(0, 17) + '…' : t; } } },
+             ticks: { color: C.ink2, autoSkip: false, maxRotation: 0 } },
         y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
              border: { display: false },
              max: pctMode ? 100 : undefined,
@@ -1170,8 +1223,8 @@ function drawStack() {
                         : pnlMode ? 'Amount'
                         : (figs.find(x => x.key === state.stkFig) || {}).label },
              ticks: { color: C.ink3,
-                      callback: v => pctMode ? `${v}%`
-                        : Number(v).toLocaleString() } },
+                      callback: v => (pctMode ? `${v}%`
+                                              : Number(v).toLocaleString()) } },
         ...(hasLine ? { y1: {
           position: 'right', grid: { drawOnChartArea: false },
           border: { display: false }, suggestedMin: -10, suggestedMax: 10,
@@ -1193,37 +1246,46 @@ function drawStack() {
                 : `${c.dataset.label}: ${fmt(c.parsed.y)}`,
             footer: items => {
               const r = xs[items[0].dataIndex];
-              const f = fin.get(r.name) || {};
-              return [...(pnlMode ? [`Costs: ${fmt(COSTS.reduce(
-                        (a, k) => a + Math.abs(f[k] || 0), 0))}`]
+              const f = fin[r.mi];
+              return [...(pnlMode
+                       ? [`Costs: ${fmt(COSTS.reduce(
+                           (a, k) => a + Math.abs(f[k] || 0), 0))}`]
                        : [`${(figs.find(x => x.key === state.stkFig) || {}).label}`
                           + `: ${fmt(r.total)}`]),
                       ...(hasLine ? [`${label('profit')}: ${fmt(f.profit || 0)}`]
                                   : []),
                       ...(f.qty ? [`Qty: ${fmt(f.qty)}`] : []),
                       ...(canDrill
-                          ? [`click to open by ${DATA.levels[sl].name}`] : [])];
+                          ? [`click a band to keep only that ${DATA.levels[sl].name}`]
+                          : [])];
             } } },
       },
     },
   });
-  const openBy = pnlMode ? stackLevel() : sl;
+
   document.getElementById('stkHint').textContent =
     (pnlMode
-      ? `${label('gross')} beside what it went out on, by ${xl.name}`
-        + '. Costs are drawn as amounts.'
-      : `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${xl.name}, `
-        + `each split by ${DATA.levels[sl].name}`
-        + (pctMode ? ', every bar normalised to its own total - the mix, not '
-                     + 'the size. The tooltip keeps the amount behind each share'
-                   : '')
-        + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
-                    + 'have a colour of their own; the rest are folded into '
-                    + 'Other.' : '.'))
+      ? `${label('gross')} beside what it went out on, by month. Costs are `
+        + 'drawn as amounts.'
+      : sl === undefined
+        ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by month. `
+          + `Every ${state.stack} level is narrowed to one value, so there is `
+          + 'nothing left to split by - step one back to bring a split back.'
+        : `${(figs.find(x => x.key === state.stkFig) || {}).label} by month, `
+          + `each split by ${DATA.levels[sl].name}`
+          + (pctMode ? ', every month normalised to its own total - the mix, '
+                       + 'not the size. The tooltip keeps the amount behind '
+                       + 'each share'
+                     : '')
+          + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
+                      + 'have a colour of their own, the same colour in every '
+                      + 'month; the rest are folded into Other.' : '.'))
     + (hasLine ? ` The line is ${label('profit')} over ${denom}, on the `
                  + 'right-hand scale.' : '')
-    + (canDrill && openBy !== null
-       ? ` Click a bar to open it by ${DATA.levels[openBy].name}.` : '');
+    + (canDrill ? ` Click a band to keep only that ${DATA.levels[sl].name}`
+                  + (slNext === null ? '.'
+                     : `; the split then steps down to ${DATA.levels[slNext].name}.`)
+                : '');
 }
 
 /* The two counts side by side, one pair per member of the level the bars are
@@ -1296,20 +1358,12 @@ function drawOrders() {
     if (ordChart) { ordChart.destroy(); ordChart = null; }
     return;
   }
-  const lv = DATA.levels[state.dim];
+  // Months on the x axis, like the chart above, so the two line up column for
+  // column. Every month is drawn - there is nothing to rank and nothing to cut.
   const money = state.ordUnit === 'amount';
-  const size = r => (money ? Math.abs(r.inGross) + Math.abs(r.ownGross)
-                             + Math.abs(r.goesGross)
-                           : r.month + r.demand);
-  const ranked = lv.values
-    .map((name, i) => ({ name, ...orderSplit({ level: state.dim, value: i }) }))
-    .filter(r => r.month || r.demand)
-    .sort((a, b) => size(b) - size(a));
-  const rows = ranked.slice(0, 12);
-  // Past twelve the chart shows the biggest and drops the rest, so its bars no
-  // longer add up to the chart above and the two cannot be read against each
-  // other on height. Saying so beats letting the gap look like a disagreement.
-  const cut = ranked.length - rows.length;
+  const rows = DATA.months.map((m, i) => ({ name: m.label,
+                                            ...orderSplit({ month: i }) }));
+  const cut = 0;
 
   // One stack of three, bottom to top: what came in, what the month booked
   // itself, what it hands on. Drawing 'booked' twice - once per side-by-side
@@ -1427,7 +1481,7 @@ function drawOrders() {
   // page that charts it as nil claims the month earned all of its own revenue.
   if (!DATA.carryIn) {
     document.getElementById('ordHint').textContent =
-      `${money ? label('gross') : 'Units'} by ${lv.name}: what this month's `
+      `${money ? label('gross') : 'Units'} by month: what each month's `
       + `own orders earned, and the `
       + `${fmt(all.goes)} units they leave for the next month. What the month `
       + 'BEFORE carried into this one is not drawn, because its orders were not '
@@ -1437,7 +1491,7 @@ function drawOrders() {
     return;
   }
   document.getElementById('ordHint').textContent =
-    `${money ? label('gross') : 'Units'} by ${lv.name}, in one stack: `
+    `${money ? label('gross') : 'Units'} by month, in one stack: `
     + (money
        ? 'everything below the dashed rule is the month as the profit file '
          + 'reports it - the same total the chart above draws - and the band on '
@@ -1456,9 +1510,6 @@ function drawOrders() {
             : 'built'} rather than demand ${net > 0 ? 'earned' : 'lost'}`
        : '')
     + '.'
-    + (cut > 0 ? ` Only the biggest ${rows.length} of ${ranked.length} are `
-                 + `drawn, so these bars are short of the chart above by the `
-                 + `${cut} not shown.` : '')
     + (all.came && has.profit !== undefined
        ? ` Those ${fmt(all.came)} carried-in units earned ${fmt(all.inGross)}`
          + ` gross and ${fmt(all.inProfit)} operating profit`
@@ -1510,17 +1561,23 @@ function renderTable(rows, dimName, ofTotal) {
     <tfoot><tr>${line(tot)}</tr></tfoot></table>`;
 }
 
+/* Back widens the deepest narrowing, whichever chain it was in, and puts the
+   split back on that level. With time on the x axis there is no level to step
+   up from - the narrowing is the whole of where you are. */
 document.getElementById('backBtn').onclick = () => {
-  if (state.dim === 0) return;
-  state.dim -= 1;
-  for (let j = state.dim; j < state.filter.length; j++) state.filter[j] = -1;
+  let last = -1;
+  state.filter.forEach((v, i) => { if (v >= 0) last = i; });
+  if (last < 0) return;
+  state.filter[last] = -1;
+  state.dim = last;
+  state.stack = last < DATA.custDepth ? 'customer' : 'product';
   render();
 };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
 document.getElementById('resetBtn').onclick = () => {
-  state.filter = DATA.levels.map((_, i) => (i === 0 ? DATA.start : -1));
-  state.dim = DATA.levels.length > 1 ? 1 : 0;
+  startHere();
+  state.stack = 'customer';
   render();
 };
 document.getElementById('stkCust').onclick = () => {
@@ -1537,22 +1594,9 @@ document.getElementById('ordAmt').onclick = () => {
   state.ordUnit = 'amount'; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 
-/* One button per month the build found, hidden when there is only one. */
-(() => {
-  const box = document.getElementById('months');
-  document.getElementById('monthBox').hidden = ALL.months.length < 2;
-  ALL.months.forEach((m, i) => {
-    const b = document.createElement('button');
-    b.className = 'btn';
-    b.id = 'month' + i;
-    b.textContent = m.month || m.title;
-    b.title = `${m.file} · ${m.rows.toLocaleString()} rows`;
-    b.onclick = () => showMonth(i);
-    box.appendChild(b);
-  });
-})();
-
-showMonth(0);
+rebind();
+startHere();
+render();
 </script>
 </body>
 </html>

@@ -110,16 +110,29 @@ setting Channel to *All* steps up and brings them back for comparison, which is
 also what puts `Channel` on the x axis as two bars side by side.
 `--start-channel ""` opens on everything instead.
 
-### One page, every month
+### Time on the x axis
 
-The build draws **every** `profit_*` export in the folder - one month each - and
-puts them in one page behind a **Month** button. The months stay whole rather
-than merged: a month has its own customers, its own products and its own levels,
-and merging them would invent a key that was in neither.
+The build draws **every** `profit_*` export in the folder, and the page is one
+chart with **a bar per month**. Not a month behind a button: the whole span at
+once, because what a month did only means something next to the months around
+it.
 
-Switching month starts the drill again, because the levels are that month's.
-How the page is being *read* - which figure, which chain stacks, % of bar -
-carries over, since that is about the reader rather than the data.
+The months arrive separate - each read from its own export, with its own
+customers, its own products, its own column positions - and are joined **in the
+page, by name**. A customer is the same customer in two months when it is spelt
+the same; a figure is the same figure when its key is. Index 3 in August's
+Division list is not index 3 in February's, so nothing is matched on position,
+and a month missing a level reads as the placeholder rather than shifting
+everything along.
+
+Narrowing does not change the axis. Click the **MX** band and the same months
+come back with only MX in them - which is the comparison the click was asking
+for. The split then steps down to the level below, so MX becomes Mobile and
+Wearable across the year.
+
+The eight biggest members take a colour **across the whole span**, not per
+month, since a stacked bar on a time axis cannot be read at all if a colour
+means something different in each column.
 
 With one month in the folder the button row is not there at all.
 
@@ -182,9 +195,9 @@ stack. `--find` and `--where` are what chase them down.
 | Control | What it does |
 |---|---|
 | **click a bar** | open that member, and move the bars to the next level |
-| the breadcrumb | go back to any step of the path; **All** returns to the top |
-| **← Back** | step out one level |
-| a level name | put the bars on it, clearing what was narrowed at and below it |
+| the breadcrumb | go back to any step of the path; **All** returns to the top. It lists **every** narrowing in force, from either chain, and ends with what the months are split by |
+| **← Back** | widen the deepest narrowing, whichever chain it was in |
+| a level name | split each month by it, clearing what was narrowed at and below it |
 | **Stack by** | which chain splits each bar |
 | **Figure** | **P&L**, **Net Amount (AUD)** or **Qty** - what the chart draws |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
@@ -298,8 +311,8 @@ So there is one chart, and **Figure** chooses what it draws:
 
 | Figure | |
 |---|---|
-| **P&L** | the statement: the gross bar, what it went out on stacked beside it, and the profit line |
-| anything else | that figure split by the level below - who it came from - and the profit line |
+| **P&L** | the statement: **two bars a month** - the gross, and what it went out on stacked beside it - with the profit line |
+| anything else | **one bar a month**, split by the level the drill is on - who it came from - with the profit line |
 
 The profit line is on both, on the right-hand scale, so switching between them
 never loses it. Choosing **Qty** therefore gives the units split with the profit
