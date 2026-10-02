@@ -119,6 +119,13 @@ def main() -> int:
                          f'(default {CUST.ONLINE})')
     ap.add_argument('--skip-sku', metavar='PREFIX', default='',
                     help='product-code prefixes to leave out, e.g. SMC-AU-')
+    ap.add_argument('--as-of', metavar='YYYY-MM-DD',
+                    help='the day the exports were pulled. A goods issue date '
+                         'after it has not happened yet. By default the last '
+                         'order each export recorded, which is right for a '
+                         'month-end pull and wrong for one taken later - and '
+                         'being wrong there reports despatches that did happen '
+                         'as merely scheduled')
     ap.add_argument('--sample', type=int, default=6,
                     help='how many examples of each kind to print')
     ap.add_argument('--out', default=None,
@@ -198,10 +205,13 @@ def one(folder, want, args):
           else month_of(s_head, s_body, sp.stem, say=lambda *a: None))
     # The day the export was taken, which is the line between what happened and
     # what is only scheduled. The last order it recorded is the best proxy.
-    asof = max(made) if made else None
+    asof = to_date(args.as_of) or (max(made) if made else None)
     if made:
         print(f'  created {min(made)} .. {max(made)}  -> the {ym} export, '
-              f'taken on or about {asof}')
+              + (f'pulled {asof} (--as-of)' if args.as_of
+                 else f'taken on or about {asof} - the last order it recorded. '
+                      'If it was\n  pulled later than that, say so with --as-of '
+                      'or its later despatches read as\n  merely scheduled'))
 
     dp = pick_file(folder, args.dtc or (month_name(ym) if ym else ''))
     if dp is None:

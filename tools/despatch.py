@@ -264,6 +264,62 @@ def main() -> int:
               'export of the same month taken two months later is what settles '
               'it.')
 
+    # ── the carry-over ladder ──────────────────────────────────────────────
+    # One row per month an order arrived in, one column per month it left in.
+    # Everything on the diagonal is a month earning its own demand; everything
+    # to the right of it is that month handing revenue forward, and everything
+    # below the diagonal in a column is a month being handed it.
+    grid: dict[tuple, float] = collections.Counter()
+    store_only = []
+    for name, lines in months.items():
+        for l in lines:
+            if l['rejected'] and not gone(l):
+                continue
+            if not l['made']:
+                continue
+            m = l['made'].strftime('%Y-%m')
+            g = l['gi'].strftime('%Y-%m') if l['gi'] else None
+            grid[(m, g or 'no date', gone(l))] += l['qty']
+    made_months = sorted({k[0] for k in grid})
+    gi_months = sorted({k[1] for k in grid if k[1] != 'no date'})
+    if made_months and gi_months:
+        print('\nthe carry-over ladder - ordered down the side, despatched '
+              'across the top')
+        print('  (a date past the day an export was taken is a schedule, '
+              'shown in brackets)')
+        head = ''.join(f'{g[-5:]:>18}' for g in gi_months)
+        print(f'  {"ordered in":<12}{head}{"open":>12}')
+        for m in made_months:
+            cells = []
+            for g in gi_months:
+                left = grid.get((m, g, True), 0.0)
+                due = grid.get((m, g, False), 0.0)
+                cells.append(f'{left:,.0f}' + (f' ({due:,.0f})' if due else '')
+                             if left or due else '-')
+            open_u = grid.get((m, 'no date', False), 0.0) \
+                + grid.get((m, 'no date', True), 0.0)
+            print(f'  {m:<12}' + ''.join(f'{c:>18}' for c in cells)
+                  + f'{open_u:>12,.0f}')
+
+        print(f'\n  {"month":<10} {"own demand":>12} {"carried in":>12} '
+              f'{"carried out":>13} {"net":>10}')
+        for m in made_months:
+            own = sum(v for k, v in grid.items() if k[0] == m and k[1] == m)
+            out_u = sum(v for k, v in grid.items()
+                        if k[0] == m and k[1] != 'no date' and k[1] > m)
+            in_u = sum(v for k, v in grid.items()
+                       if k[1] == m and k[0] < m)
+            net = in_u - out_u
+            print(f'  {m:<10} {own:>12,.0f} {in_u:>12,.0f} {out_u:>13,.0f} '
+                  f'{net:>+10,.0f}')
+        print('  own demand is what a month both ordered and despatched; '
+              'carried in is what an\n  earlier month despatched into it, and '
+              'carried out what it despatches later.\n  A month that takes in '
+              'more than it hands on has revenue flattered by the net.')
+        print('  A month whose predecessor is not in the folder reads as '
+              'nothing carried in -\n  that is the export missing, not the '
+              'carry-over being nil.')
+
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open('w', newline='', encoding='utf-8-sig') as fh:

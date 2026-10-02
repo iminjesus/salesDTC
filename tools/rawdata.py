@@ -391,6 +391,12 @@ def pick_series(folder: Path, prefix: str) -> list:
     hits = [p for p in folder.iterdir()
             if p.is_file() and norm_stem(p.stem).startswith(norm_stem(prefix))
             and p.suffix.lower() != '.db']
+    # Where the series has a csv, the csv is the series. A workbook beside it is
+    # the same export round-tripped through Excel, with renamed headers and
+    # numbers turned into text, and nothing downstream can tell that apart from
+    # a column that moved.
+    if any(q.suffix.lower() == '.csv' for q in hits):
+        hits = [q for q in hits if q.suffix.lower() == '.csv']
 
     def rank(p):
         fmt = (FORMAT_ORDER.index(p.suffix.lower())
