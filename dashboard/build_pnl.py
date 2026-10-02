@@ -173,6 +173,10 @@ def main() -> int:
     ap.add_argument('--agree', type=float, default=80.0, metavar='PCT',
                     help='how much of the accounts behind a portal group must '
                          'agree before a level is asserted for it (default 80)')
+    ap.add_argument('--columns', action='store_true',
+                    help='list what every profit export carries, side by side, '
+                         'and stop. The quickest way to see why one month draws '
+                         'a figure another one does not')
     ap.add_argument('--open', action='store_true')
     args = ap.parse_args()
 
@@ -198,6 +202,9 @@ def main() -> int:
     if not targets:
         print(f'no profit export in {folder.resolve()}', file=sys.stderr)
         return 2
+
+    if args.columns:
+        return say_columns(targets)
 
     months = []
     for target in targets:
@@ -230,6 +237,59 @@ def main() -> int:
           f'{", needs a connection" if args.cdn else ", works offline"})')
     if args.open:
         webbrowser.open(out.resolve().as_uri())
+    return 0
+
+
+def say_columns(targets):
+    """What each export carries, and what the others carry that it does not.
+
+    A figure the page draws for one month and not another is nearly always this:
+    the exports were cut differently, and the column the figure reads is in one
+    and not the other - or is in both and empty in one.
+    """
+    seen = {}
+    for t in targets:
+        rows, _ = read_any(t)
+        head = [h.strip() for h in rows[0]]
+        body = rows[1:]
+        total = {}
+        for i, h in enumerate(head):
+            v = 0.0
+            hit = False
+            for r in body:
+                n = parse_number(r[i].strip() if i < len(r) else '')
+                if n is not None:
+                    v += n
+                    hit = True
+            total[h] = v if hit else None
+        seen[t.name] = total
+        print(f'{t.name}: {len(body):,} rows, {len(head)} columns')
+
+    every = []
+    for t in targets:
+        for h in seen[t.name]:
+            if h not in every:
+                every.append(h)
+    names = [t.name for t in targets]
+    w = max(len(h) for h in every) + 2
+    print(f'\n{"column":<{w}}' + ''.join(f'{n[:20]:>22}' for n in names))
+    for h in every:
+        cells = []
+        for n in names:
+            v = seen[n].get(h, '--')
+            cells.append('-- not in it --' if v == '--'
+                         else 'text' if v is None
+                         else f'{v:,.0f}')
+        flag = ''
+        vals = [seen[n].get(h, '--') for n in names]
+        if any(v == '--' for v in vals):
+            flag = '   <- not in every export'
+        elif any(isinstance(v, float) and not v for v in vals) and \
+                any(isinstance(v, float) and v for v in vals):
+            flag = '   <- empty in one of them'
+        print(f'{h:<{w}}' + ''.join(f'{c:>22}' for c in cells) + flag)
+    print('\nA figure the page draws for one month and not another is one of '
+          'those two lines.')
     return 0
 
 
