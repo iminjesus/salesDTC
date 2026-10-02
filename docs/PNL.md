@@ -360,17 +360,20 @@ bought it but by when the order behind it was placed.** Two bands a month:
 | **Ordered this month** | the month's own orders, earned in the month |
 | **Carried in from the month before** | ordered earlier, earned here |
 
-Two things the orders know about are deliberately **not** in the bars:
+plus a third in grey:
 
-- **carried out** - ordered this month, ships later. It is next month's revenue,
-  and adding a projection to a measurement in one bar would make the bar mean
-  nothing.
-- **revenue no order could be matched to** - an offline row, a marketplace, or a
-  code the two files spell differently. There is nothing to say about where it
-  came from.
+| | |
+|---|---|
+| **No order matched** | an offline row, a marketplace, or a code the two files spell differently |
 
-So these bars are the month **as sold, less what could not be placed**, and the
-hint says so rather than letting the shortfall pass as the month.
+That band is there so **the bar comes to the same total as every other way of
+stacking it**. A month that reads smaller under one split than another is a
+chart arguing with itself. It gets no margin line of its own - it is a residual,
+not a cohort.
+
+**Carried out** is still not in the bars: ordered this month, ships later, so it
+is next month's revenue. Putting a projection in a bar of measurements would
+make the bar mean nothing.
 
 The figure defaults to **Operating Profit**, which is the question this view
 exists for: how much of the month's profit the month actually earned, and how
@@ -385,11 +388,8 @@ the hint names which months those are.
 
 **The y axis does not move when Stack by does.** It is scaled to the figure over
 the whole slice, not to the bars actually drawn - so Customer, Product and When
-ordered all share one scale, and the figure carries across wherever both modes
-have it. This view leaves things out by design, and those bars are meant to read
-as **short**: the gap to the top of the axis is the revenue no order could be
-placed against. Stretching them to fill the plot would hide exactly what the
-view is for.
+ordered share one scale, and the figure carries across wherever both modes have
+it.
 
 This replaced a second chart under the first. That chart drew the same split
 against the drill level instead of time, with a line for the share of revenue

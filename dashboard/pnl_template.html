@@ -1115,12 +1115,16 @@ function drawStack() {
   });
 
   const PNL = 'pnl';
-  // The two origins the month's revenue can have come from. Carried out is a
-  // third thing the orders know about and is deliberately not here: it is next
-  // month's revenue, and putting it in a bar of this month's would be adding a
-  // projection to a measurement.
+  // Where the month's revenue came from. The first two are the orders; the
+  // third is everything they could not account for, and it is here so the bar
+  // comes to the same total as every other way of stacking it - a month that
+  // reads smaller under one split than another is a chart arguing with itself.
+  //
+  // Carried out is still not here. It is next month's revenue, and putting a
+  // projection in a bar of measurements would make the bar mean nothing.
   const ORIGINS = [['own', 'Ordered this month'],
-                   ['in', `Carried in from the month before`]];
+                   ['in', 'Carried in from the month before'],
+                   ['none', 'No order matched']];
   // Three, not fourteen. Every cost figure is already a band of the P&L chart,
   // so offering each of them its own bar chart was offering the same numbers
   // twice, and the order series are the chart below this one.
@@ -1209,10 +1213,13 @@ function drawStack() {
       // month as sold minus what could not be placed, and the hint says so.
       if (!DATA.months[c.m].carryIn) continue;   // its predecessor was not read
       const month = bookedOf(c) + cameIn(c);
-      if (!month) continue;
       const v = fig === undefined ? 0 : c.v[fig] * flip;
+      // No order behind it at all, so there is nothing to apportion: the whole
+      // of it goes to the band that says so.
+      const shares = month ? [bookedOf(c) / month, cameIn(c) / month, 0]
+                           : [0, 0, 1];
       ORIGINS.forEach(([key, name], oi) => {
-        const share = (oi ? cameIn(c) : bookedOf(c)) / month;
+        const share = shares[oi];
         if (!share) return;
         const b = slotFor(name)[c.m];
         for (const k of ['profit', 'net', 'gross']) {
@@ -1261,7 +1268,9 @@ function drawStack() {
     : vals);
   // In orders mode the two bands mean something fixed, so they keep a fixed
   // pair of colours rather than taking whichever slot they sorted into.
-  const bandColour = i => (ordMode ? [C.stack[0], C.stack[4]][i] : C.stack[i]);
+  // The unmatched band takes the palette's neutral slot, which is what it is.
+  const bandColour = i => (ordMode ? [C.stack[0], C.stack[4], C.stack[8]][i]
+                                   : C.stack[i]);
   const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
     backgroundColor: bandColour(i), borderRadius: 3, borderSkipped: false,
@@ -1325,15 +1334,16 @@ function drawStack() {
       named.forEach((g, i) => {
         const a = finBy.get(g);
         if (!a) return;
+        if (ordMode && g === ORIGINS[2][1]) return;   // a residual, not a cohort
         // Faint on purpose: the solid line is the answer, and these are the
         // spread around it. At full strength eight of them read as the chart
         // and the bars underneath read as the background, which is backwards.
         series.push({
           type: 'line', label: `${g} margin`, yAxisID: 'y1',
           data: xs.map(r => marginOf(a[r.mi])),
-          borderColor: fade(bandColour(i), .45),
-          backgroundColor: fade(bandColour(i), .45),
-          borderWidth: 1.2, borderDash: [3, 3],
+          borderColor: fade(bandColour(i), .75),
+          backgroundColor: fade(bandColour(i), .75),
+          borderWidth: 1.4, borderDash: [4, 3],
           pointRadius: 0, pointHoverRadius: 5, tension: .25, fill: false,
           spanGaps: true, order: -1, bandLine: true,
         });
@@ -1445,10 +1455,10 @@ function drawStack() {
   document.getElementById('stkHint').textContent =
     (ordMode
       ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by month, `
-        + 'split by when the order behind it was placed. What the month ships '
-        + 'but has not sold yet is not here - it is next month\'s - and nor is '
-        + 'revenue no order could be matched to, so the bars are the month as '
-        + 'sold less what could not be placed.'
+        + 'split by when the order behind it was placed, with what no order '
+        + 'could be matched to in grey - so the bar comes to the same total as '
+        + 'every other way of stacking it. What the month ships but has not '
+        + 'sold yet is not here: it is next month\'s.'
         + (() => {
             const blind = DATA.months.filter(m => !m.carryIn).map(m => m.label);
             return blind.length
