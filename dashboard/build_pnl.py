@@ -270,12 +270,53 @@ def build_month(folder, target, args):
 
     print('\nthe chart\'s figures:')
     series, pos_of = [], {}
+    # Every amount column's total, once. A figure that matched a column holding
+    # nothing is worse than one that matched nothing at all: it draws as zero
+    # and reads as "this month had no sales deduction" rather than as a column
+    # that wants looking at - and the money is usually in a column next to it.
+    col_total: dict[int, float] = {}
+    for i in measures:
+        t = 0.0
+        for r in body:
+            v = parse_number(r[i].strip() if i < len(r) else '')
+            if v is not None:
+                t += v
+        col_total[i] = t
+
+    empty = []
     for key, label, names in SERIES:
         i = find(head, *names)
-        print(f'  {label:17} {head[i] if i is not None else "-- not found --"}')
+        total = col_total.get(i, 0.0) if i is not None else 0.0
+        if i is not None and i not in col_total:          # not read as a measure
+            for r in body:
+                v = parse_number(r[i].strip() if i < len(r) else '')
+                if v is not None:
+                    total += v
+        col = head[i] if i is not None else '-- not found --'
+        print(f'  {label:17} {col:<24}'
+              + ('' if i is None else f'{total:>16,.0f}'
+                 + ('' if total else
+                    '   <- matched, but every row of it is empty or zero')))
         if i is not None:
             pos_of[key] = i
             series.append({'key': key, 'label': label})
+            if not total:
+                empty.append((label, head[i]))
+
+    # Where the money went instead: the biggest amount columns no figure claimed.
+    if empty:
+        claimed = set(pos_of.values())
+        spare = sorted(((t, i) for i, t in col_total.items()
+                        if i not in claimed and abs(t) > 0),
+                       key=lambda x: -abs(x[0]))[:8]
+        print(f'\n  {len(empty)} figure(s) matched a column that holds nothing: '
+              + ', '.join(f'{lbl} ({c})' for lbl, c in empty))
+        if spare:
+            print('  the biggest amount columns no figure is reading:')
+            for t, i in spare:
+                print(f'    {head[i]:<28} {t:>16,.0f}')
+            print('  if one of those is the figure, add its name to SERIES in '
+                  'dashboard/build_pnl.py.')
     if not {'gross', 'profit'} <= set(pos_of):
         print('\nWithout a gross figure and an operating profit there is nothing '
               'to draw.', file=sys.stderr)

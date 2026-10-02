@@ -226,11 +226,23 @@ A cancelled or rejected order belongs to no month and is in none of the three.
 
 **Basis** reads the whole page on one of those:
 
-| | |
-|---|---|
-| **Sales** | the month as the profit file reports it |
-| **Own demand** | `booked / (booked + carried in)` - last month's carry-over stripped out, leaving the revenue this month's own orders earned |
-| **Demand + to come** | `(booked + carried out) / (booked + carried in)` - what this month's orders will earn in the end, the unshipped part priced at the same per-unit rates |
+| | | |
+|---|---|---|
+| **Sales** | the month as the profit file reports it | measured |
+| **Own orders** | `booked` - last month's carry-over stripped out | measured |
+| **Carried in** | `carried in` - what **last month's** orders earned here, on its own. These units really were sold this month, so their profit is read rather than projected | measured |
+| **Carried out** | `carried out` - what this month's unshipped orders are worth at **this month's** rates | a projection |
+| **Own + to come** | `booked + carried out` - this month's own orders in full | part projected |
+
+Every one of them is a share of the same denominator, `booked + carried in`, so
+**Sales = Own orders + Carried in** and the month decomposes exactly. Picking
+*Carried in* reads the whole page - gross, every cost, operating profit, profit
+%, ASP - for the carry-over alone, which is how a month's carried-over business
+gets compared with the business it won itself.
+
+*Carried out* is the only one that is not a measurement: the month it lands in
+has not happened, so its units are priced at this month's rates. The subtitle
+says so while it is on.
 
 Off *Sales*, every figure is an **allocation**: one multiplier per key, applied
 to the money and the units alike. It holds exactly as far as the units of one

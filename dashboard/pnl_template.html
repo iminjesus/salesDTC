@@ -192,8 +192,10 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         ><button class="btn" id="unitPer">Per unit</button></span></label>
       <label class="f" id="basisBox" hidden><span>Basis</span><span class="seg">
         <button class="btn" id="bSales" title="the month as the profit file reports it">Sales</button
-        ><button class="btn" id="bOrd" title="only the revenue this month's own orders earned - last month's carry-over stripped out">Own demand</button
-        ><button class="btn" id="bAll" title="what this month's own orders will earn in the end, including what has not shipped">Demand + to come</button></span></label>
+        ><button class="btn" id="bOrd" title="only what this month's own orders earned - last month's carry-over stripped out">Own orders</button
+        ><button class="btn" id="bIn" title="only what last month's orders earned here - measured, these units really were sold this month">Carried in</button
+        ><button class="btn" id="bOut" title="what this month's unshipped orders are worth at this month's rates - a projection, next month has not happened">Carried out</button
+        ><button class="btn" id="bAll" title="this month's own orders in full: what they earned here plus what they will earn next month">Own + to come</button></span></label>
       <button class="btn" id="tableBtn">Table</button>
       <button class="btn" id="resetBtn">Reset</button>
     </div>
@@ -362,6 +364,12 @@ const scaled = m => !ORDERED.some(k => has[k] === m);
    compares against the measured answer. The build says which it used.
 
    A cancelled or rejected order is in none of the three. */
+/* Which slice of the month each basis keeps. 'in' and 'out' are the two halves
+   the month is usually read without: what last month sent here, and what this
+   month sends on. Keeping one on its own is how its profit gets read - the page
+   is already carrying every figure for it. */
+const BASES = [['bSales', 'sales'], ['bOrd', 'orders'], ['bIn', 'in'],
+               ['bOut', 'out'], ['bAll', 'all']];
 const bookedOf = c => c.v[has.oqty];
 const cameIn = c => c.v[has.iqty];
 const goesOut = c => c.v[has.xqty];
@@ -392,7 +400,10 @@ function basisOf(c) {
   if (state.basis === 'sales' || !hasOrders()) return 1;
   const month = bookedOf(c) + cameIn(c);
   if (!month) return 0;
-  const want = state.basis === 'all' ? bookedOf(c) + goesOut(c) : bookedOf(c);
+  const want = state.basis === 'all' ? bookedOf(c) + goesOut(c)
+             : state.basis === 'in' ? cameIn(c)
+             : state.basis === 'out' ? goesOut(c)
+             : bookedOf(c);
   return want / month;
 }
 
@@ -718,12 +729,17 @@ function render() {
   document.getElementById('pageTitle').textContent = DATA.title;
   document.getElementById('pageSub').textContent =
     `${DATA.file} · ${DATA.rows.toLocaleString()} rows`
-    + (state.basis === 'sales' ? ''
-       : state.basis === 'orders'
-         ? ' · allocated to the revenue this month\'s own orders earned, with '
-           + 'last month\'s carry-over stripped out'
-         : ' · allocated to what this month\'s own orders will earn, the '
-           + 'unshipped part priced at the same rates');
+    + ({
+      sales: '',
+      orders: ' · allocated to what this month\'s own orders earned, with last '
+              + 'month\'s carry-over stripped out',
+      in: ' · allocated to what last month\'s orders earned here - measured, '
+          + 'these units were sold this month',
+      out: ' · allocated to what this month\'s unshipped orders are worth at '
+           + 'this month\'s rates - a projection, not a measurement',
+      all: ' · allocated to this month\'s own orders in full, the unshipped '
+           + 'part priced at the same rates',
+    }[state.basis] || '');
   buildFilters();
 
   const picked = DATA.levels
@@ -778,7 +794,7 @@ function render() {
   const canBasis = hasOrders() && DATA.carryIn;
   document.getElementById('basisBox').hidden = !canBasis;
   if (!canBasis) state.basis = 'sales';
-  [['bSales', 'sales'], ['bOrd', 'orders'], ['bAll', 'all']].forEach(([id, v]) =>
+  BASES.forEach(([id, v]) =>
     document.getElementById(id).classList.toggle('active', state.basis === v));
   const canUnit = has.qty !== undefined;
   if (!canUnit) state.unit = 'amount';
@@ -1341,7 +1357,7 @@ document.getElementById('backBtn').onclick = () => {
 };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
-[['bSales', 'sales'], ['bOrd', 'orders'], ['bAll', 'all']].forEach(([id, v]) => {
+BASES.forEach(([id, v]) => {
   document.getElementById(id).onclick = () => { state.basis = v; render(); };
 });
 document.getElementById('resetBtn').onclick = () => {
