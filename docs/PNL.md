@@ -198,8 +198,9 @@ stack. `--find` and `--where` are what chase them down.
 | the breadcrumb | go back to any step of the path; **All** returns to the top. It lists **every** narrowing in force, from either chain, and ends with what the months are split by |
 | **← Back** | widen the deepest narrowing, whichever chain it was in |
 | a level name | split each month by it, clearing what was narrowed at and below it |
-| **Stack by** | **Customer**, **Product** or **When ordered** - what splits each month's bar |
-| **Figure** | **P&L**, **Net Amount (AUD)** or **Qty** - what the chart draws |
+| **P&L** | the whole statement. A view of its own, not a figure - while it is on, Stack by, Figure and Scale have nothing to say and stand down |
+| **Stack by** | **Customer**, **Product** or **When ordered** - what splits each bar |
+| **Figure** | **Operating Profit**, **Net Amount (AUD)** or **Qty** - the same three in every stack mode |
 | **Period** | **Month**, **Quarter** or **Year** - how wide a bar is |
 | **Cumulative** | each bar becomes the running total up to and including it |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
@@ -309,14 +310,25 @@ drawing them on top of each other was worse - four stacked costs beside eight
 stacked categories is two questions answered at once and neither of them
 clearly.
 
-So there is one chart, and **Figure** chooses what it draws:
+So there is one chart, in one of two shapes:
 
-| Figure | |
+| | |
 |---|---|
-| **P&L** | the statement: **two bars a month** - the gross, and what it went out on stacked beside it - with the profit line |
-| anything else | **one bar a month**, split by the level the drill is on - who it came from - with the profit line |
+| **P&L** on | the statement: **two bars a period** - the gross, and what it went out on stacked beside it |
+| **P&L** off | **one bar a period**, split by whatever Stack by names, in whichever Figure |
 
-The profit line is on both, each point labelled with its own figure, so
+P&L sits **apart from Figure**, because it is not one. A figure is a measure a
+split can cut; the P&L is the whole statement and has no split, so Stack by and
+Figure say nothing about it and are hidden while it is on.
+
+That separation is also what holds the y axis still. The three figures are the
+same in **every** stack mode, so there is no figure one mode has and another
+does not, and nothing is swapped out underneath the reader. While P&L was in the
+Figure row, choosing **When ordered** from it fell through to Operating Profit
+and the axis dropped from 3,500,000 to 900,000 - a different measure, not a
+different calculation, but it read as the chart disagreeing with itself.
+
+The profit line is on both shapes, each point labelled with its own figure, so
 switching between them never loses it. There is no right-hand axis: a line that
 writes its value over every point has nothing left for a scale to say, and
 dropping it gives the bars the width back.
@@ -329,13 +341,14 @@ question the sizes raise. Only the solid line's points are labelled; eight
 labelled lines would bury the chart they are drawn over, and the dotted ones
 are read against it rather than off a number. They are drawn faint, and with no
 point markers, for the same reason: at full strength eight of them read as the
-chart and the bars underneath read as the background, which is backwards. Choosing **Qty** therefore gives the units split with the profit
-line over it and **no cost bars**: costs share no scale with a count of units,
-and the same goes for a bar normalised to 100%.
+chart and the bars underneath read as the background, which is backwards.
 
-In P&L mode **Scale** disappears rather than greying out - normalising to 100%
-is about a mix and the P&L is not one, and a disabled button still costs a row
-of a menu that is already tall.
+Choosing **Qty** gives the units split with the profit line over it and **no
+cost bars**: costs share no scale with a count of units, and the same goes for a
+bar normalised to 100%. **Scale** disappears in the P&L view for that reason -
+normalising to 100% is about a mix and the P&L is not one - and it disappears
+rather than greying out, since a dead button still costs a row of a menu that is
+already tall.
 
 ### Month, quarter, year
 
