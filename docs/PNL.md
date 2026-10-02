@@ -201,7 +201,7 @@ stack. `--find` and `--where` are what chase them down.
 | **P&L** | the whole statement. A view of its own, not a figure - picking a Stack by or a Figure leaves it |
 | **Stack by** | **Customer**, **Product** or **When ordered** - what splits each bar |
 | **Figure** | **Operating Profit**, **Net Amount (AUD)** or **Qty** - the same three in every stack mode |
-| **Period** | **Month**, **Quarter** or **Year** - how wide a bar is |
+| **Period** | **Month** or **Quarter** - how wide a bar is |
 | **Cumulative** | each bar becomes the running total up to and including it |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
 | **Table** | every figure behind the bars, with quantity, ASP and the margin |
@@ -355,10 +355,10 @@ out, since a dead button still costs a row of a menu that is already tall.
 
 ### Month, quarter, year
 
-**Period** sets how wide a bar is. Nothing else changes: the same slice, the
-same split, the same figure, summed into fewer columns. A month's `ym` is
-`YYYYMM`, so the quarter and the year fall straight out of it, and the months
-arrive in order so the columns do too.
+**Period** sets how wide a bar is - a month or a quarter. Nothing else
+changes: the same slice, the same split, the same figure, summed into fewer
+columns. A month's `ym` is `YYYYMM`, so the quarter falls straight out of it,
+and the months arrive in order so the columns do too.
 
 The totals are the same whichever period is showing - that is the point of it
 being a bucket rather than a different reading. Across every combination of
@@ -374,8 +374,10 @@ margin lines, the axis and the tooltips all cumulate together and cannot drift
 apart. The profit line then reads as margin **to date**: profit so far over net
 so far, which is the figure a year-to-date number is usually quoted at.
 
-On **Year** the toggle is not there: one column is already the whole span, so
-there is nothing to run up to.
+There was a **Year** period too, until this arrived. The last bar of a running
+total is already the whole span, so drawing it as one bar was a third way to say
+a number the page says twice over - and it is still there whichever period is
+showing, which Year was not.
 
 ### The chart's own controls
 

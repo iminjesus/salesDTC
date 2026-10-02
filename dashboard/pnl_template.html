@@ -234,8 +234,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         <span class="vals" id="stkFig"></span></label>
       <label class="f" id="periodBox"><span>Period</span><span class="seg">
         <button class="btn" id="perMonth">Month</button
-        ><button class="btn" id="perQtr">Quarter</button
-        ><button class="btn" id="perYear">Year</button></span></label>
+        ><button class="btn" id="perQtr">Quarter</button></span></label>
       <button class="btn" id="cumulBtn" title="each bar is the running total up to and including it, so the last bar is the whole span">Cumulative</button>
       <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
         <button class="btn" id="stkAmt">Amount</button
@@ -419,8 +418,8 @@ const state = {
   // 'amount' compares sizes between bars; 'pct' normalises every bar to 100%
   // and compares the mix inside them, which a tall bar otherwise drowns out.
   stkScale: 'amount',
-  // How wide a bar is: one month, one quarter, one year. Nothing else changes -
-  // the same slice, the same split, the same figure, summed into fewer columns.
+  // How wide a bar is: one month or one quarter. Nothing else changes - the
+  // same slice, the same split, the same figure, summed into fewer columns.
   period: 'month',
   // Running totals across the columns. A different question from a wider
   // bucket - how the year is tracking, rather than how big each piece is - so
@@ -933,10 +932,11 @@ function render() {
     });
   });
   const sl = splitLevel();
-  const per = state.period === 'month' ? 'month' : state.period;
-  step(state.stack === 'orders' ? `by ${per}, split by when ordered`
-       : sl === null ? `by ${per}`
-       : `by ${per}, split by ${DATA.levels[sl].name}`, null);
+  const per = state.period === 'quarter' ? 'quarter' : 'month';
+  const run = state.cumul ? ' cumulative' : '';
+  step(state.stack === 'orders' ? `by ${per}${run}, split by when ordered`
+       : sl === null ? `by ${per}${run}`
+       : `by ${per}${run}, split by ${DATA.levels[sl].name}`, null);
   const atTop = !state.filter.some(v => v >= 0);
   document.getElementById('backBtn').disabled = atTop;
   document.getElementById('stkBack').disabled = atTop;
@@ -1194,14 +1194,10 @@ function drawStack() {
   // the menu, and this menu is already tall.
   const pctMode = state.stkScale === 'pct' && !pnlMode;
   document.getElementById('scaleBox').hidden = pnlMode;
-  [['perMonth', 'month'], ['perQtr', 'quarter'], ['perYear', 'year']]
+  [['perMonth', 'month'], ['perQtr', 'quarter']]
     .forEach(([id, v]) => document.getElementById(id)
       .classList.toggle('active', state.period === v));
-  // One column is already the whole span, so there is nothing to run up to.
-  const canCumul = state.period !== 'year';
-  if (!canCumul) state.cumul = false;
   document.getElementById('cumulBtn').classList.toggle('active', state.cumul);
-  document.getElementById('cumulBtn').hidden = !canCumul;
   document.getElementById('stkAmt').classList.toggle('active', !pctMode);
   document.getElementById('stkPct').classList.toggle('active', pctMode);
 
@@ -1213,13 +1209,15 @@ function drawStack() {
   // One column per period. A month's ym is YYYYMM, so the quarter and the year
   // fall straight out of it, and the months arrive in order, so the columns do
   // too without sorting anything.
-  const PER = { month: 'month', quarter: 'quarter', year: 'year' }[state.period];
+  // Month or quarter. There was a Year as well, until Cumulative arrived: the
+  // last bar of a running total is the whole span, so a period that drew it as
+  // one bar was a third way to say a number the page already said twice.
+  const PER = state.period === 'quarter' ? 'quarter' : 'month';
   const keyOf = m => {
     const y = Math.floor(m.ym / 100), mo = m.ym % 100;
-    return state.period === 'year' ? [`${y}`, `${y}`]
-         : state.period === 'quarter'
-           ? [`${y}Q${Math.ceil(mo / 3)}`, `${y} Q${Math.ceil(mo / 3)}`]
-           : [`${m.ym}`, m.label];
+    return PER === 'quarter'
+      ? [`${y}Q${Math.ceil(mo / 3)}`, `${y} Q${Math.ceil(mo / 3)}`]
+      : [`${m.ym}`, m.label];
   };
   const xs = [];
   const colAt = new Map();
@@ -1671,7 +1669,7 @@ document.getElementById('cumulBtn').onclick = () => {
   state.cumul = !state.cumul; render(); };
 document.getElementById('pnlBtn').onclick = () => {
   state.pnl = !state.pnl; render(); };
-[['perMonth', 'month'], ['perQtr', 'quarter'], ['perYear', 'year']]
+[['perMonth', 'month'], ['perQtr', 'quarter']]
   .forEach(([id, v]) => {
     document.getElementById(id).onclick = () => { state.period = v; render(); };
   });
