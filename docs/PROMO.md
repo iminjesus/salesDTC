@@ -1,9 +1,53 @@
 # Which promotion did an order come in on?
 
 ```powershell
+py tools\promo.py --division MX        # what the promotions look like, in three levels
 py tools\promo_match.py --profile      # describe both files, change nothing
 py tools\promo_match.py                # attribute, and cross-check the two
 ```
+
+## Three levels, widest first
+
+The store's codes are unreadable in bulk - hundreds of them, few shared between
+months. `tools/promo.py` pulls each one apart into three levels and reports how
+far each gathers:
+
+| | |
+|---|---|
+| **offer type** | the mechanic: PWP, GWP, Discount, Cashback, Bundle, Trade-Up |
+| **offer** | what it was on, with the mechanic taken out - `S25-LAUNCH-10PCT` |
+| **rule** | the code itself, dates and all |
+
+A cell holding two rules keeps both. A line that ran under two offers ran under
+both, and picking one would quietly halve the other.
+
+The run prints, per level, how many distinct values there are and **what the
+eight biggest would cover** if a chart stacked by it - a level that gathers
+badly is one a chart cannot say much with.
+
+## Can the profit page stack by promotion?
+
+That is a different question, and the last block of `promo.py` answers it with a
+number. A profit row is one customer and one product; a promotion belongs to an
+**order**. So a profit row can only carry a promotion by being shared out over
+the promotions its own orders ran under, and that is honest only where a row's
+orders mostly sit on one.
+
+The run measures exactly that, per level, on the finest key the two files share
+(portal group x product code):
+
+| | |
+|---|---|
+| **on one** | the share of rows whose units sit on a single promotion |
+| **units on the biggest** | the average share each row's biggest promotion holds |
+
+High on both and a stack by promotion is near enough a measurement. Low and the
+chart would be apportioning, which is worth knowing **before** it is built
+rather than after.
+
+`--division MX` asks the question of one division; `--month 2608` of one month.
+Output goes to `docs/promo_levels.csv`, which is **not** committed - like every
+other csv these tools write, it holds real customers and real revenue.
 
 ## The order export already knows
 

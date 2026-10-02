@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""What the promotions look like, and whether a chart can be stacked by them.
+
+    py tools\\promo.py                    # every store export in the folder
+    py tools\\promo.py --division MX      # one division only
+    py tools\\promo.py --month 2608       # one month
+
+The store export carries a promotion on every order line, as one
+underscore-joined code:
+
+    AU_EPP_WEB_SP_14AUG26_09SEP26_PWP_S-SERIES-WATCH-30PCT
+
+Read whole, there are hundreds of them and no two months share many - which is
+the complaint: the detail is there and it cannot be seen past. So the code is
+pulled apart into three levels, widest first, and the run reports how much each
+one gathers:
+
+    offer type   PWP, GWP, Discount, Cashback, Bundle, Trade-Up - the mechanic
+    offer        what it was on, with the mechanic taken out
+    rule         the code itself, dates and all
+
+The question underneath is whether the profit page can stack by any of them.
+The profit file is keyed on a customer and a product; a promotion belongs to an
+order. So a profit row can only carry a promotion by being shared out over the
+promotions its orders ran under - and that is honest only where a row's orders
+mostly sit on one. The last block measures exactly that, per level, so the
+answer is a number rather than a hope.
+"""
+from __future__ import annotations
+
+import argparse
+import collections
+import csv
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import customer as CUST                                         # noqa: E402
+from promo_match import MECHANIC, parse_rule, split_rules       # noqa: E402
+from rawdata import (find, key_norm, master, norm_stem,         # noqa: E402
+                     parse_number, pick_file, pick_series, read_any)
+
+ROOT = Path(__file__).resolve().parent.parent
+
+D_ORDER = ('Order Code', 'Order No', 'Order Number', 'Order ID', 'order_code')
+D_SKU = ('Product Code', 'SKU', 'Material', 'Model Code', 'Product Number')
+D_QTY = ('Quantity', 'Qty', 'Units')
+D_AMT = ('AUD Revenue excl. GST', 'USD Revenue excl. GST', 'Net Amount',
+         'Amount', 'Line Total')
+D_RULE = ('promotion_rule', 'Promotion Rule', 'Promo Rule', 'Rule')
+D_PROMO = ('Nationwide_Campaign', 'DTC_Campaign1', 'Promotion Name',
+           'Promotion', 'Campaign')
+D_GROUP = ('Portal Group', 'Portal', 'Site', 'Channel', 'Store')
+D_STATUS = ('order_status', 'Order Status', 'Status')
+
+NONE = '(no promotion)'
+
+
+def levels_of(raw: str) -> tuple[str, str, str]:
+    """A rule code as offer type, offer, rule - widest to narrowest.
+
+    One cell can hold several rules. They are kept together rather than picked
+    between: a line that ran under two offers ran under both, and choosing one
+    would quietly halve the other.
+    """
+    rules = [parse_rule(r) for r in split_rules(raw)]
+    if not rules:
+        return NONE, NONE, NONE
+    kinds, rest = [], []
+    for d in rules:
+        words = d['what'].split()
+        hit = next((w for w in words if w.upper() in MECHANIC), '')
+        if hit:
+            kinds.append(MECHANIC[hit.upper()])
+            rest.append(' '.join(w for w in words if w != hit) or d['what'])
+        else:
+            rest.append(d['what'])
+    return (' + '.join(dict.fromkeys(kinds)) or '(mechanic not in the code)',
+            ' + '.join(dict.fromkeys(rest)) or '(no detail)',
+            ' + '.join(d['raw'] for d in rules))
+
+
+def cell(r, i):
+    return (r[i].strip() if i is not None and i < len(r) else '')
+
+
+def read_store(path, say=print):
+    rows, info = read_any(path)
+    if not rows:
+        return None
+    head = [h.strip() for h in rows[0]]
+    i = {k: find(head, *v) for k, v in
+         {'order': D_ORDER, 'sku': D_SKU, 'qty': D_QTY, 'amt': D_AMT,
+          'rule': D_RULE, 'promo': D_PROMO, 'group': D_GROUP,
+          'status': D_STATUS}.items()}
+    say(f'  {path.name}: {info["format"]}, {len(rows) - 1:,} rows')
+    if i['sku'] is None:
+        say('    no product code - skipped')
+        return None
+    if i['rule'] is None and i['promo'] is None:
+        say('    no promotion column - skipped')
+        return None
+    say('    promotion from ' + repr(head[i['rule'] if i['rule'] is not None
+                                        else i['promo']]))
+    out = []
+    for r in rows[1:]:
+        out.append({
+            'order': cell(r, i['order']),
+            'sku': cell(r, i['sku']),
+            'qty': parse_number(cell(r, i['qty'])) or 0.0,
+            'amt': parse_number(cell(r, i['amt'])) or 0.0,
+            'raw': cell(r, i['rule']) or cell(r, i['promo']),
+            'group': cell(r, i['group']) or '(no group)',
+            'status': cell(r, i['status']).upper(),
+        })
+    return out
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--dir', default='rawdata')
+    ap.add_argument('--dtc', default='dtc', metavar='STEM',
+                    help="how the store's exports are named (default: dtc; "
+                         "'26 DTC Aug' is also tried)")
+    ap.add_argument('--product', default='product', metavar='STEM',
+                    help='how the product master is named (default: product)')
+    ap.add_argument('--division', metavar='NAME',
+                    help='one division only, e.g. MX')
+    ap.add_argument('--month', metavar='YYMM',
+                    help='one month only, by the digits in the file name')
+    ap.add_argument('--top', type=int, default=12, metavar='N')
+    ap.add_argument('--out', default=str(ROOT / 'docs' / 'promo_levels.csv'))
+    args = ap.parse_args()
+
+    folder = Path(args.dir)
+    if not folder.is_dir():
+        print(f'no such folder: {folder.resolve()}', file=sys.stderr)
+        return 2
+
+    want = [p for p in pick_series(folder, args.dtc)]
+    if not want:
+        # The store exports have also been named '26 DTC Aug'.
+        want = [p for p in folder.iterdir()
+                if p.is_file() and 'dtc' in norm_stem(p.stem)]
+    if args.month:
+        want = [p for p in want if args.month in re.sub(r'\D', '', p.stem)]
+    want = sorted(want, key=lambda p: re.sub(r'\D', '', p.stem))
+    if not want:
+        print(f'no store export like {args.dtc}_* in {folder.resolve()}',
+              file=sys.stderr)
+        return 2
+
+    print('reading:')
+    lines = []
+    for p in want:
+        got = read_store(p)
+        if got:
+            lines.extend(got)
+    if not lines:
+        print('\nnothing could be read.', file=sys.stderr)
+        return 1
+
+    # Division, so the question can be asked of MX on its own.
+    div = {}
+    if args.division:
+        for cand in pick_series(folder, args.product) + \
+                [c for c in [pick_file(folder, 'MX_product')] if c]:
+            try:
+                info = master(cand, ('SKU', 'Product Code', 'Material',
+                                     'Product Number', 'Model Code'),
+                              {'division': ('Product Division', 'Division',
+                                            'Div')}, say=lambda *a: None)
+            except (ValueError, OSError, IndexError):
+                continue
+            if info:
+                div = {k: v.get('division', '') for k, v in info.items()}
+                print(f'  product master: {cand.name}, {len(div):,} code(s)')
+                break
+        if not div:
+            print(f'  no product master, so --division {args.division} cannot '
+                  'be applied', file=sys.stderr)
+            return 1
+        before = len(lines)
+        lines = [l for l in lines
+                 if (div.get(key_norm(l['sku'])) or '').upper()
+                 == args.division.upper()]
+        print(f'  {args.division}: {len(lines):,} of {before:,} line(s)')
+        if not lines:
+            print(f'  nothing in {args.division}', file=sys.stderr)
+            return 1
+
+    for l in lines:
+        l['type'], l['offer'], l['rule'] = levels_of(l['raw'])
+
+    tot_q = sum(l['qty'] for l in lines) or 1.0
+    on = [l for l in lines if l['type'] != NONE]
+    on_q = sum(l['qty'] for l in on)
+    print(f'\n{len(lines):,} order line(s), {tot_q:,.0f} unit(s)')
+    print(f'  {len(on):,} line(s) carry a promotion - {on_q / tot_q * 100:.0f}% '
+          'of the units')
+
+    # ── how far each level gathers ──────────────────────────────────────────
+    print('\nhow much each level gathers')
+    print(f'  {"level":<12}{"distinct":>10}{"top 8 cover":>14}')
+    for key, name in (('type', 'offer type'), ('offer', 'offer'),
+                      ('rule', 'rule')):
+        c = collections.Counter()
+        for l in on:
+            c[l[key]] += l['qty']
+        top8 = sum(v for _, v in c.most_common(8))
+        print(f'  {name:<12}{len(c):>10,}{top8 / (on_q or 1) * 100:>13.0f}%')
+    print('  "top 8 cover" is what the eight biggest would hold if the chart '
+          'stacked by that\n  level - the rest folds into Other. A level that '
+          'gathers badly is one the chart\n  cannot say much with.')
+
+    for key, name in (('type', 'offer type'), ('offer', 'offer')):
+        c = collections.Counter()
+        for l in on:
+            c[l[key]] += l['qty']
+        print(f'\n  by {name}')
+        for k, v in c.most_common(args.top):
+            print(f'    {k[:52]:<52}{v:>12,.0f}{v / (on_q or 1) * 100:>6.0f}%')
+        if len(c) > args.top:
+            rest = on_q - sum(v for _, v in c.most_common(args.top))
+            print(f'    {f"and {len(c) - args.top:,} more":<52}{rest:>12,.0f}'
+                  f'{rest / (on_q or 1) * 100:>6.0f}%')
+
+    # ── can the profit page stack by this? ──────────────────────────────────
+    # A profit row is one customer and one product. It can only carry a
+    # promotion by being shared out over the promotions its own orders ran
+    # under, so what matters is how concentrated that is: if a row's units sit
+    # almost entirely on one promotion, the share is nearly a fact; if they are
+    # spread over five, the chart would be apportioning and should say so.
+    print('\nwhether a profit row can carry one')
+    print(f'  {"level":<12}{"rows":>9}{"on one":>9}{"units on the biggest":>22}')
+    for key, name in (('type', 'offer type'), ('offer', 'offer'),
+                      ('rule', 'rule')):
+        rows = collections.defaultdict(collections.Counter)
+        for l in on:
+            rows[(l['group'], key_norm(l['sku']))][l[key]] += l['qty']
+        n = share = 0.0
+        pure = 0
+        for c in rows.values():
+            t = sum(c.values())
+            if t <= 0:
+                continue
+            n += 1
+            best = max(c.values())
+            share += best / t
+            pure += 1 if len(c) == 1 else 0
+        if not n:
+            continue
+        print(f'  {name:<12}{int(n):>9,}{pure / n * 100:>8.0f}%'
+              f'{share / n * 100:>21.0f}%')
+    print('  a row is one portal group and one product code - the finest key '
+          'the store export\n  and the profit file share. "on one" is the share '
+          'of rows whose units sit on a\n  single promotion; the last column is '
+          'the average share held by each row\'s\n  biggest one. High means a '
+          'stack by promotion is near enough a measurement.')
+
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open('w', newline='', encoding='utf-8-sig') as fh:
+        w = csv.writer(fh)
+        w.writerow(['offer type', 'offer', 'rule', 'units', 'amount', 'lines'])
+        agg = collections.defaultdict(lambda: [0.0, 0.0, 0])
+        for l in lines:
+            a = agg[(l['type'], l['offer'], l['rule'])]
+            a[0] += l['qty']; a[1] += l['amt']; a[2] += 1
+        for k, v in sorted(agg.items(), key=lambda kv: -kv[1][0]):
+            w.writerow([*k, round(v[0]), round(v[1]), v[2]])
+    print(f'\n-> {out.resolve()}')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

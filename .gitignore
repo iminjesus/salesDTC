@@ -1,2 +1,14 @@
 __pycache__/
 *.py[cod]
+
+# What the tools write out of the exports. These hold real customers, real
+# revenue and real product codes - they are output, not source, and they do not
+# belong in a repository. docs/column_map.csv is a schema map and is kept.
+/docs/despatch.csv
+/docs/carryout.csv
+/docs/cohort_sku.csv
+/docs/promo_levels.csv
+/docs/structure.json
+/docs/structure.md
+/rawdata/
+/dashboard/pnl_*.html
