@@ -15,8 +15,17 @@ far each gathers:
 | | |
 |---|---|
 | **offer type** | the mechanic: PWP, GWP, Discount, Cashback, Bundle, Trade-Up |
+| **family** | what the offer *does*: EPP welcome voucher, % off RRP, $ off, Accessories, First 72 hours, Bundle / PWP |
 | **offer** | what it was on, with the mechanic taken out - `S25-LAUNCH-10PCT` |
 | **rule** | the code itself, dates and all |
+
+**family** exists because **offer** does not gather. On MX it came back with
+10,560 distinct values whose eight biggest covered 22% - the same offer is
+written several ways (`50PCT`, `50PCTOFF`, `50OFF`, `50 PCT`) and a wave code
+is glued on each time it runs (`26F`, `B4F`, `FF8F`, `26R`), which is what turns
+one offer into ten thousand. The families are read off `--tokens`, not invented,
+and they live in an editable table at the top of `tools/promo.py`. First match
+wins, so the order is the precedence.
 
 A cell holding two rules keeps both, and the set is **sorted**: a line carrying
 PWP and a discount lands in one bucket however the two were ordered in the cell.
@@ -55,6 +64,21 @@ The run measures exactly that, per level, on the finest key the two files share
 High on both and a stack by promotion is near enough a measurement. Low and the
 chart would be apportioning, which is worth knowing **before** it is built
 rather than after.
+
+## A promotion is not a division of the revenue
+
+The run prints one more number first, and it is the one that decides what shape
+a chart can take: **how many units ran under more than one rule at once.**
+
+A stacked bar divides a total - every unit in exactly one band. An order that
+came in on a welcome voucher *and* a product discount *and* a PWP is in three at
+once. On MX that is not an edge case: `Discount + Voucher`, `Discount + PWP +
+Voucher` and `Discount + PWP` together are **59% of promoted units**.
+
+So promotion works as a **filter** - narrow the page to the EPP welcome voucher
+and read its P&L - because filtering needs no partition. As a **stack** it needs
+a rule saying which mechanic a unit belongs to when it carries three, and that
+is a commercial decision rather than one the data can make.
 
 When a level comes back with thousands of distinct values, it is not a level,
 it is a pile - and before a rule for grouping it can be written, the pieces have

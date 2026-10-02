@@ -60,6 +60,37 @@ NONE = '(no promotion)'
 # Words that appear beside the mechanic and say nothing about which it was.
 NOISE = {'PROMOTEXT', 'RULE', 'EXECUTE', 'ALL', 'AU', 'THE', 'AND', 'OF'}
 
+# What an offer *does*, which is the level a person can hold in their head.
+#
+# Read off the codes themselves rather than invented: `--tokens` counts the
+# pieces the offer strings are built from, and these are the ones that came
+# back on a large share of MX's units. The same offer is written several ways -
+# 50PCT, 50PCTOFF, 50OFF, 50 PCT - and a wave code (26F, B4F, FF8F, 26R) is
+# glued on each time it runs, which is what turned one offer into ten thousand.
+#
+# First match wins, so the order is the precedence: an accessories offer at 30%
+# is filed under Accessories rather than under percent-off. Edit the table, not
+# the code - that is the point of it being a table.
+FAMILIES = [
+    ('EPP welcome voucher', r'WELCOME'),
+    ('Trade-in / Trade-up',  r'TRADE'),
+    ('Accessories offer',    r'\bACC(ESSORIES)?\b'),
+    ('First 72 hours',       r'\d*HR\b|FIRST\d+'),
+    ('% off RRP',            r'RRP'),
+    ('$ off',                r'\b\d{2,4}OFF\b'),
+    ('% off',                r'\d+\s?PCT|PCTOFF|\d+OFF'),
+    ('Bundle / PWP',         r'BUNDLE|PWP|GWP'),
+]
+
+
+def family_of(offer: str) -> str:
+    """The commercial family an offer belongs to, or a bucket saying it has none."""
+    up = re.sub(r'[^A-Z0-9]+', ' ', offer.upper())
+    for name, pat in FAMILIES:
+        if re.search(pat, up):
+            return name
+    return '(not one of the named families)'
+
 
 def mechanics_in(text: str) -> tuple[list, list]:
     """The mechanics named anywhere in a code, and what is left of it.
@@ -226,6 +257,8 @@ def main() -> int:
 
     for l in lines:
         l['type'], l['offer'], l['rule'] = levels_of(l['raw'])
+        l['family'] = (NONE if l['type'] == NONE else family_of(l['offer']))
+        l['n_rules'] = len(split_rules(l['raw']))
 
     tot_q = sum(l['qty'] for l in lines) or 1.0
     on = [l for l in lines if l['type'] != NONE]
@@ -234,11 +267,19 @@ def main() -> int:
     print(f'  {len(on):,} line(s) carry a promotion - {on_q / tot_q * 100:.0f}% '
           'of the units')
 
-    # ── how far each level gathers ──────────────────────────────────────────
+    # ── can a bar be stacked by this at all? ────────────────────────────────
+    # A stacked bar divides a total: every unit in exactly one band. An order
+    # that ran under a welcome voucher AND a product discount AND a PWP is in
+    # three at once, so a promotion is not a division of the revenue - and this
+    # is the number that decides what shape the chart can take.
+    multi = sum(l['qty'] for l in on if l['n_rules'] > 1)
+    print(f'  {multi:,.0f} of those units ({multi / (on_q or 1) * 100:.0f}%) '
+          'ran under more than one rule at once')
+
     print('\nhow much each level gathers')
     print(f'  {"level":<12}{"distinct":>10}{"top 8 cover":>14}')
-    for key, name in (('type', 'offer type'), ('offer', 'offer'),
-                      ('rule', 'rule')):
+    for key, name in (('type', 'offer type'), ('family', 'family'),
+                      ('offer', 'offer'), ('rule', 'rule')):
         c = collections.Counter()
         for l in on:
             c[l[key]] += l['qty']
@@ -248,7 +289,8 @@ def main() -> int:
           'stacked by that\n  level - the rest folds into Other. A level that '
           'gathers badly is one the chart\n  cannot say much with.')
 
-    for key, name in (('type', 'offer type'), ('offer', 'offer')):
+    for key, name in (('type', 'offer type'), ('family', 'family'),
+                      ('offer', 'offer')):
         c = collections.Counter()
         for l in on:
             c[l[key]] += l['qty']
@@ -268,8 +310,8 @@ def main() -> int:
     # spread over five, the chart would be apportioning and should say so.
     print('\nwhether a profit row can carry one')
     print(f'  {"level":<12}{"rows":>9}{"on one":>9}{"units on the biggest":>22}')
-    for key, name in (('type', 'offer type'), ('offer', 'offer'),
-                      ('rule', 'rule')):
+    for key, name in (('type', 'offer type'), ('family', 'family'),
+                      ('offer', 'offer'), ('rule', 'rule')):
         rows = collections.defaultdict(collections.Counter)
         for l in on:
             rows[(l['group'], key_norm(l['sku']))][l[key]] += l['qty']
@@ -315,10 +357,11 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open('w', newline='', encoding='utf-8-sig') as fh:
         w = csv.writer(fh)
-        w.writerow(['offer type', 'offer', 'rule', 'units', 'amount', 'lines'])
+        w.writerow(['family', 'offer type', 'offer', 'rule', 'units', 'amount',
+                    'lines'])
         agg = collections.defaultdict(lambda: [0.0, 0.0, 0])
         for l in lines:
-            a = agg[(l['type'], l['offer'], l['rule'])]
+            a = agg[(l['family'], l['type'], l['offer'], l['rule'])]
             a[0] += l['qty']; a[1] += l['amt']; a[2] += 1
         for k, v in sorted(agg.items(), key=lambda kv: -kv[1][0]):
             w.writerow([*k, round(v[0]), round(v[1]), v[2]])
