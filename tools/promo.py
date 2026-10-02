@@ -109,26 +109,6 @@ def family_of(offer: str, order=None) -> str:
     return hits[0]
 
 
-def mechanics_in(text: str) -> tuple[list, list]:
-    """The mechanics named anywhere in a code, and what is left of it.
-
-    Split on every non-alphanumeric, not on whitespace. A code that carries no
-    dates comes back from parse_rule as one unbroken underscore string, so
-    splitting on spaces looked at `welcome-voucher_-_percentage-discount` and
-    saw a single word that is in no vocabulary - which is how a fifth of the
-    promoted units came back with no mechanic at all.
-    """
-    parts = [p for p in re.split(r'[^A-Za-z0-9]+', text) if p]
-    kinds, rest = [], []
-    for w in parts:
-        u = w.upper()
-        if u in MECHANIC:
-            kinds.append(MECHANIC[u])
-        elif u not in NOISE:
-            rest.append(w)
-    return kinds, rest
-
-
 def levels_of(raw: str) -> tuple[str, str, str]:
     """A rule code as offer type, offer, rule - widest to narrowest.
 
@@ -153,9 +133,12 @@ def levels_of(raw: str) -> tuple[str, str, str]:
         if r.upper() not in seen:
             seen.add(r.upper())
             detail.append(r)
+    # Sorted at every level, for the reason the mechanic set is: the store
+    # writes a promotion's two rules in either order, and unsorted that is one
+    # offer counted as two.
     return (' + '.join(sorted(set(kinds))) or '(mechanic not in the code)',
-            ' + '.join(detail) or '(no detail)',
-            ' + '.join(d['raw'] for d in rules))
+            ' + '.join(sorted(detail)) or '(no detail)',
+            ' + '.join(sorted({d['raw'] for d in rules})))
 
 
 def cell(r, i):

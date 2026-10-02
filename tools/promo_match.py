@@ -667,7 +667,14 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
                     near_code += 1
 
         if rules:
-            how, promo = 'rule', ' + '.join(d['what'] for d in rules)
+            # Sorted and deduplicated. One promotion arrives as two rules - the
+            # discount and the message that announces it - and the store writes
+            # them in either order, so the same offer came out as two rows of
+            # the summary: QBH8-50-PCT-RRP-FF8F was 1,997 lines under one
+            # ordering and 1,862 under the other, when it is one promotion of
+            # 3,859 and the largest in the month.
+            how = 'rule'
+            promo = ' + '.join(sorted({d['what'] for d in rules}))
             # The two name promotions in different vocabularies - a rule says
             # PWP, the plan says "Black Friday / PWP" - so comparing the names
             # would measure nothing. The mechanic is the part both spell, and

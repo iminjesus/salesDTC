@@ -27,8 +27,12 @@ one offer into ten thousand. The families are read off `--tokens`, not invented,
 and they live in an editable table at the top of `tools/promo.py`. First match
 wins, so the order is the precedence.
 
-A cell holding two rules keeps both, and the set is **sorted**: a line carrying
-PWP and a discount lands in one bucket however the two were ordered in the cell.
+A cell holding two rules keeps both, and **every level is sorted**: a line
+carrying PWP and a discount lands in one bucket however the two were ordered in
+the cell. Unsorted, one promotion was counted as two - August's largest,
+`QBH8-50-PCT-RRP-FF8F`, came out as 1,997 lines under one ordering and 1,862
+under the other when it is a single offer of 3,859 lines and $4.7M, bigger than
+any other row in the summary.
 Unsorted, `PWP + Discount` and `Discount + PWP` were two answers to one
 question, splitting 30% of MX across two rows of the same table.
 
@@ -197,6 +201,12 @@ the run prints both readings:
 | **the same mechanic** | the strict comparison, kept so nothing is hidden |
 | **the plan's offer as run** | a Bundle delivered as `PWP + Discount` counts here |
 | **neither** | what is left, and the pair table says what it is |
+
+On August that took the agreement from **14% to 91%**, and what is left is one
+pattern: 357 of the 411 remaining are the plan saying **Discount** against a
+rule that ran **PWP**. That is the comparison working, not failing - the plan
+said a straight discount and the store ran buy-with-purchase, which is a
+question for whoever set the promotion up.
 
 `EXECUTED_AS` holds the equivalences and is meant to be read and argued with.
 Only what is genuinely implied is in it - a voucher is a discount applied by
