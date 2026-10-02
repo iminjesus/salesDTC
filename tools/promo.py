@@ -83,13 +83,32 @@ FAMILIES = [
 ]
 
 
-def family_of(offer: str) -> str:
-    """The commercial family an offer belongs to, or a bucket saying it has none."""
+OTHER = '(not one of the named families)'
+
+
+def families_in(offer: str) -> list:
+    """Every family an offer matches, in the table's order."""
     up = re.sub(r'[^A-Z0-9]+', ' ', offer.upper())
-    for name, pat in FAMILIES:
-        if re.search(pat, up):
+    return [name for name, pat in FAMILIES if re.search(pat, up)]
+
+
+def family_of(offer: str, order=None) -> str:
+    """The one family a unit is filed under - the first match in `order`.
+
+    This is a **choice**, not a reading. Most of MX's promoted units ran under
+    more than one rule, so most match more than one family, and something has
+    to decide which the unit counts as. First match wins, and the order is
+    therefore the whole of the decision - which is why it is a table at the top
+    of this file and a --precedence flag on the command line, rather than
+    something buried in the code.
+    """
+    hits = families_in(offer)
+    if not hits:
+        return OTHER
+    for name in (order or []):
+        if name in hits:
             return name
-    return '(not one of the named families)'
+    return hits[0]
 
 
 def mechanics_in(text: str) -> tuple[list, list]:
@@ -191,6 +210,10 @@ def main() -> int:
     ap.add_argument('--month', metavar='YYMM',
                     help='one month only, by the digits in the file name')
     ap.add_argument('--top', type=int, default=12, metavar='N')
+    ap.add_argument('--precedence', metavar='LIST',
+                    help='which family a unit counts as when it matches '
+                         'several, highest first, comma separated. The default '
+                         'is the order of the table in this file')
     ap.add_argument('--tokens', type=int, default=0, metavar='N',
                     help='also list the N commonest pieces the offer strings '
                          'are built from, which is where a grouping rule comes '
@@ -255,9 +278,23 @@ def main() -> int:
             print(f'  nothing in {args.division}', file=sys.stderr)
             return 1
 
+    order = [s.strip() for s in args.precedence.split(',') if s.strip()] \
+        if args.precedence else None
+    if order:
+        known = {n for n, _ in FAMILIES}
+        bad = [s for s in order if s not in known]
+        if bad:
+            print(f'--precedence names no such family: {", ".join(bad)}\n'
+                  f'  the families are: {", ".join(n for n, _ in FAMILIES)}',
+                  file=sys.stderr)
+            return 2
+        print(f'  precedence: {" > ".join(order)}')
+
     for l in lines:
         l['type'], l['offer'], l['rule'] = levels_of(l['raw'])
-        l['family'] = (NONE if l['type'] == NONE else family_of(l['offer']))
+        l['all_fam'] = [] if l['type'] == NONE else families_in(l['offer'])
+        l['family'] = (NONE if l['type'] == NONE
+                       else family_of(l['offer'], order))
         l['n_rules'] = len(split_rules(l['raw']))
 
     tot_q = sum(l['qty'] for l in lines) or 1.0
@@ -301,6 +338,31 @@ def main() -> int:
             rest = on_q - sum(v for _, v in c.most_common(args.top))
             print(f'    {f"and {len(c) - args.top:,} more":<52}{rest:>12,.0f}'
                   f'{rest / (on_q or 1) * 100:>6.0f}%')
+
+    # ── how much work the precedence is doing ───────────────────────────────
+    # A family is only a partition because something decides which one a unit
+    # counts as when it matches several. If almost every unit matches one
+    # family, the order is a formality; if most match two or three, the order
+    # IS the answer and had better be the one the business would give.
+    over = collections.Counter()
+    alone = collections.Counter()
+    for l in on:
+        for f in l['all_fam']:
+            over[f] += l['qty']
+            if len(l['all_fam']) == 1:
+                alone[f] += l['qty']
+    if over:
+        print('\nhow much of each family is only in that family')
+        print(f'  {"family":<32}{"units matching":>16}{"only this one":>16}')
+        for k, v in over.most_common():
+            print(f'  {k[:32]:<32}{v:>16,.0f}'
+                  f'{alone.get(k, 0) / v * 100:>15.0f}%')
+        both = sum(l['qty'] for l in on if len(l['all_fam']) > 1)
+        print(f'  {both:,.0f} unit(s) ({both / (on_q or 1) * 100:.0f}%) match '
+              'more than one family, so that much of the\n  split is decided by '
+              'the precedence rather than read off the code. A family whose\n'
+              '  "only this one" is low is one the precedence is lending units '
+              'to, or taking\n  them from.')
 
     # ── can the profit page stack by this? ──────────────────────────────────
     # A profit row is one customer and one product. It can only carry a

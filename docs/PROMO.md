@@ -75,10 +75,31 @@ came in on a welcome voucher *and* a product discount *and* a PWP is in three at
 once. On MX that is not an edge case: `Discount + Voucher`, `Discount + PWP +
 Voucher` and `Discount + PWP` together are **59% of promoted units**.
 
-So promotion works as a **filter** - narrow the page to the EPP welcome voucher
-and read its P&L - because filtering needs no partition. As a **stack** it needs
-a rule saying which mechanic a unit belongs to when it carries three, and that
-is a commercial decision rather than one the data can make.
+On MX the answer is **82% of promoted units**. Promotion is not a partition of
+the revenue.
+
+So promotion works as a **filter** without further argument - narrow the page to
+the EPP welcome voucher and read its P&L - because filtering needs no partition.
+
+As a **stack** it needs a rule saying which family a unit counts as when it
+matches three, and **family already applies one**: first match in the table
+wins. That makes it a partition by construction, which is why it concentrates
+better than any other level. The run therefore measures how much work that rule
+is doing - per family, the share of its units that match **only** it - so the
+precedence is argued from numbers rather than assumed.
+
+`--precedence` reorders it from the command line:
+
+```powershell
+py tools\promo.py --division MX --precedence "% off RRP,$ off,Accessories offer,EPP welcome voucher"
+```
+
+That order is worth trying, because the default is likely backwards. The EPP
+welcome voucher is **always on** - it is 5% off a first purchase, not a reason
+anything sold this month - and being first in the table it collects every unit
+that also ran under a real campaign. Putting it last attributes those units to
+the campaign that drove them and leaves the voucher holding only what it won
+alone.
 
 When a level comes back with thousands of distinct values, it is not a level,
 it is a pile - and before a rule for grouping it can be written, the pieces have
