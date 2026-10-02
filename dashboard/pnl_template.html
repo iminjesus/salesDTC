@@ -217,7 +217,8 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <button class="btn" id="backBtn">&larr; Back</button>
       <label class="f"><span>Stack by</span><span class="seg">
         <button class="btn" id="stkCust">Customer</button
-        ><button class="btn" id="stkProd">Product</button></span></label>
+        ><button class="btn" id="stkProd">Product</button
+        ><button class="btn" id="stkOrd" title="when the order behind the revenue was placed - this month's own, or the month before's">When ordered</button></span></label>
       <label class="f"><span>Figure</span>
         <span class="vals" id="stkFig"></span></label>
       <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
@@ -243,21 +244,6 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   <div class="card">
     <div class="kpis" id="kpis"></div>
     <div class="split" id="split" hidden></div>
-  </div>
-
-  <div class="card" id="ordCard" hidden>
-    <div class="row bar" style="margin:0 0 10px">
-      <label class="f"><span>Orders in</span><span class="seg">
-        <button class="btn" id="ordQty" title="units - what the two exports agree on">Units</button
-        ><button class="btn" id="ordAmt" title="the profit file's gross sales, shared over the same units, so this chart and the one above are on the same money">Amounts</button></span></label>
-    </div>
-    <div class="legend" id="ordLegend"></div>
-    <div class="chart" id="ordPlot">
-      <div class="tools">
-        <button class="ctl" id="ordZoom" title="Show only this chart, with every value labelled">&#x2921; Expand</button>
-      </div>
-      <canvas id="ordBars"></canvas></div>
-    <div class="hint" id="ordHint"></div>
   </div>
 
   <div class="card" id="tableCard" hidden><div id="tableBox"></div></div>
@@ -332,9 +318,12 @@ function unify(months) {
     rows: months.reduce((a, m) => a + m.rows, 0),
     title: months.length === 1 ? months[0].title
            : `${months[0].month} - ${months[months.length - 1].month} Profit`,
-    // The carry-in is known for the page only where every month's predecessor
-    // was read; one month without it would make the split understate.
-    carryIn: months.every(m => m.carryIn),
+    // A month knows its carry-in when the month before it was read. The first
+    // month in a folder never does, so requiring all of them would switch the
+    // split off permanently; the page offers it when any month has it, and the
+    // ones that do not are left empty rather than drawn as nil - which would
+    // claim they earned everything themselves.
+    carryIn: months.some(m => m.carryIn),
     start: (() => {
       const want = shape.start >= 0 ? shape.levels[0].values[shape.start] : null;
       return want === null ? -1 : vAt[0].get(want) ?? -1;
@@ -413,11 +402,6 @@ const state = {
   // Which chart, if any, has the window to itself. Expanding is also what
   // turns the per-bar numbers on: that is the room they need.
   zoom: null,
-  // The orders chart counts units, which is what the two exports agree on.
-  // Amounts put it on the same money as the chart above so the two can be
-  // read against each other - the profit file's gross, shared out over the
-  // same units.
-  ordUnit: 'units',
 };
 
 /* Where the drill starts: one channel - the online business - with everything
@@ -922,29 +906,19 @@ function render() {
     });
   });
   const sl = splitLevel();
-  step(sl === null ? 'by month' : `by month, split by ${DATA.levels[sl].name}`,
-       null);
+  step(state.stack === 'orders' ? 'by month, split by when ordered'
+       : sl === null ? 'by month'
+       : `by month, split by ${DATA.levels[sl].name}`, null);
   const atTop = !state.filter.some(v => v >= 0);
   document.getElementById('backBtn').disabled = atTop;
   document.getElementById('stkBack').disabled = atTop;
-  ['stkZoom', 'ordZoom'].forEach((id, i) => {
-    const b = document.getElementById(id);
-    const mine = state.zoom === (i ? 'ord' : 'stk');
-    b.innerHTML = mine ? '&#x2715; Close' : '&#x2921; Expand';
-    b.title = mine ? 'Back to the whole page'
-                   : 'Show only this chart, with every value labelled';
-  });
+  const zb = document.getElementById('stkZoom');
+  zb.innerHTML = state.zoom ? '&#x2715; Close' : '&#x2921; Expand';
+  zb.title = state.zoom ? 'Back to the whole page'
+                        : 'Show only this chart, with every value labelled';
 
   document.getElementById('tableBtn').classList.toggle('active', state.table);
   // The basis only exists where an order export was read alongside the profit.
-  // Amounts on the orders chart need the profit file's gross to share out.
-  const canOrdAmt = has.gross !== undefined;
-  if (!canOrdAmt) state.ordUnit = 'units';
-  document.getElementById('ordQty')
-    .classList.toggle('active', state.ordUnit === 'units');
-  document.getElementById('ordAmt')
-    .classList.toggle('active', state.ordUnit === 'amount');
-  document.getElementById('ordAmt').disabled = !canOrdAmt;
 
   const all = totals();
   const money = v => (v == null ? '-' : fmt(v));
@@ -1006,12 +980,8 @@ function splitStrip() {
       <td class="v ${o.totProfit < 0 ? 'neg' : ''}">${fmt(o.totProfit)}</td>
       <td>100%</td><td>${mg(o.totProfit, o.totNet)}</td></tr>
   </table>
-  <div class="why">The split is of units: each combination's money is shared
-    out on the share of its units that came from each place, which holds as far
-    as one combination's units being worth about the same as each other. The
-    total is not split or rebuilt - it is read off the file, and the three rows
-    are made to sum to it. Amounts follow the filter, so drilling in splits the
-    slice rather than the month.</div>`;
+  <div class="why">Shared out on units; the total is the file's own and the
+    rows are made to sum to it. Follows the filter.</div>`;
 }
 
 /* Every bar's own number, written inside it. Off by default - on a page with
@@ -1106,7 +1076,6 @@ function draw() {
   const top = rows.slice(0, 12);
   renderTable(top, lv.name, rows.length);
   drawStack();
-  drawOrders();
 }
 
 /* Time on the x axis, the whole file in one chart.
@@ -1126,26 +1095,44 @@ function draw() {
    switching never loses it. */
 let stkChart = null;
 function drawStack() {
+  // "When ordered" is not a level of the key: it cuts the same revenue by the
+  // month the order behind it was placed. It needs the order export and the
+  // month before's, or there is nothing to call carried in. Decided first,
+  // because what the bars are split by depends on it.
+  const canOrd = hasOrders() && DATA.carryIn;
+  if (state.stack === 'orders' && !canOrd) state.stack = 'customer';
+  const ordMode = state.stack === 'orders';
   // The level that splits each bar. P&L has no split, so it ignores this.
   const chain = CHAINS[state.stack] || [];
-  const sl = splitLevel() ?? undefined;
+  const sl = ordMode ? undefined : (splitLevel() ?? undefined);
   const slNext = sl === undefined ? null
     : (chain[chain.indexOf(sl) + 1] ?? null);
-  ['stkCust', 'stkProd'].forEach((id, i) => {
+  [['stkCust', 'customer'], ['stkProd', 'product'],
+   ['stkOrd', 'orders']].forEach(([id, v]) => {
     const b = document.getElementById(id);
-    b.classList.toggle('active', state.stack === (i ? 'product' : 'customer'));
-    b.disabled = !(i ? CHAINS.product : CHAINS.customer).length;
+    b.classList.toggle('active', state.stack === v);
+    b.disabled = v === 'orders' ? !canOrd : !CHAINS[v].length;
   });
 
   const PNL = 'pnl';
+  // The two origins the month's revenue can have come from. Carried out is a
+  // third thing the orders know about and is deliberately not here: it is next
+  // month's revenue, and putting it in a bar of this month's would be adding a
+  // projection to a measurement.
+  const ORIGINS = [['own', 'Ordered this month'],
+                   ['in', `Carried in from the month before`]];
   // Three, not fourteen. Every cost figure is already a band of the P&L chart,
   // so offering each of them its own bar chart was offering the same numbers
   // twice, and the order series are the chart below this one.
-  const MEASURES = [
-    [PNL, 'P&L'],
-    [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
-    ['qty', 'Qty'],
-  ];
+  // P&L is the whole statement and has no split, so it is not on offer in a
+  // mode whose whole point is the split.
+  const MEASURES = ordMode
+    ? [['profit', 'Operating Profit'],
+       [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
+       ['qty', 'Qty']]
+    : [[PNL, 'P&L'],
+       [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
+       ['qty', 'Qty']];
   const figBox = document.getElementById('stkFig');
   figBox.className = 'vals seg';
   figBox.innerHTML = '';
@@ -1165,7 +1152,7 @@ function drawStack() {
     b.onclick = () => { state.stkFig = x.key; defer(render); };
     figBox.appendChild(b);
   });
-  const pnlMode = state.stkFig === PNL;
+  const pnlMode = state.stkFig === PNL && !ordMode;
   // Normalising to 100% is about a mix, and the P&L is not one. The control
   // goes away rather than greying out: a disabled button still costs a row of
   // the menu, and this menu is already tall.
@@ -1204,6 +1191,30 @@ function drawStack() {
     for (const k of ['qty', 'net', 'gross', 'profit', ...COSTS]) {
       if (has[k] !== undefined) f[k] += c.v[has[k]];
     }
+    if (ordMode) {
+      // The same revenue, cut by the month the order behind it was placed.
+      // Carried out is left out because it has not been earned yet, and a
+      // combination the orders never reached is left out because there is
+      // nothing to say about where it came from - so these bands are the
+      // month as sold minus what could not be placed, and the hint says so.
+      if (!DATA.months[c.m].carryIn) continue;   // its predecessor was not read
+      const month = bookedOf(c) + cameIn(c);
+      if (!month) continue;
+      const v = fig === undefined ? 0 : c.v[fig] * flip;
+      ORIGINS.forEach(([key, name], oi) => {
+        const share = (oi ? cameIn(c) : bookedOf(c)) / month;
+        if (!share) return;
+        const b = slotFor(name)[c.m];
+        for (const k of ['profit', 'net', 'gross']) {
+          if (has[k] !== undefined) b[k] += c.v[has[k]] * share;
+        }
+        const row = xs[c.m].row;
+        row.set(name, (row.get(name) || 0) + v * share);
+        xs[c.m].total += v * share;
+        stackTotal.set(name, (stackTotal.get(name) || 0) + v * share);
+      });
+      continue;
+    }
     if (pnlMode || sl === undefined) continue;
     const g = DATA.levels[sl].values[c.k[sl]];
     const b = slotFor(g)[c.m];
@@ -1223,10 +1234,12 @@ function drawStack() {
   // Eight slots, in a fixed order by size across the whole span - so a member
   // keeps its colour from month to month, which is the only way a stacked bar
   // can be read along a time axis at all. A ninth folds into Other.
-  const members = [...stackTotal.entries()]
-    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
+  const members = ordMode
+    ? ORIGINS.map(o => o[1]).filter(n => stackTotal.has(n))
+    : [...stackTotal.entries()]
+        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
   const named = members.slice(0, 8);
-  const folded = members.length > 8;
+  const folded = !ordMode && members.length > 8;
 
   // In percentage mode each bar is normalised to its own total, so the mix
   // inside a small month reads as clearly as the mix inside a large one. The
@@ -1236,9 +1249,12 @@ function drawStack() {
   const scale = vals => (pctMode
     ? vals.map((v, i) => (xs[i].total ? v / xs[i].total * 100 : 0))
     : vals);
+  // In orders mode the two bands mean something fixed, so they keep a fixed
+  // pair of colours rather than taking whichever slot they sorted into.
+  const bandColour = i => (ordMode ? [C.stack[0], C.stack[4]][i] : C.stack[i]);
   const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
-    backgroundColor: C.stack[i], borderRadius: 3, borderSkipped: false,
+    backgroundColor: bandColour(i), borderRadius: 3, borderSkipped: false,
     borderWidth: 1, borderColor: C.surface, maxBarThickness: 54,
   }));
   if (folded && !pnlMode) {
@@ -1296,8 +1312,8 @@ function drawStack() {
         series.push({
           type: 'line', label: `${g} margin`, yAxisID: 'y1',
           data: xs.map(r => marginOf(a[r.mi])),
-          borderColor: fade(C.stack[i], .45),
-          backgroundColor: fade(C.stack[i], .45),
+          borderColor: fade(bandColour(i), .45),
+          backgroundColor: fade(bandColour(i), .45),
           borderWidth: 1.2, borderDash: [3, 3],
           pointRadius: 0, pointHoverRadius: 5, tension: .25, fill: false,
           spanGaps: true, order: -1, bandLine: true,
@@ -1318,7 +1334,8 @@ function drawStack() {
   // Clicking a segment narrows to it. The x axis does not move - it is time -
   // so the same months come back with only that member in them, which is the
   // comparison the click was asking for.
-  const canDrill = !pnlMode && sl !== undefined;
+  // The origins are not a level, so there is nothing under them to open.
+  const canDrill = !pnlMode && !ordMode && sl !== undefined;
   if (stkChart) stkChart.destroy();
   stkChart = new Chart(document.getElementById('stkBars'), {
     type: 'bar', data: { labels: xs.map(r => r.name), datasets: series },
@@ -1403,7 +1420,21 @@ function drawStack() {
   });
 
   document.getElementById('stkHint').textContent =
-    (pnlMode
+    (ordMode
+      ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by month, `
+        + 'split by when the order behind it was placed. What the month ships '
+        + 'but has not sold yet is not here - it is next month\'s - and nor is '
+        + 'revenue no order could be matched to, so the bars are the month as '
+        + 'sold less what could not be placed.'
+        + (() => {
+            const blind = DATA.months.filter(m => !m.carryIn).map(m => m.label);
+            return blind.length
+              ? ` ${blind.join(', ')} ${blind.length > 1 ? 'are' : 'is'} empty: `
+                + 'the month before was not read, so how much came in is '
+                + 'unknown rather than nil.'
+              : '';
+          })()
+      : pnlMode
       ? `${label('gross')} beside what it went out on, by month. Costs are `
         + 'drawn as amounts.'
       : sl === undefined
@@ -1443,231 +1474,6 @@ function drawStack() {
 /* Which of a pair is which, written over each bar. Two bars on one tick share
    the tick's label, so without this the colours are the only thing saying that
    the left one is the month's sales and the right one the month's orders. */
-/* A rule across one bar partway up, where a stack holds two totals at once.
-   The orders chart stacks carried in, booked and carried out: the first two
-   are the month as the profit file reports it, and the chart above draws that
-   same number - so a line at the top of the second segment is where the two
-   charts should agree, and it is drawn rather than left to be worked out. */
-const barTags = {
-  id: 'barTags',
-  afterDatasetsDraw(c) {
-    const o = (c.options.plugins.barTags || {});
-    if (o.after == null || !c.data.datasets[o.after]) return;
-    const { ctx } = c;
-    ctx.save();
-    ctx.font = '600 10px -apple-system, "Segoe UI", Roboto, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    // A stacked bar element's y is the top of its own segment, so the top of
-    // the second one is exactly where the two parts below it end.
-    c.getDatasetMeta(o.after).data.forEach((el, n) => {
-      const seg = c.data.datasets[o.after].data[n];
-      if (!seg && seg !== 0) return;
-      const half = (el.width || 40) / 2 + 3;
-      ctx.strokeStyle = C.ink3;
-      ctx.globalAlpha = .55;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 2]);
-      ctx.beginPath();
-      ctx.moveTo(el.x - half, el.y);
-      ctx.lineTo(el.x + half, el.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      if (!o.text) { ctx.globalAlpha = 1; return; }
-      // Hard against the right end of the rule rather than centred on it: the
-      // line's own point label is centred, and the two land at the same height
-      // whenever the share is near the rule.
-      const w = ctx.measureText(o.text).width;
-      ctx.globalAlpha = .9;
-      ctx.fillStyle = C.surface;
-      ctx.beginPath();
-      ctx.roundRect(el.x + half + 2, el.y - 7, w + 7, 13, 3);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = C.ink3;
-      ctx.textAlign = 'left';
-      ctx.fillText(o.text, el.x + half + 5, el.y + 5);
-      ctx.textAlign = 'center';
-    });
-    ctx.restore();
-  }
-};
-
-let ordChart = null;
-function drawOrders() {
-  const card = document.getElementById('ordCard');
-  card.hidden = !hasOrders();
-  if (card.hidden) {
-    if (ordChart) { ordChart.destroy(); ordChart = null; }
-    return;
-  }
-  // Months on the x axis, like the chart above, so the two line up column for
-  // column. Every month is drawn - there is nothing to rank and nothing to cut.
-  const money = state.ordUnit === 'amount';
-  const rows = DATA.months.map((m, i) => ({ name: m.label,
-                                            ...orderSplit({ month: i }) }));
-  const cut = 0;
-
-  // One stack of three, bottom to top: what came in, what the month booked
-  // itself, what it hands on. Drawing 'booked' twice - once per side-by-side
-  // bar - said nothing the one stack does not, and the one stack says it
-  // better, because both totals can be read off it at once:
-  //
-  //     carried out    ┐ the month's own demand (what its orders will earn)
-  //     booked         ┘ ┐
-  //     carried in       ┘ the month's revenue (what it actually earned)
-  //
-  // so the bottom two are the month as the profit file reports it, and the
-  // chart above is that same number.
-  const K = money ? { came: 'inGross', booked: 'ownGross', goes: 'goesGross',
-                     other: 'otherGross' }
-                  : { came: 'came', booked: 'booked', goes: 'goes' };
-  const bar = (label, key, colour) => ({
-    label, stack: 'one', data: rows.map(r => r[K[key]]),
-    backgroundColor: colour, borderRadius: 3, borderSkipped: false,
-    borderWidth: 1, borderColor: C.surface, maxBarThickness: 46,
-  });
-  // In amounts the whole point is to line up with the chart above, and that
-  // chart draws the file's total - so the sales no order could be matched to
-  // have to be here too. Leaving them out would put this bar below that one by
-  // exactly the residual, every time, and read as the two charts disagreeing
-  // when they do not. In units the two exports are counting different things
-  // and the gap between them is the finding, so it stays in the tooltip.
-  // The grey is the palette's neutral slot and belongs to the bucket that is
-  // genuinely "other" - the sales no order could be matched to. Carried in is
-  // a real category and takes a real colour.
-  const datasets = [
-    bar('Carried in from last month', 'came', C.stack[4]),
-    bar('Booked and earned in this month', 'booked', C.stack[0]),
-    ...(money ? [bar('No order matched', 'other', C.stack[8])] : []),
-    bar('Carried out to next month (a projection)', 'goes', C.stack[3]),
-  ];
-  document.getElementById('ordLegend').innerHTML = datasets
-    .filter(d => d.data.some(v => Math.abs(v) > 0.5))
-    .map(d => `<span><i style="background:${d.backgroundColor}"></i>${d.label}</span>`)
-    .join('');
-  datasets.push({
-    type: 'line', label: 'Revenue earned by this month\'s own orders',
-    yAxisID: 'y1',
-    data: rows.map(r => (r.month ? r.booked / r.month * 100 : null)),
-    borderColor: C.profit, backgroundColor: C.profit, borderWidth: 2,
-    pointRadius: 4, pointHoverRadius: 7, tension: .25, fill: false,
-    spanGaps: true, order: -1,
-  });
-  const plot = document.getElementById('ordPlot');
-  plot.style.height = state.zoom === 'ord' ? ''
-    : Math.max(300, Math.min(460, rows.length * 54 + 130)) + 'px';
-
-  if (ordChart) ordChart.destroy();
-  ordChart = new Chart(document.getElementById('ordBars'), {
-    type: 'bar',
-    data: { labels: rows.map(r => r.name), datasets },
-    plugins: [pointLabels, barTags, barValues],
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
-      interaction: { mode: 'index', intersect: false },
-      scales: {
-        x: { stacked: true, offset: true, grid: { display: false },
-             border: { display: false },
-             ticks: { color: C.ink2, autoSkip: false, maxRotation: 28,
-                      callback(v) { const t = this.getLabelForValue(v);
-                        return t.length > 18 ? t.slice(0, 17) + '…' : t; } } },
-        y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
-             border: { display: false },
-             title: { display: true, text: money ? label('gross') : 'Units',
-                      color: C.ink3 },
-             ticks: { color: C.ink3,
-                      callback: v => (money ? fmt(v)
-                                            : Number(v).toLocaleString()) } },
-        // Same here: the share is printed over each point.
-        y1: { display: false, position: 'right', beginAtZero: true,
-              suggestedMax: 100 },
-      },
-      plugins: {
-        legend: { display: false },
-        // Without the carry-in the left bar is not the month's earnings, so it
-        // is not labelled as if it were.
-        // Everything below the rule is the month as sold - the same figure the
-        // chart above draws. Above it is next month's, which has not happened.
-        barTags: { after: money ? 2 : 1,
-                   text: DATA.carryIn ? 'as sold' : null },
-        barValues: { on: state.zoom === 'ord' },
-        tooltip: { backgroundColor: C.surface, titleColor: C.ink,
-          bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
-          filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
-          callbacks: {
-            label: c => c.dataset.type === 'line'
-              ? `${c.dataset.label}: ${c.parsed.y.toFixed(0)}%`
-              : `${c.dataset.label}: ${fmt(c.parsed.y)}`
-                + (money ? '' : ' units'),
-            footer: items => {
-              const r = rows[items[0].dataIndex];
-              // The two readings the one stack holds, spelled out: the bottom
-              // two segments and the top two.
-              return money
-                ? [`Earned this month: ${fmt(r.inGross + r.ownGross)}`
-                   + ` (${fmt(r.ownGross)} its own + ${fmt(r.inGross)} carried in)`,
-                   `Its own orders in full: ${fmt(r.ownGross + r.goesGross)}`
-                   + ` - the carry-out at this month's rates`,
-                   `The profit file reports ${fmt(r.soldAmt)} net for this slice`]
-                : [`Earned ${fmt(r.month)} units, ${fmt(r.sold)} in the `
-                   + `profit file (${fmt(r.soldAmt)})`,
-                   `Its own orders: ${fmt(r.demand)} units, ${fmt(r.ordAmt)}`];
-            } } },
-      },
-    },
-  });
-
-  const all = orderSplit();
-  const pct = all.month ? Math.round(all.booked / all.month * 100) : 0;
-  const net = all.came - all.goes;
-  // Without the month before's orders the carry-in is unknown, not nil, and a
-  // page that charts it as nil claims the month earned all of its own revenue.
-  if (!DATA.carryIn) {
-    document.getElementById('ordHint').textContent =
-      `${money ? label('gross') : 'Units'} by month: what each month's `
-      + `own orders earned, and the `
-      + `${fmt(all.goes)} units they leave for the next month. What the month `
-      + 'BEFORE carried into this one is not drawn, because its orders were not '
-      + 'read - so the bars are not the whole month, and the share above is of '
-      + 'what is here rather than of what was sold. Add that month\'s order '
-      + 'export and both come back.';
-    return;
-  }
-  document.getElementById('ordHint').textContent =
-    `${money ? label('gross') : 'Units'} by month, in one stack: `
-    + (money
-       ? 'everything below the dashed rule is the month as the profit file '
-         + 'reports it - the same total the chart above draws - and the band on '
-         + 'top is next month\'s, at this month\'s rates. '
-       : 'the bottom two segments are what the month earned, the top two what '
-         + 'its own orders took. ')
-    + `${pct}% of the revenue came from orders placed in the `
-    + `month; the `
-    + `rest, ${fmt(all.came)} units, was carried in from the month before. `
-    + `${fmt(all.goes)} units are carried out to the next one`
-    + (Math.abs(net) > all.month * 0.05
-       ? `, so the month ${net > 0 ? 'took in' : 'handed on'} `
-         + `${fmt(Math.abs(net))} units more than it ${net > 0 ? 'handed on'
-            : 'took in'} - its revenue is ${net > 0 ? 'flattered' : 'understated'}`
-         + ` by that difference, which is a backlog ${net > 0 ? 'cleared'
-            : 'built'} rather than demand ${net > 0 ? 'earned' : 'lost'}`
-       : '')
-    + '.'
-    + (all.came && has.profit !== undefined
-       ? ` Those ${fmt(all.came)} carried-in units earned ${fmt(all.inGross)}`
-         + ` gross and ${fmt(all.inProfit)} operating profit`
-         + (all.inNet ? ` - a ${(all.inProfit / all.inNet * 100).toFixed(1)}% `
-                        + 'margin, against '
-                        + (all.ownNet
-                           ? `${(all.ownProfit / all.ownNet * 100).toFixed(1)}% `
-                             + "on the month's own orders"
-                           : 'the month\'s own') : '')
-         + '.'
-       : '')
-    + ' Basis reads the whole page for any one of these slices.';
-}
-
 function renderTable(rows, dimName, ofTotal) {
   document.getElementById('tableCard').hidden = !state.table;
   if (!state.table) return;
@@ -1727,11 +1533,9 @@ function setZoom(which) {
   state.zoom = state.zoom === which ? null : which;
   document.body.classList.toggle('zoomed', state.zoom !== null);
   document.getElementById('stkCard').classList.toggle('zoom', state.zoom === 'stk');
-  document.getElementById('ordCard').classList.toggle('zoom', state.zoom === 'ord');
   requestAnimationFrame(render);
 }
 document.getElementById('stkZoom').onclick = () => setZoom('stk');
-document.getElementById('ordZoom').onclick = () => setZoom('ord');
 document.getElementById('stkBack').onclick = () =>
   document.getElementById('backBtn').click();
 document.addEventListener('keydown', e => {
@@ -1746,14 +1550,12 @@ document.getElementById('stkCust').onclick = () => {
   state.stack = 'customer'; render(); };
 document.getElementById('stkProd').onclick = () => {
   state.stack = 'product'; render(); };
+document.getElementById('stkOrd').onclick = () => {
+  state.stack = 'orders'; render(); };
 document.getElementById('stkAmt').onclick = () => {
   state.stkScale = 'amount'; render(); };
 document.getElementById('stkPct').onclick = () => {
   state.stkScale = 'pct'; render(); };
-document.getElementById('ordQty').onclick = () => {
-  state.ordUnit = 'units'; render(); };
-document.getElementById('ordAmt').onclick = () => {
-  state.ordUnit = 'amount'; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 
 rebind();

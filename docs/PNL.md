@@ -198,7 +198,7 @@ stack. `--find` and `--where` are what chase them down.
 | the breadcrumb | go back to any step of the path; **All** returns to the top. It lists **every** narrowing in force, from either chain, and ends with what the months are split by |
 | **← Back** | widen the deepest narrowing, whichever chain it was in |
 | a level name | split each month by it, clearing what was narrowed at and below it |
-| **Stack by** | which chain splits each bar |
+| **Stack by** | **Customer**, **Product** or **When ordered** - what splits each month's bar |
 | **Figure** | **P&L**, **Net Amount (AUD)** or **Qty** - what the chart draws |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
 | **Table** | every figure behind the bars, with quantity, ASP and the margin |
@@ -258,14 +258,14 @@ number on the way past rather than something to go and switch to:
   ordered in 202609, earns in 202610   1,710       1,129,810          56,490     6.1%
 ```
 
-and the orders chart says it in a line: what the carried-in units earned, and
-the margin they earned it at **against the month's own**. A carry-over that
+and the page says it two ways: the **profit split** above the chart, for the
+whole span, and **Stack by: when ordered**, month by month. A carry-over that
 converts at a different margin from the month's own demand is the thing this
-whole split exists to show.
+whole split exists to show, which is why both carry a margin as well as a size.
 
-*Carried out* is the only one that is not a measurement: the month it lands in
-has not happened, so its units are priced at this month's rates. The subtitle
-says so while it is on.
+*Carried out* is the only one of the three that is not a measurement: the month
+it lands in has not happened, so its units are priced at this month's rates. It
+is printed on the build and kept out of the chart for that reason.
 
 Off *Sales*, every figure is an **allocation**: one multiplier per key, applied
 to the money and the units alike. It holds exactly as far as the units of one
@@ -350,80 +350,41 @@ is expanded, which is both the moment there is room for them and the reason
 anyone expanded it. A segment too short to hold its text is left alone rather
 than given a number that spills over its neighbours. **Esc** closes.
 
-### The orders chart
+### Stack by: when ordered
 
-Under the profit chart, **one stack** per member of the level the bars are on,
-read bottom to top:
+A third way to cut the same revenue, beside Customer and Product: **not by who
+bought it but by when the order behind it was placed.** Two bands a month:
 
-```
-  carried out    ┐ the month's own demand - what its orders will earn in all
-  booked         ┘ ┐
-  carried in       ┘ the month's revenue - what it actually earned
-```
+| | |
+|---|---|
+| **Ordered this month** | the month's own orders, earned in the month |
+| **Carried in from the month before** | ordered earlier, earned here |
 
-Two side-by-side bars drew `booked` twice and said nothing the one stack does
-not. The one stack says it better, because **both** totals come off it at once:
-the segments below the dashed rule are the month as sold, the two above the
-carried-in band are its own demand. The line is the share of the month's revenue
-its own orders earned.
+Two things the orders know about are deliberately **not** in the bars:
 
-**Units or Amounts.** Units is what the two exports genuinely agree on - both
-mean one unit shipped, while the amounts differ by tax, by currency and by what
-each file calls revenue. Amounts puts the chart on the profit file's gross,
-shared over those same units, so it can be read against the chart above it.
+- **carried out** - ordered this month, ships later. It is next month's revenue,
+  and adding a projection to a measurement in one bar would make the bar mean
+  nothing.
+- **revenue no order could be matched to** - an offline row, a marketplace, or a
+  code the two files spell differently. There is nothing to say about where it
+  came from.
 
-In Amounts a fourth band appears: **no order matched**. Without it this bar
-would sit below the chart above by exactly the sales the join could not place -
-every time - and that gap reads as the two charts disagreeing when they do not.
-With it, everything below the rule adds to the profit file's own total, which is
-the number the chart above draws. The grey is the palette's neutral slot and
-belongs to that bucket; carried in is a real category and takes a real colour.
+So these bars are the month **as sold, less what could not be placed**, and the
+hint says so rather than letting the shortfall pass as the month.
 
-Past twelve members the chart draws the biggest and drops the rest, and then its
-bars are **not** the whole month. The hint says so rather than letting the
-shortfall look like a disagreement.
+The figure defaults to **Operating Profit**, which is the question this view
+exists for: how much of the month's profit the month actually earned, and how
+much was last month's backlog clearing. Net Amount and Qty are still there; P&L
+is not, since it is the whole statement and has no split.
 
-When a month takes in more than it hands on, its revenue is **flattered by the
-difference** - a backlog cleared, not demand earned - and the hint says so in
-those words, with the number.
+A month knows its carry-in only when the month before it was read. The first
+month in any folder never does - so it is drawn **empty**, not as nil, which
+would claim it earned everything itself. The hint names which months those are.
 
-```
-py dashboard\build_pnl.py                    # every month in the folder, one page
-py dashboard\build_pnl.py --open             # and open it in the browser
-py dashboard\build_pnl.py --file profit_2609 # one month only
-py dashboard\build_pnl.py --months -2609    # every month but that one
-py dashboard\build_pnl.py --no-orders        # sales only
-py dashboard\build_pnl.py --booked "COMPLETED,DELIVERED"
-py dashboard\build_pnl.py --skip-sku SMC-AU-
-py dashboard\build_pnl.py --columns          # what each month's export carries
-```
-
-When the page draws a figure for one month and not another, that is nearly
-always the exports having been cut differently. `--columns` puts every profit
-export's columns side by side with each one's total, and marks the two lines
-that explain it: a column **not in every export**, and a column that is in both
-but **empty in one of them**.
-
-The two order exports are found **by month**: the profit file says which month
-it covers, in its own `YYYYMM` column where it has one, and the exports named
-for that month and the one before it are the ones read - `26 DTC Sep` and
-`26 DTC Aug` for a September profit file. `--orders` and `--orders-before`
-override that.
-
-An export whose order dates say it is a different month is **not used**: the
-build says which month it actually holds and which one it wanted, and the page
-comes out as sales only. Modelling a month with another month's orders is worse
-than not modelling it, and nothing downstream would show that it had happened.
-`--any-month` overrides the check. `--booked` names the
-status(es) that book the money; everything else in flight is carried forward and
-`tools/cohort.py` is what says whether that reading holds. `--skip-sku` drops
-product codes that are ordered but never reach the profit file - service plans,
-subscriptions, bundle headers - which otherwise charge the model with units it
-could never have sold.
-
-Under the booking rule every status has somewhere to go, so none is left
-unread. `tools/reconcile.py --statuses` still lists them all with how its own
-shipped/not-shipped reading takes each one.
+This replaced a second chart under the first. That chart drew the same split
+against the drill level instead of time, with a line for the share of revenue
+the month's own orders earned; the split reads better as a band of the main
+chart, on the same months as everything else.
 
 ### The profit split
 
@@ -468,48 +429,33 @@ it reads as a blank rather than a zero, which would read as "free".
 `tools\asp.py` computes the same figures as csvs, for a spreadsheet rather
 than a page; `docs\ASP.md` covers it.
 
-### The stacked chart
+### How a bar is cut
 
-It comes first on the page: the same slice, one bar per member of a level,
-**each split by the level below it**. The chart under it says what a figure is
-made of; this one says who it came from, so the page opens on the mix.
-
-It starts one level above the bars below it - a single **E-STORE** bar split
-into EPP and S.com, rather than an EPP bar and an S.com bar that have to be read
-against each other. Comparing sizes is what the chart below is for.
-
-**Stack by** picks the chain that splits each bar. On the same chain as the
-bars it takes the level below them; on the other one it starts that chain at
-its top - so **Stack by Product** while the bars are on Type puts the division
-mix inside each customer.
-
-So Channel split by Type, click the bar, and it becomes Types split by Portal
-Group - the drill carries the stack down with it, and the chart below moves
-with it, since one level drives both.
+**Stack by** picks what splits each month's bar: the customer chain, the product
+chain, or when the order came from. On a chain, the split is the first level
+that has not been narrowed to a single value - so Channel split by Type, click
+EPP, and the months come back as EPP alone split by Portal Group. The drill runs
+the whole chain and carries on into the product side once the customer levels
+are used up.
 
 A cost is carried negative in the export, so the whole figure is flipped when
-its total is: a **Operating Cost** stack stands up like the others, and a
+its total is: an **Operating Cost** stack stands up like the others, and a
 member that really does run the other way still points the other way inside it.
 
-**% of bar** normalises each bar to its own total, so the mix inside a small
-bar reads as clearly as inside a large one. The tooltip keeps the amount behind
-each share: a share with no size behind it is how a rounding error comes to
-look like a trend.
+**% of bar** normalises each month to its own total, so the mix inside a small
+month reads as clearly as inside a large one. The tooltip keeps the amount
+behind each share: a share with no size behind it is how a rounding error comes
+to look like a trend. It is off the menu in P&L mode, which is not a mix.
 
-The eight largest members get a colour each, in a fixed order; a ninth folds
-into **Other** rather than being handed a generated hue, so the colours mean
-the same thing from one view to the next.
+The eight largest members get a colour each, **fixed across the whole span** - a
+ninth folds into **Other** rather than being handed a generated hue. On a time
+axis that is not a nicety: a colour that meant MX in one month and DA in the
+next would make the chart unreadable.
 
-Clicking a bar and clicking a member button are the same act: narrowing to one value
-moves the bars down to the next level, and widening back to *All* brings them
-up again. The drill runs the whole chain - Channel, Type, Portal Group, Type2,
-then Division and Category - so it carries on into the product side once the
-customer levels are used up.
+Clicking a band and clicking a member button are the same act. Narrowing moves
+the split down to the next open level; widening with **Back** or the breadcrumb
+brings it up again.
 
-The line is a percentage and the bars are amounts, so the line is scaled apart
-from them - the two cannot share one axis. That scale is **not drawn**: each
-point carries its own figure, which leaves a right-hand axis with nothing to
-say, and the width it was taking goes back to the bars.
 
 Costs are drawn as amounts whichever sign the export stores them with. The six
 figures are found by header name and the build prints what it matched:
