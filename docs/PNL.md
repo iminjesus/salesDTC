@@ -204,6 +204,7 @@ stack. `--find` and `--where` are what chase them down.
 | **Period** | **Month** or **Quarter** - how wide a bar is |
 | **Cumulative** | each bar becomes the running total up to and including it |
 | **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
+| **Numbers** | the totals behind the chart, and the profit split by where the order came from. **Off by default** - the page is the chart |
 | **Table** | every figure behind the bars, with quantity, ASP and the margin |
 | **Reset** | back to the opening view |
 
@@ -447,7 +448,9 @@ chart, on the same months as everything else.
 
 ### The profit split
 
-Above the profit chart, three figures and a total:
+Under **Numbers**, with the totals - off by default, since the page is the
+chart and this is what gets pulled up when someone asks for the figure behind
+it. Three figures and a total:
 
 | | |
 |---|---|

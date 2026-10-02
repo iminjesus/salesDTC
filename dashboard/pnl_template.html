@@ -239,6 +239,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
         <button class="btn" id="stkAmt">Amount</button
         ><button class="btn" id="stkPct">% of bar</button></span></label>
+      <button class="btn" id="numbersBtn" title="the totals behind the chart, and the profit split by where the order came from">Numbers</button>
       <button class="btn" id="tableBtn">Table</button>
       <button class="btn" id="resetBtn">Reset</button>
     </div>
@@ -257,7 +258,10 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="hint" id="stkHint"></div>
   </div>
 
-  <div class="card">
+  <!-- The totals and the order split. Off by default: the page is the chart,
+       and these are what you pull up when someone asks for the figure behind
+       it. Kept rather than deleted for exactly that. -->
+  <div class="card" id="numCard" hidden>
     <div class="kpis" id="kpis"></div>
     <div class="split" id="split" hidden></div>
   </div>
@@ -425,6 +429,9 @@ const state = {
   // bucket - how the year is tracking, rather than how big each piece is - so
   // it is a toggle beside Period rather than another period.
   cumul: false,
+  // The totals card under the chart. Off: the page is the chart, and these are
+  // what gets pulled up when someone asks for the figure behind it.
+  numbers: false,
   // Which chart, if any, has the window to itself. Expanding is also what
   // turns the per-bar numbers on: that is the room they need.
   zoom: null,
@@ -945,6 +952,8 @@ function render() {
   zb.title = state.zoom ? 'Back to the whole page'
                         : 'Show only this chart, with every value labelled';
 
+  document.getElementById('numCard').hidden = !state.numbers;
+  document.getElementById('numbersBtn').classList.toggle('active', state.numbers);
   document.getElementById('tableBtn').classList.toggle('active', state.table);
   // The basis only exists where an order export was read alongside the profit.
 
@@ -1634,6 +1643,8 @@ document.getElementById('backBtn').onclick = () => {
   state.stack = last < DATA.custDepth ? 'customer' : 'product';
   render();
 };
+document.getElementById('numbersBtn').onclick = () => {
+  state.numbers = !state.numbers; render(); };
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
 
