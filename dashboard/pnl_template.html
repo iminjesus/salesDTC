@@ -411,7 +411,9 @@ function basisOf(c) {
    added up, never the other way round: one product shipping more than it sold
    cannot be allowed to cover another selling more than it shipped. */
 function orderSplit(extra) {
-  const o = { booked: 0, came: 0, goes: 0, sold: 0, soldAmt: 0, ordAmt: 0 };
+  const o = { booked: 0, came: 0, goes: 0, sold: 0, soldAmt: 0, ordAmt: 0,
+              ownGross: 0, ownNet: 0, ownProfit: 0,
+              inGross: 0, inNet: 0, inProfit: 0 };
   if (!hasOrders()) return o;
   for (const c of DATA.combos) {
     if (!inSlice(c, extra)) continue;
@@ -421,6 +423,21 @@ function orderSplit(extra) {
     o.sold += Math.abs(has.qty === undefined ? 0 : c.v[has.qty]);
     o.soldAmt += has.net === undefined ? 0 : c.v[has.net];
     o.ordAmt += c.v[has.oamt] + c.v[has.xamt];
+    // The money each slice earned, on the same share of units the basis uses -
+    // so the carry-over's own profit is a figure on the page rather than
+    // something to go and switch Basis for.
+    const month = bookedOf(c) + cameIn(c);
+    if (month) {
+      const at = k => (has[k] === undefined ? 0 : c.v[has[k]]);
+      const own = bookedOf(c) / month;
+      const inn = cameIn(c) / month;
+      o.ownGross += at('gross') * own;
+      o.ownNet += at('net') * own;
+      o.ownProfit += at('profit') * own;
+      o.inGross += at('gross') * inn;
+      o.inNet += at('net') * inn;
+      o.inProfit += at('profit') * inn;
+    }
   }
   o.month = o.booked + o.came;        // what the model says the month earned
   o.demand = o.booked + o.goes;       // what the month's own orders will earn
@@ -1307,7 +1324,19 @@ function drawOrders() {
          + ` by that difference, which is a backlog ${net > 0 ? 'cleared'
             : 'built'} rather than demand ${net > 0 ? 'earned' : 'lost'}`
        : '')
-    + '. Basis switches the figures above between the two.';
+    + '.'
+    + (all.came && has.profit !== undefined
+       ? ` Those ${fmt(all.came)} carried-in units earned ${fmt(all.inGross)}`
+         + ` gross and ${fmt(all.inProfit)} operating profit`
+         + (all.inNet ? ` - a ${(all.inProfit / all.inNet * 100).toFixed(1)}% `
+                        + 'margin, against '
+                        + (all.ownNet
+                           ? `${(all.ownProfit / all.ownNet * 100).toFixed(1)}% `
+                             + "on the month's own orders"
+                           : 'the month\'s own') : '')
+         + '.'
+       : '')
+    + ' Basis reads the whole page for any one of these slices.';
 }
 
 function renderTable(rows, dimName, ofTotal) {

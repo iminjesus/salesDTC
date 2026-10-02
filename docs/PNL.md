@@ -240,6 +240,23 @@ Every one of them is a share of the same denominator, `booked + carried in`, so
 %, ASP - for the carry-over alone, which is how a month's carried-over business
 gets compared with the business it won itself.
 
+The build prints the same split outright, so the carry-over's own profit is a
+number on the way past rather than something to go and switch to:
+
+```
+  what the month earned, by the month the order came from
+                                       units           gross       op profit   margin
+  ordered in 202609 and earned in it  18,193      11,876,810         593,840     6.1%
+  ordered in 202608, earned in 202609  2,494       1,621,123          81,056     6.1%
+  = the month as sold                 20,687      13,497,933         674,896     6.1%
+  ordered in 202609, earns in 202610   1,710       1,129,810          56,490     6.1%
+```
+
+and the orders chart says it in a line: what the carried-in units earned, and
+the margin they earned it at **against the month's own**. A carry-over that
+converts at a different margin from the month's own demand is the thing this
+whole split exists to show.
+
 *Carried out* is the only one that is not a measurement: the month it lands in
 has not happened, so its units are priced at this month's rates. The subtitle
 says so while it is on.

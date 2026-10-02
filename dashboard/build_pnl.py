@@ -240,6 +240,64 @@ def main() -> int:
     return 0
 
 
+def split_money(combos, keys, oi, ym):
+    """What the month earned, split by where the order that earned it came from.
+
+    Each combination is a mix of three things - what the month ordered and
+    earned, what the month before sent it, and what it sends on - and the page
+    reads any one of them through Basis. This prints the same split outright, so
+    the carry-over's own profit is a number on the way past rather than
+    something to go and switch to.
+
+    The share is of units, applied to the money: it holds exactly as far as the
+    units of one key being worth the same as each other, which is the assumption
+    the per-unit view already runs on.
+    """
+    at = {k: keys.index(k) for k in ('gross', 'net', 'profit', 'qty')
+          if k in keys}
+    if 'profit' not in at:
+        return
+    rows = {'its own orders': 0, 'carried in': 2, 'carried out': 4}
+    out = {}
+    for name, slot in rows.items():
+        g = n = pr = q = 0.0
+        for v in combos.values():
+            month = v[oi] + v[oi + 2]
+            if not month:
+                continue
+            f = v[oi + slot] / month
+            q += abs(v[at['qty']]) * f if 'qty' in at else 0
+            g += v[at['gross']] * f if 'gross' in at else 0
+            n += v[at['net']] * f if 'net' in at else 0
+            pr += v[at['profit']] * f
+        out[name] = (q, g, n, pr)
+
+    before = month_before(ym) if ym else '-'
+    after = (ym + 1 if ym % 100 < 12 else (ym // 100 + 1) * 100 + 1) if ym else '-'
+    label = {'its own orders': f'ordered in {ym} and earned in it',
+             'carried in': f'ordered in {before}, earned in {ym}',
+             'carried out': f'ordered in {ym}, earns in {after}'}
+    print(f'\n  what the month earned, by the month the order came from')
+    print(f'  {"":<34} {"units":>10} {"gross":>15} {"op profit":>15} {"margin":>8}')
+    for name in ('its own orders', 'carried in'):
+        q, g, n, pr = out[name]
+        base = n or g
+        print(f'  {label[name]:<34} {q:>10,.0f} {g:>15,.0f} {pr:>15,.0f} '
+              + (f'{pr / base * 100:>7.1f}%' if base else f'{"-":>8}'))
+    q = sum(out[k][0] for k in ('its own orders', 'carried in'))
+    g = sum(out[k][1] for k in ('its own orders', 'carried in'))
+    n = sum(out[k][2] for k in ('its own orders', 'carried in'))
+    pr = sum(out[k][3] for k in ('its own orders', 'carried in'))
+    base = n or g
+    print(f'  {"= the month as sold":<34} {q:>10,.0f} {g:>15,.0f} {pr:>15,.0f} '
+          + (f'{pr / base * 100:>7.1f}%' if base else f'{"-":>8}'))
+    q, g, n, pr = out['carried out']
+    base = n or g
+    print(f'  {label["carried out"]:<34} {q:>10,.0f} {g:>15,.0f} {pr:>15,.0f} '
+          + (f'{pr / base * 100:>7.1f}%' if base else f'{"-":>8}')
+          + '   <- a projection at this month\'s rates')
+
+
 def say_columns(targets):
     """What each export carries, and what the others carry that it does not.
 
@@ -674,6 +732,7 @@ def build_month(folder, target, args):
                     if abs(model - sold) > sold * 0.2:
                         print('  that is a wide gap - py tools\\link.py scores '
                               'the same figures product by product')
+                split_money(combos, keys, n_measures, ym)
 
     # Which two exports model this month: the one named for it, and the one
     # named for the month before, unless both were named on the command line.
