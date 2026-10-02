@@ -26,8 +26,49 @@ They are not the same kind of fact, so the run never adds them together:
 | **due to leave** | everything else with a date - a schedule, not a measurement |
 | **no date at all** | neither |
 
-The day the export was taken is taken to be the last order it recorded;
-`--as-of` overrides it.
+The day the export was taken is taken to be the last order it recorded, which
+is right for a month-end pull and wrong for one taken later. Being wrong there
+reports despatches that **did** happen as merely scheduled, which understates
+every month's measured carry-over - so when a folder's exports were all pulled
+recently rather than each at its own month end, say when with `--as-of`. The run
+prints which day it is using and where it got it.
+
+## Where a month's units went
+
+```
+the carry-over ladder - ordered down the side, despatched across the top
+  (a date past the day an export was taken is a schedule, shown in brackets)
+  ordered in        26-06        26-07        26-08        26-09        open
+  2026-06           9,194    0 (4,109)      0 (168)            -           0
+  2026-07               -        9,514    0 (3,819)      0 (138)           0
+
+  month        own demand   carried in   carried out        net
+  2026-06           9,194            0         4,277     -4,277
+  2026-07           9,514        4,109         3,957       +152
+```
+
+One row per month an order **arrived** in, one column per month it **left** in.
+The diagonal is a month earning its own demand. To the right of it is that
+month handing revenue forward; below it in a column is a month being handed it.
+Nothing is inferred - every cell is a goods issue date against a creation date.
+
+The brackets are the whole point of the layout. A bracketed cell is a date that
+had not come when the export was pulled: a plan, not a measurement, and no
+amount of it is evidence that the units moved. Reading the ladder means reading
+the unbracketed numbers as fact and the bracketed ones as intent.
+
+Underneath, each month as three numbers and their result:
+
+| | |
+|---|---|
+| **own demand** | ordered in the month and left in it |
+| **carried in** | left in the month, ordered before it - revenue the month did not earn |
+| **carried out** | ordered in the month, leaves after it - revenue it earns for a later one |
+| **net** | carried in minus carried out. Positive and the month's revenue is **flattered** by a backlog clearing; negative and the month sold less than it sold for |
+
+A month at the right-hand edge of the ladder always looks like it carries
+everything out, because the exports cannot see past themselves. Only a month
+with a full month of export after it has a carry-out worth reading.
 
 ## A month cannot measure its own tail
 

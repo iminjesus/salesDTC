@@ -326,6 +326,11 @@ def analyse(cols: list[dict], measures: list[int], n_rows: int,
             say=print) -> list[dict]:
     """Every relation between the amount columns that holds on every row."""
     say('\nworking out which figures are sums of which...')
+    if not measures or not n_rows:
+        say('  this export carries no amount columns with values in them, so '
+            'there is\n  nothing to relate - every figure will have to come '
+            'from a named column')
+        return []
     f = Finder(cols, measures, n_rows)
     n_cols = len(cols)
     nodes: list[dict] = []

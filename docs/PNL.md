@@ -124,6 +124,13 @@ data.
 
 With one month in the folder the button row is not there at all.
 
+`--months` picks which ones go on it: `--months 2607,2608` draws those two, and
+`--months -2609` draws every month **but** September. Use it for a month whose
+sales have not settled yet - an export pulled before the month's despatches
+finished is not wrong so much as incomplete, and a month like that sitting on
+the page beside settled ones reads as a collapse rather than as a month still
+filling in. The run names what it left out.
+
 ### One menu
 
 Everything that drives the page is in the card at the top - both charts read
@@ -314,6 +321,7 @@ those words, with the number.
 py dashboard\build_pnl.py                    # every month in the folder, one page
 py dashboard\build_pnl.py --open             # and open it in the browser
 py dashboard\build_pnl.py --file profit_2609 # one month only
+py dashboard\build_pnl.py --months -2609    # every month but that one
 py dashboard\build_pnl.py --no-orders        # sales only
 py dashboard\build_pnl.py --booked "COMPLETED,DELIVERED"
 py dashboard\build_pnl.py --skip-sku SMC-AU-

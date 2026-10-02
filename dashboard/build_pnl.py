@@ -104,6 +104,11 @@ def main() -> int:
     ap.add_argument('--file', default=None,
                     help='the export to draw (default: the highest-numbered '
                          'profit_* file in the folder)')
+    ap.add_argument('--months', metavar='LIST', default=None,
+                    help='which months to draw, as 2608,2609 - or, with a minus '
+                         'in front, which to leave out: -2609 draws every month '
+                         'but September. A month whose sales have not settled '
+                         'does not belong on the page beside ones that have')
     # Both default to the month the export turns out to cover, so a new month
     # does not quietly overwrite the last one's page under the last one's name.
     ap.add_argument('--out', default=None,
@@ -199,6 +204,21 @@ def main() -> int:
             targets.append(cand)
         targets.reverse()                       # oldest first, so do the buttons
     targets = [t for t in targets if t]
+    if args.months:
+        want = [w.strip() for w in args.months.split(',') if w.strip()]
+        drop = {w.lstrip('-')[-4:] for w in want if w.startswith('-')}
+        keep = {w[-4:] for w in want if not w.startswith('-')}
+        left = [t for t in targets
+                if re.sub(r'\D', '', t.stem)[:4] not in drop
+                and (not keep or re.sub(r'\D', '', t.stem)[:4] in keep)]
+        gone = [t.name for t in targets if t not in left]
+        if gone:
+            print(f'--months leaves out {", ".join(gone)}')
+        targets = left
+        if not targets:
+            print(f'--months {args.months} matched no profit export in '
+                  f'{folder.resolve()}', file=sys.stderr)
+            return 2
     if not targets:
         print(f'no profit export in {folder.resolve()}', file=sys.stderr)
         return 2
