@@ -595,8 +595,20 @@ ordered**:
 | DTC + Nation-wide | a plan line covering that product on that date names both |
 | DTC promotion | it names a DTC campaign only |
 | Nation-wide only | it names the nationwide campaign only |
-| No promotion | a plan line covers it and names neither, or none covers it |
+| **No promotion** | a plan line **does** cover it and names no campaign at all |
+| **Not in the plan** | no plan line covers it: the product is not in the plan, or every line for it has a window the order date sits outside (or the order row has no readable date) |
 | No order matched | no order could be banded at all - it keeps its own band |
+
+**The last two were one band, and they are not one thing.** *No promotion* is a
+statement: the plan has a line for this product, live on this date, and it names
+no campaign. *Not in the plan* is the absence of a statement - the plan says
+nothing about this line either way, so it cannot say whether a promotion ran.
+
+Together they read as "this much sold unpromoted", which only the first one
+supports. In the test fixture that was 499 of net sales sitting under *No
+promotion* for a SKU the plan simply does not list. A gap in the plan file and an
+unpromoted sale are different problems and want different work: one is chased in
+the plan, the other in the pricing.
 
 Read the way "When ordered" is read, and for the same reason: **a cut of the
 same revenue, not a level of the key.** The bands are the shipped units' own, so

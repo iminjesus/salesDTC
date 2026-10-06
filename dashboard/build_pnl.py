@@ -101,7 +101,14 @@ PROMO_SERIES = [
     ('pdtc',  'DTC promotion'),
     ('pboth', 'DTC + Nation-wide'),
     ('pnat',  'Nation-wide only'),
+    # These two were one band, and they are not one thing. "No promotion" is
+    # the plan covering a line and naming no campaign on it - a statement. The
+    # plan having no line for the product, or none whose window covers the
+    # order, is the absence of a statement: it says nothing about whether a
+    # promotion ran. Together they read as "this much sold unpromoted", which
+    # is a conclusion the second one does not support.
     ('pnone', 'No promotion'),
+    ('pgap',  'Not in the plan'),
 ]
 PROMO_BANDS = tuple(k for k, _ in PROMO_SERIES)
 N_PROMO = len(PROMO_SERIES)
@@ -127,7 +134,9 @@ def promo_bander(folder, stems, say=print):
 
     def band(sku, day):
         if day is None:
-            return 'pnone'
+            # No date, so no window can be tested - an absence of information
+            # about this line, not a finding about it.
+            return 'pgap'
         k = (PM.code_norm(sku), day.year, day.month, day.day)
         hit = cache.get(k)
         if hit is not None:
@@ -139,7 +148,10 @@ def promo_bander(folder, stems, say=print):
         nat = any((c.get('camp') or [''])[0] for c in live)
         dtc = any(any((c.get('camp') or ['', '', ''])[1:]) for c in live)
         hit = ('pboth' if (dtc and nat) else 'pdtc' if dtc
-               else 'pnat' if nat else 'pnone')
+               else 'pnat' if nat
+               # A live line that names no campaign says there was none. No
+               # live line at all says nothing either way.
+               else 'pnone' if live else 'pgap')
         cache[k] = hit
         return hit
 

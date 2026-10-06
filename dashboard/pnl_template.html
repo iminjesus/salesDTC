@@ -1139,7 +1139,13 @@ function draw() {
 const PROMOS = [['pboth', 'DTC + Nation-wide'],
                 ['pdtc',  'DTC promotion'],
                 ['pnat',  'Nation-wide only'],
+                // A statement: a plan line covers this and names no campaign.
                 ['pnone', 'No promotion'],
+                // Not a statement: the plan has no line for the product, or
+                // none whose window covers the order, so it says nothing
+                // either way. Folding this into the one above would read as
+                // "this much sold unpromoted", which it does not support.
+                ['pgap',  'Not in the plan'],
                 [null,    'No order matched']];
 let stkChart = null;
 function drawStack() {
@@ -1399,7 +1405,7 @@ function drawStack() {
   // The unmatched band takes the palette's neutral slot, which is what it is.
   const bandColour = i => (ordMode ? [C.stack[0], C.stack[4], C.stack[8]][i]
                         : promoMode ? [C.stack[0], C.stack[2], C.stack[4],
-                                       C.stack[6], C.stack[8]][i]
+                                       C.stack[6], C.stack[7], C.stack[8]][i]
                                    : C.stack[i]);
   const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
