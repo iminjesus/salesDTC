@@ -40,6 +40,42 @@ but that is a **reading of the output**, not a rule written into the tool.
 | **the piece immediately before the dates** | what the rule is about: `TV`, `AV`, `DA`, `SP`, `REF`, `MX`, `WM`, `MON`. The share of those that the **product master also spells** is reported, so the short forms only the store uses stand out as the ones to read off the list rather than guess at |
 | rules with no piece there | counted separately: their last piece before the dates is the site or the buyer, so those rules say nothing about what they are on |
 
+## The grammar a month of CE orders comes out with
+
+```
+AU  _  EPP  _  T2-T3  _  TB  _  05SEP26 _ 19SEP26  _  DISCOUNT  _  <the offer>
+country  who     tier     what it is on      when           mechanic
+```
+
+| piece | what turned up | |
+|---|---|---|
+| 1 | `AU` 98.5% | the country |
+| 2 | `EPP` 61.6%, `B2C` 35.0%, `SME`, `SMB` | **who may buy** - the rule says it, so EPP needs no inference from the customer master |
+| 3 | `WEB` 54.2%, **`T2-T3` 32.4%**, `CRP`, `EPROMOTER` | where, or - on EPP rules - **which tier** |
+| 4 | `ALL` 35.7%, `MX`, `TV`, `SP`, `TB`, `WR`, `CE`, `MO`, `HA`, `AC`, `RF`, `WM` | what it is on, and `WM-DR-VC` style combinations say several at once |
+| after the dates, 1 | `DISCOUNT` 31.9%, `PROMOTEXT`, `PWP`, `BOGO`, `TRADE-IN`, `BMSM`, `SHIPPING` | the mechanic |
+| after the dates, 2 | the offer itself | |
+
+`(4, 2, 2)` is 56% of units and is that shape. The next two shapes, `(11,0,0)`
+and `(12,0,0)`, are a third of the units between them and are almost entirely
+**one** rule - the standing welcome voucher, which carries no dates and spells
+itself out in eleven pieces.
+
+The short forms the product master does not spell - `SP`, `TB`, `WR`, `MO`,
+`HA`, `RF`, `DR`, `VC` - are in a table at the top of `tools/rulegram.py`, read
+off that run rather than invented, and reported as a **different kind** from the
+groups the master does spell, so a wrong one is visible rather than blended in.
+Edit the table, not the code.
+
+## How wide is a rule?
+
+The number that decides whether a rule can be matched to a plan at all. The plan
+is written per **product code**; a rule that names a category and sold over four
+hundred of them is not a line in that plan and never was, and no amount of
+loosening the price or the window will make it one. So the run reports how many
+product codes each rule covers, the median and the widest, and what share of the
+units sit on rules covering ten or more.
+
 ## What each piece is
 
 Every piece is classified by what it looks like and nothing else - a date, a

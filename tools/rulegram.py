@@ -36,7 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import promo as PR                                              # noqa: E402
 from promo_match import (MECHANIC, RULE_DATE, code_norm,        # noqa: E402
                          mechanics_in, parse_rule, split_rules)
-from rawdata import find, parse_number, pick_file, read_any     # noqa: E402
+from rawdata import (find, parse_number, pick_file,            # noqa: E402
+                     pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -51,10 +52,21 @@ D_STATUS = ('order_status', 'Order Status', 'Status')
 # an unknown token on a lot of units is a category this file uses and nobody
 # has written down.
 COUNTRY = {'AU', 'NZ', 'SG', 'MY', 'TH', 'VN', 'ID', 'PH', 'IN', 'KR'}
+# The category slot's own short forms - the ones the store writes and the
+# product master does not. Read off a month of its rules rather than invented:
+# every one of these came back in the position immediately before the dates,
+# which is the slot that says what a rule is on. They are reported as a
+# different kind from the ones the master spells, so a wrong guess here is
+# visible rather than blended into the master's own vocabulary. Edit the table.
+SHORT = {'SP': 'smartphone', 'TB': 'tablet', 'WR': 'wearable',
+         'MO': 'monitor', 'HA': 'home appliance', 'RF': 'refrigerator',
+         'DR': 'dryer', 'VC': 'vacuum', 'AC': 'air conditioner',
+         'MXAPS': 'MX accessories', 'ALL': 'every category'}
+# A tier is not a buyer: EPP is who may buy and T2-T3 is how much they get.
+TIER = re.compile(r'^(T\d|EDU|TIER\d)([-,](T\d|EDU|TIER\d))*$')
 WHO = {'EPP', 'SCOM', 'S.COM', 'SME', 'SMB', 'EDU', 'GOV', 'B2C', 'B2B', 'DTC',
        'STAFF', 'CORP', 'CORPORATE', 'PARTNERSHIP', 'INTERNAL', '3PD', 'NRM',
-       'T1', 'T2', 'T3', 'T1-T2', 'T2-T3', 'T1-T2-T3', 'TIER1', 'TIER2',
-       'TIER3', 'ALL'}
+       'EPROMOTER', 'PROMOTER'}
 WHERE = {'WEB', 'APP', 'STORE', 'ONLINE', 'POS', 'SHOP', 'MOBILE'}
 PCT = re.compile(r'^\d{1,3}(PCT|PERCENT|OFF)$|^PCT$|^PERCENT$')
 MONEY = re.compile(r'^\$?\d{2,5}(OFF|DOLLAR)?$')
@@ -73,8 +85,17 @@ def kind_of(tok: str, groups=frozenset()) -> str:
         return 'punctuation'
     if RULE_DATE.match(u):
         return 'date'
+    if TIER.match(u):
+        return 'buyer tier'
     if code_norm(u) in groups:
         return 'product group'
+    # A rule can name several at once - WM-DR-VC is one rule over three - so a
+    # piece is a product group if every part of it is one.
+    bits = [b for b in u.split('-') if b]
+    if len(bits) > 1 and all(code_norm(b) in groups or b in SHORT for b in bits):
+        return 'product group'
+    if u in SHORT:
+        return 'product group (store short form)'
     if u in COUNTRY:
         return 'country'
     if u in WHO:
@@ -155,27 +176,41 @@ def main() -> int:
     # the master, and a short form the master does not use stays unnamed and is
     # reported as such.
     groups = set()
-    pp = pick_file(folder, 'product') or pick_file(folder, 'product_2608')
-    if pp:
-        prows, _ = read_any(pp)
+    for cand in pick_series(folder, 'product'):
+        try:
+            prows, _ = read_any(cand)
+        except (ValueError, OSError, IndexError):
+            continue
         phead = [h.strip() for h in prows[0]]
-        cols = [find(phead, n) for n in ('Division', 'Category', 'Range',
-                                         'product_range', 'Series')]
+        cols = [i for i in (find(phead, n) for n in
+                            ('Division', 'Product Division', 'Category',
+                             'Product Category', 'Range', 'product_range',
+                             'Series')) if i is not None]
+        got = set()
         for r in prows[1:]:
             for i in cols:
                 v = code_norm(cell(r, i))
                 if v:
-                    groups.add(v)
-        print(f'  product master: {pp.name}, {len(groups):,} division/category/'
-              f'range spelling(s) to recognise')
-    else:
-        print('  no product master, so a product group in a rule cannot be told '
-              'from any other word')
+                    got.add(v)
+        # The newest export of the series is not always the one with the
+        # columns, so the first that answers is the one used - and which one
+        # that was is printed, because a silent zero here was read as "the
+        # store uses no name the master uses", which was not true.
+        if got:
+            groups = got
+            print(f'  product master: {cand.name}, {len(groups):,} division/'
+                  f'category/range spelling(s) to recognise')
+            break
+    if not groups:
+        print('  no product master carries a division, category or range '
+              'column, so a product group\n  in a rule cannot be told from any '
+              'other word')
 
     # One record per rule occurrence, carrying the units behind it: a shape on
     # four hundred units says more about the vocabulary than one on four.
     seen = collections.Counter()
     units = collections.Counter()
+    skus: dict[str, set] = {}
     lines = kept = 0
     for r in rows[1:]:
         if 'CANCEL' in cell(r, i_st).upper():
@@ -186,6 +221,7 @@ def main() -> int:
             lines += 1
             seen[raw] += 1
             units[raw] += max(q, 0.0)
+            skus.setdefault(raw, set()).add(code_norm(cell(r, i_sku)))
     if not seen:
         print('\n  not one row carries a promotion rule.', file=sys.stderr)
         return 1
@@ -284,13 +320,35 @@ def main() -> int:
             print(f'\n  of those, the ones that sit {side}: '
                   + ', '.join(f'{k} {v:,.0f}' for k, v in c.most_common(12)))
 
+    # ── how wide is a rule? ─────────────────────────────────────────────────
+    # The thing that decides whether a rule can be matched to a plan at all. The
+    # plan is written per product code; a rule that names a category and sold
+    # over four hundred of them is not a line in that plan and never was, and no
+    # amount of loosening the price or the window will make it one.
+    wide = sorted((len(v), k) for k, v in skus.items())
+    if wide:
+        n = len(wide)
+        mid = wide[n // 2][0]
+        over = [t for t in wide if t[0] >= 10]
+        print(f'\nhow many product codes one rule covers: median {mid}, '
+              f'biggest {wide[-1][0]:,}')
+        say_u = sum(units[k] for _, k in over)
+        print(f'  {len(over):,} of {n:,} rule(s) cover ten or more codes, and '
+              f'they carry {say_u / tot_u * 100:.0f}% of the units')
+        for cnt, k in wide[-6:][::-1]:
+            print(f'    {cnt:>6,} code(s)  {k[:62]}')
+        print('  a rule written at category level cannot be matched to a plan '
+              'written per product\n  code by making the price or the window '
+              'looser - the two are not the same shape.')
+
     # ── one row per distinct rule, taken apart ──────────────────────────────
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open('w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f)
         w.writerow(['Rule', 'Lines', 'Units', 'Before the dates', 'Dates',
-                    'After them', 'Mechanic', 'Offer', 'Family', 'Unnamed pieces'])
+                    'After them', 'Mechanic', 'Offer', 'Family',
+                    'Product codes', 'Unnamed pieces'])
         for raw, n in sorted(seen.items(), key=lambda kv: -units[kv[0]]):
             before, when, after = split_on_dates(parts_of(raw))
             d = parse_rule(raw)
@@ -300,6 +358,7 @@ def main() -> int:
                         ' '.join(when), ' '.join(after),
                         ' + '.join(sorted(set(kind))), offer,
                         PR.family_label(' + '.join(sorted(set(kind))), offer),
+                        len(skus.get(raw, ())),
                         ' '.join(p for p in before + after
                                  if kind_of(p, groups) == 'unnamed')])
     print(f'\n-> {out.resolve()}')
