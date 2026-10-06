@@ -82,18 +82,37 @@ def main() -> int:
             return 2
         want.append((digits, hit[0]))
 
-    prod, cust = {}, {}
-    pp = [p for p in pick_series(folder, 'product')]
-    if pp:
-        prod = master(pp[0], PRODUCT_KEYS, PRODUCT_COLS, say=lambda *a: None)
-        print(f'product master: {pp[0].name}, {len(prod):,} material(s)')
-    cp = [p for p in pick_series(folder, 'customer')]
-    if cp:
-        wantc = {slot: names for _, slot, names in CUST.LEVELS if names}
-        wantc['account'] = CUST.ACCOUNT_NAMES
-        cust = master(cp[0], ('Sold-To', 'sold To', 'sold_to'), wantc,
-                      say=lambda *a: None)
-        print(f'customer master: {cp[0].name}, {len(cust):,} account(s)')
+    def read_master(prefix, keys, want):
+        """The first candidate that can actually be read.
+
+        One unreadable workbook used to end a whole run after all the reading
+        was done, so a master that will not open is reported and the next
+        spelling of it is tried instead.
+        """
+        for cand in pick_series(folder, prefix):
+            try:
+                got = master(cand, keys, want, say=lambda *a: None)
+            except (ValueError, OSError, IndexError, KeyError) as e:
+                print(f'  {cand.name}: {e} - trying the next one')
+                continue
+            if got:
+                return cand, got
+        return None, {}
+
+    pp, prod = read_master('product', PRODUCT_KEYS, PRODUCT_COLS)
+    print(f'product master: {pp.name}, {len(prod):,} material(s)' if pp
+          else 'no product master could be read - the description, division, '
+               'category and range columns will be blank')
+    wantc = {slot: names for _, slot, names in CUST.LEVELS if names}
+    wantc['account'] = CUST.ACCOUNT_NAMES
+    cp, cust = read_master('customer', ('Sold-To', 'sold To', 'sold_to'), wantc)
+    print(f'customer master: {cp.name}, {len(cust):,} account(s)' if cp
+          else 'no customer master could be read - without it no row can be '
+               'placed in a channel, so "Online ASP" would come out empty')
+    if not cust:
+        print('  stopping rather than writing an empty Online ASP workbook',
+              file=sys.stderr)
+        return 1
 
     # material -> {'qty': {month: n}, 'amt': {month: n}, 'on_qty': .., 'on_amt': ..}
     rows: dict[str, dict] = {}
