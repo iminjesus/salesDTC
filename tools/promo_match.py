@@ -781,6 +781,7 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
     if not cands:
         return {'promo': '', 'how': how, 'gap': '', 'alts': 0, 'priced': '',
                 'type': '', 'detail': '', 'off_by': '', 'miss': 'code',
+                'added_back': False,
                 'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'cands': []}
 
     off_by = ''
@@ -802,7 +803,8 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
             live = [c for c in near if distance(c) <= slack]
             if not live and not undated:
                 return {'promo': '', 'gap': '', 'alts': len(dated), 'priced': '',
-                        'type': '', 'detail': '', 'off_by': best, 'miss': 'window',
+                        'type': '', 'detail': '', 'off_by': best,
+                        'miss': 'window', 'added_back': False,
                         'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'cands': [],
                         'how': how + f', but the nearest window it fits misses '
                                f'the order date by {best:,} day(s)'}
@@ -813,18 +815,36 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
                 how += ', in window'
             cands = live + undated
 
-    gap, priced_as = '', ''
+    gap, priced_as, added_back = '', '', ''
+    # Two readings of what the line paid: the amount as the export states it,
+    # and the amount before the customer handed over a phone or spent points.
+    # The plan prices the promotion; a trade-in is a separate transaction that
+    # lands in the same amount column, so a Fold8 traded up reads about $1,350
+    # against a plan that says $2,579 and the price test throws out a line the
+    # plan does cover - inside its window, on the right SKU, at the right price
+    # until the trade-in was taken off it.
+    tries = [('', order['price'])]
+    if order.get('gross') is not None and order['price'] is not None \
+            and abs(order['gross'] - order['price']) > 0.01:
+        tries.append((' once the trade-in and the points are added back',
+                      order['gross']))
     if order['price'] is not None:
         priced = [(c, col, p) for c in cands for col, p in c['prices'].items()]
         if priced:
-            priced.sort(key=lambda t: abs(t[2] - order['price']))
-            best, col, p = priced[0]
-            gap = round(order['price'] - p, 2)
+            # Nearest over both readings at once, so adding the trade-in back
+            # can only rescue a line the amount as written would have lost - it
+            # never moves a line that already fits onto a different plan row.
+            scored = sorted(((abs(p - v), i, c, col, p, note)
+                             for i, (c, col, p) in enumerate(priced)
+                             for note, v in tries if v is not None),
+                            key=lambda t: (t[0], t[1]))
+            _, _, best, col, p, note = scored[0]
+            gap = round((order['gross'] if note else order['price']) - p, 2)
             off_pct = abs(gap) / abs(p) * 100 if p else 999.0
             if off_pct <= tol or abs(gap) <= 0.01:
-                priced_as = col
+                priced_as, added_back = col, bool(note)
                 cands = [best] + [c for c in cands if c is not best]
-                how += f', paid the {col}'
+                how += f', paid the {col}{note}'
             else:
                 nothing = [c for c in cands if not c['prices']]
                 if not nothing:
@@ -832,7 +852,7 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
                             'priced': '', 'type': '', 'detail': '',
                             'off_by': off_by, 'miss': 'price',
                             'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'cands': [],
-                            'off_pct': round(off_pct, 1),
+                            'off_pct': round(off_pct, 1), 'added_back': False,
                             'how': how + f', but the price paid is {gap:+,.2f} '
                                    f'({off_pct:,.0f}%) from the nearest '
                                    f'({best["promo"]}, {col})'}
@@ -840,6 +860,7 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
                 how += ', price fits none of the priced lines'
 
     return {'promo': cands[0]['promo'], 'how': how, 'gap': gap,
+            'added_back': added_back,
             'type': cands[0]['type'], 'detail': cands[0]['detail'],
             'priced': priced_as, 'alts': len(cands) - 1, 'off_by': off_by,
             'miss': '', 'camp': cands[0].get('camp', ['', '', '']),
@@ -917,7 +938,10 @@ def rule_price_report(rows: list, tol: float, say=print) -> None:
             none += 1
             pairs[(r['rule_fam'], r['plan_fam'] or '(the plan prices none)')] += 1
             continue
-        paid = r['paid']
+        # Against the price before the trade-in, for the same reason the match
+        # uses it: the plan quotes what the promotion sells the phone for, and a
+        # traded-up line pays part of that in a phone.
+        paid = r.get('paid_plan') or r['paid']
         if paid is None:
             continue
         near = min((abs(paid - v) / v * 100 if v else 999.0
@@ -1119,8 +1143,13 @@ def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print,
         amt[name] += o['amt']
         if o.get('rule_out'):
             inside[name] += o['qty']
-        if o.get('paid') and o.get('rrp'):
-            paid_n[name] += o['qty'] * (1 - o['paid'] / o['rrp'])
+        # Before the trade-in, like everything else that compares a price to
+        # the plan: a campaign does not get credit for the phone the customer
+        # handed over, and a "paid DC" that counts it reads 23% where the
+        # promotion gave 4%.
+        was_paid = o.get('paid_plan') or o.get('paid')
+        if was_paid and o.get('rrp'):
+            paid_n[name] += o['qty'] * (1 - was_paid / o['rrp'])
             paid_d[name] += o['qty']
 
     names = set(live) | set(got)
@@ -1844,6 +1873,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     near_price: list[float] = []
     near_code = 0
     slack_used = 0
+    added_back_n = 0
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
     camp_rows, tier_rows = [], []
     only = code_norm(args.only) if args.only else ''
@@ -1881,16 +1911,31 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             continue
         qty = parse_number(cell(r, O['qty'])) or 0.0
         amount = parse_number(cell(r, O['amount']))
-        paid = None
-        if amount is not None:
-            per = amount / qty if args.amount_is == 'line' and qty else amount
-            paid = per * (1 + args.gst / 100) if per is not None else None
+
+        def consumer(v):
+            """An export amount as a price one unit was sold at."""
+            if v is None:
+                return None
+            per = v / qty if args.amount_is == 'line' and qty else v
+            return per * (1 + args.gst / 100)
+
+        paid = consumer(amount)
+        # What the line would have cost without the trade-in and the points -
+        # both stated by the export, both on the same basis as the amount, and
+        # both subtractions the customer gave something for rather than
+        # discounts the promotion gave.
+        extra = sum(v for v in (parse_number(cell(r, O['trade']))
+                                if O['trade'] is not None else None,
+                                parse_number(cell(r, O['points']))
+                                if O['points'] is not None else None) if v)
+        gross = consumer(amount + extra) if amount is not None and extra else None
         if only and only not in code_norm(cell(r, O['sku'])):
             continue
         if only:
             only_orders.add(cell(r, O['order']))
         order = {'code': code_norm(cell(r, O['sku'])),
-                 'date': to_date(cell(r, O['date'])), 'price': paid}
+                 'date': to_date(cell(r, O['date'])), 'price': paid,
+                 'gross': gross}
 
         rules = [parse_rule(t) for t in split_rules(cell(r, O['rule']))]
         own_dc = own_discount(cell(r, O['disc']), cell(r, O['rrp']),
@@ -2017,6 +2062,8 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         unset = '(master does not say)' if c else CUST.NO_MATCH
         if how == 'plan' and guess['off_by']:
             slack_used += 1
+        if guess.get('added_back'):
+            added_back_n += 1
         # A plan match that needed a loosened rule is not the same answer as
         # one that did not, and the page should not colour them alike.
         if how == 'plan' and (guess['off_by'] or 'starts with' in guess['how']
@@ -2054,7 +2101,8 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                         if rules else '',
             'plan_fam': (family_label(guess['type'], guess['detail'], order_of)
                          if guess['promo'] else ''),
-            'cands': guess.get('cands') or [], 'paid': paid})
+            'cands': guess.get('cands') or [], 'paid': paid,
+            'paid_plan': gross or paid})
         camp_rows.append({
             'camp': [camp0, '', ''],
             'qty': qty, 'amt': amount or 0.0,
@@ -2076,6 +2124,9 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             # both consumer prices, so the discount is one division and needs
             # no GST divisor.
             'paid': paid,
+            # And the same price before the trade-in and the points, which is
+            # what the plan quotes a price for.
+            'paid_plan': gross or paid,
             # The store's rule names its own window. An order outside it is the
             # engine still applying a promotion that had ended, which needs no
             # plan to spot and is the sharpest thing this table can show.
@@ -2262,6 +2313,15 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     if tier_rows:
         tier_report(tier_rows)
         rule_price_report(tier_rows, args.price_tolerance)
+    if added_back_n:
+        print(f'\n{added_back_n:,} order line(s) fit a plan line only once the '
+              f'trade-in and the points\n  redeemed were added back to what '
+              f'was paid. The plan prices the promotion; a trade-in is a '
+              f'separate\n  transaction that lands in the same amount column, '
+              f'so without this a Fold8 traded up reads\n  far under every '
+              f'price the plan quotes and is thrown out on price - inside its '
+              f'window, on\n  the right code, at the right price until the '
+              f'trade-in came off it.')
     if narrowed_n:
         print(f'\n{narrowed_n:,} order line(s) carry a rule the line itself '
               f'rules out - the cell holds every rule\n  the order qualified '

@@ -504,6 +504,39 @@ after says what the offer was. The shape is read off the dates rather than off
 fixed positions, because the positions vary. One cell can hold several rules,
 comma-separated; all of them are kept.
 
+## A trade-in is not a discount, and it sits in the price column
+
+The plan quotes what the promotion sells a phone for. The order export quotes
+what was collected - and a traded-up phone pays part of the price in a phone, a
+points redemption pays part of it in points. Both land in
+`AUD Revenue excl. GST`, the same column the price test reads.
+
+So a Fold8 on the FF8 Pre-Order at $2,579 arrives as about $1,350 after a $700
+trade-in, the nearest plan price is 47% away, and the line is thrown out on
+price - **inside its window, on the right product code, at the right price until
+the trade-in came off it**. Nothing about the match was wrong except the number
+it was given.
+
+The price test now tries two readings of each line at once: the amount as
+written, and the amount with `AUD Trade-in Product Value excl. GST` and
+`Points Redeemed AUD Price` added back. Nearest over both together, so adding
+the trade-in back can only rescue a line the amount as written would have lost -
+it never pulls a line that already fits onto a different plan row. The run says
+how many lines it rescued.
+
+Everything that compares a price to the plan uses the pre-trade-in price, for
+the same reason:
+
+| | |
+|---|---|
+| the plan match | or a traded-up line fits nothing |
+| **does the price belong to the promotion the rule names** | or it reads "planned, and the customer did not pay it" |
+| **paid DC** in planned-vs-arrived | or a campaign that gave 4% reads 23% |
+
+What the customer actually paid is still carried beside it, and the discount
+report still reads `Average Net Discount`. The two prices answer different
+questions and neither replaces the other.
+
 ## Was anything able to name the discount that came off?
 
 "Is all of this caught?" is two questions, and they have different answers. The
