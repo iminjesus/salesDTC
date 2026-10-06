@@ -152,17 +152,27 @@ side is what was live in the month and on how many product codes, the order side
 is what actually arrived:
 
 ```
-what the plan said would run in this month, against what arrived
-  campaign                       plan SKUs plan lines order lines    units       revenue
-  Father's Day                         109        543         866    1,348     2,985,788
-  Tech Fest                            180        339         400      662     2,201,045
-  Samsung Boost Week                   122        196          39       65       175,212
-  SECRET SALE                           28         28           2        2         2,180
-  Samsung AI Week                       39         43           0        0             0
-  outside every campaign                 -          -         799    1,299     3,045,978
-  no plan line fits the order            -          -         890    1,395     2,653,835
+what the plan said would run in this month, and how it was applied
+  campaign                    named by      SKUs  lines    units      revenue     late  plan DC  paid DC
+  Father's Day                nationwide     109    543    1,348    2,985,788       0%      22%       6%
+  Tech Fest                   DTC1+DTC2      180    339      662    2,201,045       0%      20%       7%
+  Samsung Week                DTC1            70     91      198      299,171       0%      19%      12%
+  Samsung Boost Week          DTC1           122    196       65      175,212       0%      32%      27%
+  Clearance                   DTC1             1      1       10       33,627       0%      25%       0%
+  Samsung AI Week             DTC1            39     43        0            0        -      23%        -
+  outside every campaign      -                -      -    1,299    3,045,978       0%        -      13%
+  no plan line fits the order -                -      -    1,395    2,653,835       0%        -        -
   3 campaign(s) were planned and nothing arrived on them: Samsung AI Week, ...
 ```
+
+| column | |
+|---|---|
+| `named by` | which of the plan's three columns carries this campaign - so the DTC's own campaigns can be read apart from the nationwide ones |
+| `SKUs`, `lines` | what was planned: how many product codes, over how many plan lines |
+| `units`, `revenue` | what arrived |
+| `late` | the share of its units whose **own rule** names a window the order date sits outside - the engine still applying a promotion that had ended, or applying one early. It needs no plan to spot, because the rule carries its own dates |
+| `plan DC` | what the plan meant to take off the RRP - the median over its live lines, from the first of `S.COM_Price`, `T2`, `T3`, `EDU`, `T1` each one carries |
+| `paid DC` | what actually came off. Both are consumer prices, so the two compare as written, and a paid DC far under the plan DC is a campaign whose discount mostly did not reach the customer |
 
 A campaign with plan lines and no orders was planned and did not happen. A
 campaign with orders and no plan lines is the other way round. The two bottom

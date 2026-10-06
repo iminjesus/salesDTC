@@ -1039,6 +1039,21 @@ def all_campaigns(camp, canon: dict) -> list:
     return out
 
 
+PRICE_ORDER = ('S.COM_Price', 'T2_Price', 'T3_Price', 'EDU_Price', 'T1_Price')
+
+
+def plan_discount(line) -> float | None:
+    """What the plan meant to take off the RRP on this line."""
+    rrp = (line.get('prices') or {}).get('RRP')
+    if not rrp:
+        return None
+    for col in PRICE_ORDER:
+        v = line['prices'].get(col)
+        if v:
+            return 1 - v / rrp
+    return None
+
+
 def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print) -> None:
     """Did the orders come in on what the plan said would run?
 
@@ -1051,15 +1066,32 @@ def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print) -> None:
     """
     live = collections.defaultdict(set)
     lines = collections.Counter()
+    where = collections.defaultdict(set)      # which column named it
+    span: dict[str, list] = {}                # the window it was planned for
+    dcs = collections.defaultdict(list)       # what it meant to take off
     for r in plan_rows:
         if (r['start'] and r['start'] > hi) or (r['end'] and r['end'] < lo):
             continue
-        for name in all_campaigns(r.get('camp'), canon) or [NO_CAMPAIGN]:
+        names = all_campaigns(r.get('camp'), canon)
+        for i, v in enumerate(r.get('camp') or []):
+            if v:
+                where[canon.get(v, v)].add(('nationwide', 'DTC1', 'DTC2')[i])
+        for name in names or [NO_CAMPAIGN]:
             live[name].add(r['code'])
             lines[name] += 1
+            if r['start'] or r['end']:
+                a, b = r['start'] or lo, r['end'] or hi
+                cur = span.setdefault(name, [a, b])
+                cur[0], cur[1] = min(cur[0], a), max(cur[1], b)
+            d = plan_discount(r)
+            if d is not None:
+                dcs[name].append(d)
     got = collections.Counter()
     units = collections.Counter()
     amt = collections.Counter()
+    inside = collections.Counter()
+    paid_n = collections.Counter()
+    paid_d = collections.Counter()
     for o in orders:
         # The order side keeps its campaign as a one-element list, because the
         # chart rows want it that way; here it is one name.
@@ -1067,22 +1099,51 @@ def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print) -> None:
         got[name] += 1
         units[name] += o['qty']
         amt[name] += o['amt']
+        if o.get('rule_out'):
+            inside[name] += o['qty']
+        if o.get('paid') and o.get('rrp'):
+            paid_n[name] += o['qty'] * (1 - o['paid'] / o['rrp'])
+            paid_d[name] += o['qty']
 
     names = set(live) | set(got)
     names -= {NO_CAMPAIGN, NO_PLAN}      # these two are the rows below, not campaigns
     rows = sorted(names, key=lambda n: (-amt.get(n, 0), -lines.get(n, 0), n))
-    say(f'\nwhat the plan said would run in this month, against what arrived')
-    say(f'  {"campaign":<30}{"plan SKUs":>10}{"plan lines":>11}'
-        f'{"order lines":>12}{"units":>9}{"revenue":>14}')
+    def mid(xs):
+        xs = sorted(xs)
+        n2 = len(xs)
+        return None if not n2 else (xs[n2 // 2] if n2 % 2
+                                    else (xs[n2 // 2 - 1] + xs[n2 // 2]) / 2)
+
+    say(f'\nwhat the plan said would run in this month, and how it was applied')
+    def row(name, named, skus, pl, u, rev, late, pd_, rd):
+        say(f'  {name[:28]:<28}{named[:11]:<12}{skus:>6}{pl:>7}'
+            f'{u:>9,.0f}{rev:>13,.0f}'
+            + (f'{late:>8.0f}%' if late is not None else f'{"-":>9}')
+            + (f'{pd_ * 100:>8.0f}%' if pd_ is not None else f'{"-":>9}')
+            + (f'{rd * 100:>8.0f}%' if rd is not None else f'{"-":>9}'))
+
+    say(f'  {"campaign":<28}{"named by":<12}{"SKUs":>6}{"lines":>7}'
+        f'{"units":>9}{"revenue":>13}{"late":>9}{"plan DC":>9}{"paid DC":>9}')
     for n in rows:
-        say(f'  {n[:30]:<30}{len(live.get(n, ())):>10,}{lines.get(n, 0):>11,}'
-            f'{got.get(n, 0):>12,}{units.get(n, 0):>9,.0f}'
-            f'{amt.get(n, 0):>14,.0f}')
+        u = units.get(n, 0)
+        rd = paid_n[n] / paid_d[n] if paid_d.get(n) else None
+        row(n, '+'.join(sorted(where.get(n, ()))), f'{len(live.get(n, ())):,}',
+            f'{lines.get(n, 0):,}', u, amt.get(n, 0),
+            (inside[n] / u * 100) if u else None, mid(dcs.get(n, [])), rd)
     for n, label in ((NO_CAMPAIGN, 'outside every campaign'),
                      (NO_PLAN, 'no plan line fits the order')):
         if got.get(n):
-            say(f'  {label[:30]:<30}{"-":>10}{"-":>11}'
-                f'{got[n]:>12,}{units[n]:>9,.0f}{amt[n]:>14,.0f}')
+            rd = paid_n[n] / paid_d[n] if paid_d.get(n) else None
+            row(label, '-', '-', '-', units[n], amt[n],
+                (inside[n] / units[n] * 100) if units[n] else None, None, rd)
+    say('  "late" is the share of that campaign\'s units whose own rule names '
+        'a window the order\n  date sits outside - the engine still applying a '
+        'promotion that had ended, or applying\n  one early. It needs no plan '
+        'to spot: the rule carries its own dates.')
+    say('  "plan DC" is what the plan meant to take off the RRP, "paid DC" what '
+        'came off. Both\n  are consumer prices, so the two are comparable as '
+        'written; a paid DC far under the\n  plan DC is a campaign whose '
+        'discount mostly did not reach the customer.')
     dark = [n for n in rows if lines.get(n) and not got.get(n)]
     new = [n for n in rows if got.get(n) and not lines.get(n)]
     if dark:
@@ -1658,7 +1719,21 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                                       for x in guess['cands'])),
             'fitted': bool(guess['promo']), 'type': o_type,
             'group': group, 'sku': cell(r, O['sku']),
-            'day': order['date'].isoformat() if order['date'] else ''})
+            'day': order['date'].isoformat() if order['date'] else '',
+            # What was paid, and the list price of the plan line it matched:
+            # both consumer prices, so the discount is one division and needs
+            # no GST divisor.
+            'paid': paid,
+            # The store's rule names its own window. An order outside it is the
+            # engine still applying a promotion that had ended, which needs no
+            # plan to spot and is the sharpest thing this table can show.
+            'rule_out': any((d['start'] and order['date'] and
+                             order['date'] < d['start'])
+                            or (d['end'] and order['date']
+                                and order['date'] > d['end'])
+                            for d in rules),
+            'rrp': ((guess.get('cands') or [{}])[0].get('prices') or {}).get('RRP')
+                   if guess['promo'] else None})
         out.append([
             cell(r, O['order']), cell(r, O['sku']), cell(r, O['group']),
             order['date'].isoformat() if order['date'] else '',
