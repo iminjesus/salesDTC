@@ -110,8 +110,11 @@ MECHANIC = {'DISC': 'Discount', 'DISCOUNT': 'Discount', 'PWP': 'PWP',
 # came back with 3,949 distinct values that the eight biggest covered a third
 # of: the same offer, re-numbered every time it ran. Short numbers stay, because
 # 5PCT and 50 are the offer.
+# CE adds a typo of its own - MESSSAGE, three Ss, on 406 units - and three
+# words that name the channel or the division rather than the offer: B2C, DTC,
+# CE. 'AU' was already here for the same reason.
 NOISE = {'PROMOTEXT', 'RULE', 'EXECUTE', 'ALL', 'AU', 'THE', 'AND', 'OF',
-         'MESSAGE', 'AUME'}
+         'MESSAGE', 'MESSSAGE', 'AUME', 'B2C', 'DTC', 'CE'}
 ID_CODE = re.compile(r'^\d{4,}$')
 
 
@@ -213,7 +216,8 @@ def mechanic_of(rules: list[dict]) -> tuple[str, str]:
     for d in rules:
         k, r = mechanics_in(d['what'])
         kinds += k
-        rest.append(' '.join(r) or d['what'])
+        if ' '.join(r):            # and no falling back to the raw code
+            rest.append(' '.join(r))
     return (' + '.join(sorted(set(kinds))) or '(not named in the rule)',
             ' + '.join(dict.fromkeys(rest)) or '(no detail)')
 

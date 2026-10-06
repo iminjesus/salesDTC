@@ -95,14 +95,14 @@ FAMILIES = [
     ('Spend and save',       r'\bSPEND\b|\bBMSM\b'),
     ('Secret sale',          r'SECRET'),
     ('Live commerce',        r'LIVE\s?COMMERCE'),
-    ('Flash sale',           r'\bFLASH\b'),
+    ('Flash sale',           r'\bFLASH'),        # FLASHTV9 too
     ('Staff / EDU offer',    r'\bSTAFF\b|\bEDU\b'),
     ('Samsung Care+',        r'SAMSUNG\s?CARE|\bSC\b'),
     ('Rewards points',       r'REWARD|\bPTS\b|POINTS'),
     ('Buy one get one',      r'\bBOGO\b'),
     ('Delivery / install',   r'DELIVERY|INSTALL|TABLETOP|SHIPPING'),
     ('Bonus gift',           r'\bBONUS\b|\bGIFT\b|\bFREE\b|\bFOC\b|\bGWP\b'),
-    ('Bundle / PWP',         r'BUNDLE|PWP'),
+    ('Bundle / PWP',         r'BUNDLE|PWP|PACKAGE'),
     # ── why it ran ──────────────────────────────────────────────────────────
     # A campaign, which beats a generic price word: the offer type level already
     # answers "what mechanic", so this level is where "why" belongs. A
@@ -206,7 +206,13 @@ def levels_of(raw: str) -> tuple[str, str, str]:
     for d in rules:
         k, r = mechanics_in(d['what'])
         kinds += k
-        rest.append(' '.join(r) or d['what'])
+        # No falling back to the raw code. A rule whose every word was a
+        # mechanic or a serial - DISCOUNT_RULE-EXECUTE-AUME-19733 - has no
+        # offer to name, and putting the raw string back here undid the strip
+        # and handed the offer level 967 units of serial number to count as a
+        # promotion of its own.
+        if ' '.join(r):
+            rest.append(' '.join(r))
     # Deduplicated case-blind: `PROMOTEXT X, X` is one offer written twice.
     seen, detail = set(), []
     for r in rest:

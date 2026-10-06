@@ -210,6 +210,13 @@ back with 3,949 distinct values whose eight biggest covered a third: the same
 offer, re-numbered every time it ran. They are noise now, along with any token
 of four or more digits - `5PCT` and `50` stay, because those are the offer.
 
+**Nothing falls back to the raw code.** `' '.join(rest) or d['what']` put the
+whole rule string back as the offer whenever every word of it had been taken as
+a mechanic or a serial, which undid the strip it had just done: `DISCOUNT
+RULE-EXECUTE-AUME-19733` came back as an offer in its own right, 967 units of
+serial number counted as a promotion. A rule with nothing left is `(no detail)`
+- which is a real answer, and a useful one.
+
 **A family is read from the mechanic as well as the offer.** Pulling the
 mechanic out is what makes the offer level readable and it is also what can
 empty it: `BOGO HW LS60D XY AUME 18596` leaves a bare model code and
