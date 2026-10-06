@@ -122,6 +122,52 @@ when it means "that is not the word".
 Output goes to `docs/promo_levels.csv`, which is **not** committed - like every
 other csv these tools write, it holds real customers and real revenue.
 
+### What CE's plan turned out to be
+
+`CE_product` needs **no flags**: every slot the loader looks for is spelled
+exactly as MX spells it, so the differences are all in the columns MX does not
+have - `Division`, `Category`, `Range`, a discount **percentage** per tier, an
+`Overlap` flag, `EPP_Tier`, `Hot_Deals`, `Aged_Clearance`, `SOH`. 9,906 lines,
+9,660 of them live, over 557 SKUs.
+
+Four things in it changed the code:
+
+**`Offer_Type` is clean.** 100% filled, ten values, and four of them were in no
+vocabulary: `Delivery/Install`, `Samsung Care+`, `Rewards Earn`, `Rewards Burn`
+(1,044 live lines, a ninth of the file). They are now mechanics like the rest,
+with an `EXECUTED_AS` entry each - free delivery is a discount on the delivery
+line, Samsung Care+ at a dollar is a PWP, burning points is a voucher nobody
+paid cash for, and earning points changes no price at all. CE therefore needs
+no mechanic *parsed* out of anything: unlike the store's rule codes, its plan
+states the mechanic in a column.
+
+**`DTC_Campaign1` was being read by nothing.** The plan has three campaign
+columns; `promo` took `Nationwide_Campaign` and `promo2` took `DTC_Campaign2`,
+and the one in the middle - 49% filled on CE, and where Samsung Week, Samsung
+Boost Week, Clearance and the launches live - fell through the gap. It is now
+its own slot and part of the label.
+
+**The plan's own discount percentage is `1 - price / RRP`.** Over 5,540 lines
+that carry both, the median gap between `S.COM_Discount_Percentage` and that
+division is **+0.00pp** and 99.8% are within 1pp. So the discount the plan
+quotes is measured off RRP exactly as `asp_xlsx`'s DC % column defines it, and
+`S.COM_Price` and `RRP` are on the same basis - both consumer prices, GST
+included - which is what makes the `÷1.1` in that column necessary against
+ex-GST net sales. Ten lines of 9,660 disagree by more than 1pp, all Monitor, one
+of them reading `52425.0%`: a typed percentage, not a wrong RRP.
+
+**A SKU has more than one live plan line in a month.** Median 2, up to 17, and
+66% of SKU-months have at least two; the plan flags `Overlap` on 27.6% of live
+lines itself. That is the plan-side version of what the store side showed on MX
+(82% of promoted units under more than one rule), and it is why "the promotion"
+for a material-month is reported as the biggest with its share rather than as
+the only one.
+
+Its `Division` reads `TV & SD`, `DA`, `Monitor`, `Memory` - four names, none of
+them "CE", and not necessarily how the SAP product master spells the same thing.
+`--division` takes several names for that reason, and says which names the
+master actually uses when the one asked for is not among them.
+
 ### The family table is MX's table
 
 It was read off MX's own codes, so pointed at another division it is a
@@ -142,6 +188,28 @@ That list is where the division's own families get written from - the same way
 MX's were - and `FAMILIES` at the top of `tools/promo.py` is where they go. A
 high residual means the table does not fit that division yet, not that its
 offers are unstructured.
+
+CE's own rows are there now, read off `CE_product`'s `Offer_Detail` the same
+way. On MX's table alone, CE's offer details came out **75.6% unnamed**; with
+its own rows that is **1.9%** - a long tail of one-offs (`$100 DA Smart Things
+CRM`, a bare model code, `Disti Promo`). The rows were **appended**, not
+interleaved: first match wins, so anything placed above MX's would quietly
+re-bucket MX, and these were derived from a file MX is not in. Inside the block
+the order is offer before campaign - `[Boost Week] EPP $100 Voucher` is a
+voucher that ran during Boost Week, not a campaign that happened to be a
+voucher.
+
+Two of them are worth knowing about:
+
+| | |
+|---|---|
+| `Price off` | MX's `% off` and `$ off` match `50PCT` and `100OFF`, because the store writes a promotion as one token. CE's plan writes the same thing in prose - "20% off", "$100 Discount" - and punctuation is stripped before matching, so it arrives as `20 OFF` and matched neither. Its own row rather than a space added to MX's, which would have moved MX units between named families. |
+| `Plan note (not an offer)` | `Override`, `Promo Extended`, `Offer change (price sharpening)`, `[CVM/CRP]`, `Retail Promo` - 208 live lines where the `Offer_Detail` cell was used as a comment field. Named so they can be counted and set aside, rather than sitting in the residual looking like offers nobody has classified yet. |
+
+The table is now 27 rows, so the overlap report - how much of each family is
+**only** in that family - counts more overlap than it did: a longer table means
+more offers match more than one row. The precedence does correspondingly more
+work, which is the number that report exists to show.
 
 ## The order export already knows
 

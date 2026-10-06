@@ -85,6 +85,44 @@ FAMILIES = [
     ('$ off',                r'\b\d{2,4}OFF\b'),
     ('% off',                r'\d+\s?PCT|PCTOFF|\d+OFF'),
     ('Bundle / PWP',         r'BUNDLE|PWP|GWP'),
+    # ── CE's, read off CE_product's own Offer_Detail ────────────────────────
+    # Appended rather than interleaved: first match wins, so anything put above
+    # MX's rows would quietly re-bucket MX, and these were derived from a file
+    # MX is not in. Within the block the order is offer before campaign - a
+    # "[Boost Week] EPP $100 Voucher" is a voucher that ran during Boost Week,
+    # not a campaign that happened to be a voucher - and the specific before
+    # the general.
+    ('Price match',          r'PRICE\s?MATCH'),
+    ('Stunt promotion',      r'STUNT'),
+    ('EPP surplus',          r'SURPLUS'),
+    ('Aged clearance / EOL', r'CLEARANCE|AGED|\bEOL\b'),
+    ('Cart abandon',         r'ABANDON'),
+    ('Spend and save',       r'\bSPEND\b'),
+    ('Secret sale',          r'SECRET'),
+    ('Live commerce',        r'LIVE\s?COMMERCE'),
+    ('Flash sale',           r'\bFLASH\b'),
+    ('Staff / EDU offer',    r'\bSTAFF\b|\bEDU\b'),
+    ('Samsung Care+',        r'SAMSUNG\s?CARE|\bSC\b'),
+    ('Rewards points',       r'REWARD|\bPTS\b|POINTS'),
+    ('Delivery / install',   r'DELIVERY|INSTALL|TABLETOP'),
+    ('Bonus gift',           r'\bBONUS\b|\bGIFT\b|\bFREE\b'),
+    ('$ voucher',            r'VOUCHER|\bCREDIT\b'),
+    # The two MX rows above match 50PCT and 100OFF - the store writes a
+    # promotion as one token. CE's plan writes the same thing in prose, "20%
+    # off" and "$100 Discount", and the punctuation is stripped before matching,
+    # so it arrives as "20 OFF" and matches neither. Its own row rather than a
+    # space added to MX's, which would move MX units between named families.
+    ('Price off',            r'\d+\s?OFF\b|\d+\s?DISCOUNT\b|\bDEEPER\b'),
+    ('EPP offer',            r'\bEPP\b'),
+    # Not a promotion at all: the Offer_Detail cell used as a comment field.
+    # Named so it can be counted and left out, rather than sitting in the
+    # residual looking like an offer nobody has classified yet.
+    # No comma in the name: --precedence is a comma-separated list, and a
+    # family nobody can name on the command line is a family nobody can reorder.
+    ('Plan note (not an offer)',
+     r'\bOVERRIDE\b|SHARPEN|\bEXTENDED\b|\bCVM\b|\bCRP\b|OFFER CHANGE'
+     r'|DATE CHANGE|RETAIL PROMO'),
+    ('Samsung / Boost Week', r'\bBOOST\b|SAMSUNG\s?WEEK|TECH\s?FEST'),
 ]
 
 

@@ -44,8 +44,13 @@ ROOT = Path(__file__).resolve().parent.parent
 NAMES = {
     'sku':     ('SKU', 'Product Code', 'Material', 'Material Code', 'Model',
                 'Model Code', 'Product Number', 'Item Code', 'Item'),
-    'promo':   ('Nationwide_Campaign', 'DTC_Campaign1', 'Promotion Name',
-                'Promotion', 'Campaign', 'Program'),
+    'promo':   ('Nationwide_Campaign', 'Promotion Name', 'Promotion',
+                'Campaign', 'Program'),
+    # The plan carries three campaign columns, not two. 'promo' took the
+    # nationwide one and 'promo2' the second DTC one, which left DTC_Campaign1
+    # - 49% filled on CE, and the column that holds Samsung Week, Boost Week
+    # and the launches - read by nothing at all.
+    'promo3':  ('DTC_Campaign1',),
     'promo2':  ('DTC_Campaign2', 'Offer_Detail', 'Offer Detail'),
     'type':    ('Offer_Type', 'Offer Type', 'Mechanic'),
     'start':   ('Start_Date', 'Start Date', 'Start', 'Valid From', 'From Date'),
@@ -80,7 +85,16 @@ MECHANIC = {'DISC': 'Discount', 'DISCOUNT': 'Discount', 'PWP': 'PWP',
             'PURCHASEWITHPURCHASE': 'PWP', 'GIFTWITHPURCHASE': 'GWP',
             'FREEGIFT': 'GWP', 'TRADEUPTRADEIN': 'Trade-In',
             'REDEMPTION': 'Cashback', 'PRICEOFF': 'Discount',
-            'INSTANTDISCOUNT': 'Discount'}
+            'INSTANTDISCOUNT': 'Discount',
+            # CE's own four, read off CE_product's Offer_Type column, which is
+            # 100% filled and spells its ten mechanics in words. Without them
+            # 1,044 live plan lines - a ninth of the file - came back as
+            # "mechanic not in the vocabulary" and disagreed with every rule
+            # they were compared against.
+            'DELIVERYINSTALL': 'Delivery/Install',
+            'FREEDELIVERY': 'Delivery/Install',
+            'SAMSUNGCARE': 'Samsung Care+', 'SAMSUNGCAREPLUS': 'Samsung Care+',
+            'REWARDSEARN': 'Rewards Earn', 'REWARDSBURN': 'Rewards Burn'}
 
 
 # Words that sit beside the mechanic and say nothing about which it was.
@@ -105,7 +119,27 @@ EXECUTED_AS = {
     'Trade-In': {'Trade-In', 'Trade-Up', 'Discount'},
     'Trade-Up': {'Trade-Up', 'Trade-In', 'Discount'},
     'GWP':      {'GWP', 'PWP'},
+    # CE's four. Free delivery is a discount on the delivery line; Samsung
+    # Care+ is sold at a dollar with the product, which is a PWP; burning
+    # points is a voucher the customer did not pay cash for. Earning points
+    # changes no price at all, so it is delivered as itself and a rule that
+    # discounts alongside it is a different promotion, not the same one.
+    'Delivery/Install': {'Delivery/Install', 'Discount', 'GWP'},
+    'Samsung Care+':    {'Samsung Care+', 'PWP', 'Discount', 'Bundle'},
+    'Rewards Burn':     {'Rewards Burn', 'Voucher', 'Discount'},
+    'Rewards Earn':     {'Rewards Earn'},
 }
+
+
+def real(v) -> bool:
+    """Does this cell say anything?
+
+    A plan writes "not applicable" as a dash, and `Yes` turns up in CE's
+    campaign columns where a Hot_Deals flag was pasted one column over. Both
+    read as a campaign name called '-' or 'Yes' in any chart that groups by it.
+    """
+    t = str(v or '').strip()
+    return bool(t) and t != '-' and t.lower() not in ('yes', 'no', 'n/a')
 
 
 def mechanics_in(text: str) -> tuple[list, list]:
@@ -356,8 +390,8 @@ class Plan:
 def plan_columns(head: list[str]) -> dict:
     """Where the plan keeps the pieces a promotion is made of."""
     P = {k: find(head, *NAMES[k]) for k in
-         ('sku', 'promo', 'promo2', 'type', 'start', 'end', 'status', 'site',
-          'voucher')}
+         ('sku', 'promo', 'promo3', 'promo2', 'type', 'start', 'end', 'status',
+          'site', 'voucher')}
     P['promo2b'] = find(head, 'Offer_Detail', 'Offer Detail')
     return P
 
@@ -411,9 +445,9 @@ def plan_lines(body, P, price_cols, keep_cancelled: bool = False,
         if not keep_cancelled and cell(r, P['status']).lower() in DEAD:
             dropped += 1
             continue
-        label = ' / '.join(x for x in (cell(r, P['promo']), cell(r, P['promo2']),
-                                       cell(r, P['type']))
-                           if x and x != '-') or '(unnamed plan line)'
+        label = ' / '.join(x for x in (cell(r, P['promo']), cell(r, P['promo3']),
+                                       cell(r, P['promo2']), cell(r, P['type']))
+                           if real(x)) or '(unnamed plan line)'
         rows.append({
             'code': code, 'promo': label, 'source': source,
             'type': cell(r, P['type']),
@@ -525,8 +559,8 @@ def plan_structure(meta: list, say=print) -> None:
             say(f'  only in {m["path"].name}: ' + ', '.join(only[:12])
                 + (f' ... and {len(only) - 12} more' if len(only) > 12 else ''))
     # The columns this tool actually reads matter more than the rest of them.
-    want = ('sku', 'promo', 'promo2', 'type', 'start', 'end', 'status', 'site',
-            'voucher')
+    want = ('sku', 'promo', 'promo3', 'promo2', 'type', 'start', 'end',
+            'status', 'site', 'voucher')
     say('  what each file answers with:')
     width = max(len(n) for n in names)
     for m in meta:
