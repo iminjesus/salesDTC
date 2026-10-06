@@ -189,6 +189,64 @@ MX's were - and `FAMILIES` at the top of `tools/promo.py` is where they go. A
 high residual means the table does not fit that division yet, not that its
 offers are unstructured.
 
+### What the store's CE rules then showed
+
+Running it over the ten store exports, CE is **82,576 of 352,963 order lines**
+(`TV & SD`, `DA`, `Monitor` - MX is the other 76% of the store, which is what a
+DTC store selling phones looks like). 60% of CE's units carry a promotion, and
+**74% of those ran under more than one rule at once** - the same finding as MX's
+82%, from the other side of the join.
+
+Three things in that run changed the code again:
+
+**`BOGO` is a mechanic**, 11,109 units of CE's promoted - the third largest
+thing in the file - and it was reading as "mechanic not in the code". So are
+`SHIPPING`/`FREE SHIPPING` (delivery) and `FOC` (free of charge, a gift).
+
+**`MESSAGE` and `AUME` are prefixes, and a long number is an id.** `MESSAGE` is
+on 60% of CE's promoted units and `AUME` on 50%, and `AUME 18596` / `AUME 19733`
+/ `240207` are the promotion's own serial. That is why CE's offer level came
+back with 3,949 distinct values whose eight biggest covered a third: the same
+offer, re-numbered every time it ran. They are noise now, along with any token
+of four or more digits - `5PCT` and `50` stay, because those are the offer.
+
+**A family is read from the mechanic as well as the offer.** Pulling the
+mechanic out is what makes the offer level readable and it is also what can
+empty it: `BOGO HW LS60D XY AUME 18596` leaves a bare model code and
+`FREE SHIPPING` leaves nothing, and neither had a family. The mechanic is part
+of what the offer was, so it is put back for that one question.
+
+### The precedence, decided from numbers
+
+`EPP welcome voucher` was first in the table and took **21,935** of CE's
+promoted units - 42% of them - and its "only this one" was **0%**. Every single
+unit it held also ran under a real campaign. It is a standing 5% off a first
+purchase; it is not why anything sold in September.
+
+So the table is now ordered by what each row *is*, not by which division it came
+from:
+
+| | |
+|---|---|
+| **what the offer was** | a named offer - trade-in, price match, stunt promotion, BOGO, delivery, bundle |
+| **why it ran** | the campaign. The offer type level already answers "what mechanic", so this level is where "why" belongs: `[Boost Week] EPP $100 Voucher` is filed under Boost Week |
+| **the standing offer** | the EPP welcome voucher, below every campaign so its units go to the campaign that drove them - but above the rows below, so a rule that is *only* the welcome voucher is still named as one rather than as "% off" |
+| **how the price was written** | `% off RRP`, `$ off`, `% off`, `Price off`, `$ voucher` - descriptions, not offers |
+| **last resorts** | `EPP`, which says only which tier could buy; then the plan-note words |
+
+That is a **choice**, and the run measures how much work it does: 62% of CE's
+promoted units match more than one family, so that much of the split is the
+order of this table rather than anything read off a code. `--precedence` changes
+it from the command line, and the earlier MX family numbers in this session were
+taken with the welcome voucher first, so they will move.
+
+One of the CE rows was **wrong on the store side**: `CVM` and `CRP` were put in
+the plan-note pattern because the plan writes `[CVM/CRP]` in its comment field,
+and on the store side `CRP` is part of a live rule - `B2C CRP CE 231103` - which
+is 9,843 of CE's promoted units. They are out of the pattern, and the whole
+plan-note row is last now, because its words are ordinary English and a store
+rule that happens to use one is still a real offer.
+
 CE's own rows are there now, read off `CE_product`'s `Offer_Detail` the same
 way. On MX's table alone, CE's offer details came out **75.6% unnamed**; with
 its own rows that is **1.9%** - a long tail of one-offs (`$100 DA Smart Things

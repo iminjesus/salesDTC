@@ -93,12 +93,26 @@ MECHANIC = {'DISC': 'Discount', 'DISCOUNT': 'Discount', 'PWP': 'PWP',
             # they were compared against.
             'DELIVERYINSTALL': 'Delivery/Install',
             'FREEDELIVERY': 'Delivery/Install',
+            # And the ones the store writes on CE's own rule codes. BOGO is
+            # 11,109 units of CE's promoted - the third largest thing in the
+            # file - and was reading as "mechanic not in the code".
+            'BOGO': 'BOGO', 'SHIPPING': 'Delivery/Install',
+            'FREESHIPPING': 'Delivery/Install', 'FOC': 'GWP',
             'SAMSUNGCARE': 'Samsung Care+', 'SAMSUNGCAREPLUS': 'Samsung Care+',
             'REWARDSEARN': 'Rewards Earn', 'REWARDSBURN': 'Rewards Burn'}
 
 
 # Words that sit beside the mechanic and say nothing about which it was.
-NOISE = {'PROMOTEXT', 'RULE', 'EXECUTE', 'ALL', 'AU', 'THE', 'AND', 'OF'}
+#
+# MESSAGE and AUME are prefixes the store glues on - MESSAGE on 60% of CE's
+# promoted units, AUME on 50% - and a long run of digits is the promotion's own
+# id. Neither says anything about the offer, and both are why CE's offer level
+# came back with 3,949 distinct values that the eight biggest covered a third
+# of: the same offer, re-numbered every time it ran. Short numbers stay, because
+# 5PCT and 50 are the offer.
+NOISE = {'PROMOTEXT', 'RULE', 'EXECUTE', 'ALL', 'AU', 'THE', 'AND', 'OF',
+         'MESSAGE', 'AUME'}
+ID_CODE = re.compile(r'^\d{4,}$')
 
 
 # The plan and the store are not two vocabularies for one thing. The plan names
@@ -118,7 +132,11 @@ EXECUTED_AS = {
     'Voucher':  {'Voucher', 'Discount'},
     'Trade-In': {'Trade-In', 'Trade-Up', 'Discount'},
     'Trade-Up': {'Trade-Up', 'Trade-In', 'Discount'},
-    'GWP':      {'GWP', 'PWP'},
+    # The commonest unreconciled pair in September: the plan says Gift with
+    # Purchase and the rule ran a discount, or a discount and a voucher - 116
+    # lines of the 233 that fitted neither reading. A gift is given by taking
+    # its price off, so that is the same promotion described at two levels.
+    'GWP':      {'GWP', 'PWP', 'Discount', 'Voucher'},
     # CE's four. Free delivery is a discount on the delivery line; Samsung
     # Care+ is sold at a dollar with the product, which is a PWP; burning
     # points is a voucher the customer did not pay cash for. Earning points
@@ -128,6 +146,7 @@ EXECUTED_AS = {
     'Samsung Care+':    {'Samsung Care+', 'PWP', 'Discount', 'Bundle'},
     'Rewards Burn':     {'Rewards Burn', 'Voucher', 'Discount'},
     'Rewards Earn':     {'Rewards Earn'},
+    'BOGO':             {'BOGO', 'GWP', 'PWP', 'Discount'},
 }
 
 
@@ -174,7 +193,7 @@ def mechanics_in(text: str) -> tuple[list, list]:
             u = w.upper()
             if u in MECHANIC:
                 kinds.append(MECHANIC[u])
-            elif u not in NOISE:
+            elif u not in NOISE and not ID_CODE.match(u):
                 rest.append(w)
     return kinds, rest
 
@@ -885,6 +904,9 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     near_code = 0
     slack_used = 0
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
+    # A voucher attribution of zero is either "no order used one" or "the join is
+    # broken", and those need telling apart. Counted on the way past.
+    vouch = {'carried': 0, 'known': 0}
     agree = {'same': 0, 'differ': 0, 'outside': 0, 'as_run': 0, 'apart': 0}
     clash = collections.Counter()
     by_promo: dict[tuple, list[float]] = {}
@@ -906,6 +928,9 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         rules = [parse_rule(t) for t in split_rules(cell(r, O['rule']))]
         vouchers = [code_norm(v) for v in split_rules(cell(r, O['voucher']))]
         v_hits = [p for v in vouchers for p in plan.by_voucher.get(v, [])]
+        if vouchers:
+            vouch['carried'] += 1
+            vouch['known'] += bool(v_hits)
         guess = from_plan(order, plan, args.price_tolerance, args.window_slack)
         if guess['gap'] != '':
             gaps.append(guess['gap'])
@@ -1068,6 +1093,14 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                      ('plan', 'inferred from the plan - code, window, price'),
                      ('none', 'nothing fits')):
         print(f'  {source[k]:>8,}  {source[k] * 100 / n:>5.1f}%  {label}')
+        if k == 'voucher' and not source['voucher']:
+            # Said rather than left to be wondered about: a voucher is only
+            # looked up where the order carries no rule, so nothing here usually
+            # means the rule answered first, not that the join failed.
+            print(f'           {vouch["carried"]:,} line(s) carry a voucher '
+                  f'code, {vouch["known"]:,} of them one the plan lists; a '
+                  f'voucher is\n           only read where the line has no '
+                  f'rule, and {source["rule"]:,} line(s) had one')
     both = agree['same'] + agree['differ']
     if both:
         print(f'  of {both:,} line(s) the rule and the plan both answered for:')

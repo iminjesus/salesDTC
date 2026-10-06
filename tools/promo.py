@@ -80,52 +80,70 @@ NOT_IN_MASTER = '(no division for this code)'
 # fails to name along with the tokens those unnamed units are built from. Write
 # the new families from that list rather than from what sounds likely.
 FAMILIES = [
-    ('EPP welcome voucher', r'WELCOME'),
+    # ── what the offer was ──────────────────────────────────────────────────
+    # A specific offer, named. These answer "what did the customer get", and
+    # they come first because every row below describes something rather than
+    # naming it.
     ('Trade-in / Trade-up',  r'TRADE'),
     ('Accessories offer',    r'\bACC(ESSORIES)?\b'),
     ('First 72 hours',       r'\d*HR\b|FIRST\d+'),
-    ('% off RRP',            r'RRP'),
-    ('$ off',                r'\b\d{2,4}OFF\b'),
-    ('% off',                r'\d+\s?PCT|PCTOFF|\d+OFF'),
-    ('Bundle / PWP',         r'BUNDLE|PWP|GWP'),
-    # ── CE's, read off CE_product's own Offer_Detail ────────────────────────
-    # Appended rather than interleaved: first match wins, so anything put above
-    # MX's rows would quietly re-bucket MX, and these were derived from a file
-    # MX is not in. Within the block the order is offer before campaign - a
-    # "[Boost Week] EPP $100 Voucher" is a voucher that ran during Boost Week,
-    # not a campaign that happened to be a voucher - and the specific before
-    # the general.
     ('Price match',          r'PRICE\s?MATCH'),
     ('Stunt promotion',      r'STUNT'),
     ('EPP surplus',          r'SURPLUS'),
     ('Aged clearance / EOL', r'CLEARANCE|AGED|\bEOL\b'),
     ('Cart abandon',         r'ABANDON'),
-    ('Spend and save',       r'\bSPEND\b'),
+    ('Spend and save',       r'\bSPEND\b|\bBMSM\b'),
     ('Secret sale',          r'SECRET'),
     ('Live commerce',        r'LIVE\s?COMMERCE'),
     ('Flash sale',           r'\bFLASH\b'),
     ('Staff / EDU offer',    r'\bSTAFF\b|\bEDU\b'),
     ('Samsung Care+',        r'SAMSUNG\s?CARE|\bSC\b'),
     ('Rewards points',       r'REWARD|\bPTS\b|POINTS'),
-    ('Delivery / install',   r'DELIVERY|INSTALL|TABLETOP'),
-    ('Bonus gift',           r'\bBONUS\b|\bGIFT\b|\bFREE\b'),
-    ('$ voucher',            r'VOUCHER|\bCREDIT\b'),
-    # The two MX rows above match 50PCT and 100OFF - the store writes a
-    # promotion as one token. CE's plan writes the same thing in prose, "20%
-    # off" and "$100 Discount", and the punctuation is stripped before matching,
-    # so it arrives as "20 OFF" and matches neither. Its own row rather than a
-    # space added to MX's, which would move MX units between named families.
-    ('Price off',            r'\d+\s?OFF\b|\d+\s?DISCOUNT\b|\bDEEPER\b'),
-    ('EPP offer',            r'\bEPP\b'),
-    # Not a promotion at all: the Offer_Detail cell used as a comment field.
-    # Named so it can be counted and left out, rather than sitting in the
-    # residual looking like an offer nobody has classified yet.
-    # No comma in the name: --precedence is a comma-separated list, and a
-    # family nobody can name on the command line is a family nobody can reorder.
-    ('Plan note (not an offer)',
-     r'\bOVERRIDE\b|SHARPEN|\bEXTENDED\b|\bCVM\b|\bCRP\b|OFFER CHANGE'
-     r'|DATE CHANGE|RETAIL PROMO'),
+    ('Buy one get one',      r'\bBOGO\b'),
+    ('Delivery / install',   r'DELIVERY|INSTALL|TABLETOP|SHIPPING'),
+    ('Bonus gift',           r'\bBONUS\b|\bGIFT\b|\bFREE\b|\bFOC\b|\bGWP\b'),
+    ('Bundle / PWP',         r'BUNDLE|PWP'),
+    # ── why it ran ──────────────────────────────────────────────────────────
+    # A campaign, which beats a generic price word: the offer type level already
+    # answers "what mechanic", so this level is where "why" belongs. A
+    # "[Boost Week] EPP $100 Voucher" is filed under Boost Week, not under
+    # voucher.
     ('Samsung / Boost Week', r'\bBOOST\b|SAMSUNG\s?WEEK|TECH\s?FEST'),
+    # ── the standing offer ──────────────────────────────────────────────────
+    # 5% off a first purchase, always on, and not a reason anything sold this
+    # month. First in this table it collected 21,935 of CE's promoted units and
+    # **none** were its alone - every one also ran under a real campaign, which
+    # is what "only this one 0%" in the overlap report means. Here, those units
+    # go to the campaign that drove them and the voucher keeps what it won by
+    # itself, while a rule that is only the welcome voucher is still named as
+    # one rather than as "% off".
+    ('EPP welcome voucher',  r'WELCOME'),
+    # ── how the price was written ───────────────────────────────────────────
+    # Descriptions, not offers: anything still here was not named above, and
+    # all these rows say is the shape of the discount.
+    ('% off RRP',            r'RRP'),
+    ('$ off',                r'\b\d{2,4}OFF\b'),
+    ('% off',                r'\d+\s?PCT|PCTOFF|\d+OFF|\d+\s?PERCENT'),
+    # The two rows above match 50PCT and 100OFF - the store writes a promotion
+    # as one token. CE's plan writes the same thing in prose, "20% off" and
+    # "$100 Discount", and punctuation is stripped before matching, so it
+    # arrives as "20 OFF" and matches neither.
+    ('Price off',            r'\d+\s?OFF\b|\d+\s?DISCOUNT\b|\bDEEPER\b'),
+    ('$ voucher',            r'VOUCHER|\bCREDIT\b'),
+    # ── last resorts ────────────────────────────────────────────────────────
+    # `\bEPP\b` is on a third of the lines and says only which tier could buy,
+    # so it names what nothing else could. Below it, the plan's Offer_Detail
+    # cell used as a comment field, named so those lines can be counted and set
+    # aside - last, because the words are ordinary English and a store rule that
+    # happens to use one is still a real offer. CVM and CRP are deliberately not
+    # in it: they read as a plan note in `[CVM/CRP]` and as a live rule in
+    # `B2C CRP CE 231103`, which is 9,843 of CE's promoted units.
+    # No comma in either name: --precedence is a comma-separated list, and a
+    # family nobody can name on the command line is one nobody can reorder.
+    ('EPP offer',            r'\bEPP\b'),
+    ('Plan note (not an offer)',
+     r'\bOVERRIDE\b|SHARPEN|\bEXTENDED\b|OFFER CHANGE|DATE CHANGE'
+     r'|RETAIL PROMO'),
 ]
 
 
@@ -136,6 +154,20 @@ def families_in(offer: str) -> list:
     """Every family an offer matches, in the table's order."""
     up = re.sub(r'[^A-Z0-9]+', ' ', offer.upper())
     return [name for name, pat in FAMILIES if re.search(pat, up)]
+
+
+def family_label(kind: str, offer: str, order=None) -> str:
+    """The family of a rule, read from its offer **and** its mechanic.
+
+    Pulling the mechanic out of the code is what makes the offer level readable,
+    and it is also what can empty it: `BOGO HW LS60D XY AUME 18596` leaves
+    `HW LS60D XY`, a bare model code that no family names, and `FREE SHIPPING`
+    leaves nothing at all. The mechanic is part of what the offer was, so it is
+    put back for this one question.
+    """
+    if kind and kind.startswith('('):          # '(mechanic not in the code)'
+        kind = ''
+    return family_of(f'{offer} {kind}'.strip(), order)
 
 
 def family_of(offer: str, order=None) -> str:
@@ -351,9 +383,11 @@ def main() -> int:
 
     for l in lines:
         l['type'], l['offer'], l['rule'] = levels_of(l['raw'])
-        l['all_fam'] = [] if l['type'] == NONE else families_in(l['offer'])
+        both = ('' if l['type'].startswith('(')
+                else f"{l['offer']} {l['type']}").strip() or l['offer']
+        l['all_fam'] = [] if l['type'] == NONE else families_in(both)
         l['family'] = (NONE if l['type'] == NONE
-                       else family_of(l['offer'], order))
+                       else family_label(l['type'], l['offer'], order))
         l['n_rules'] = len(split_rules(l['raw']))
 
     tot_q = sum(l['qty'] for l in lines) or 1.0
