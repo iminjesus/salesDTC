@@ -764,7 +764,7 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
     if not cands:
         return {'promo': '', 'how': how, 'gap': '', 'alts': 0, 'priced': '',
                 'type': '', 'detail': '', 'off_by': '', 'miss': 'code',
-                'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'cands': [], 'camp_lost': False}
+                'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'cands': []}
 
     off_by = ''
     if order['date'] is not None:
@@ -1222,10 +1222,24 @@ def campaign_report(rows: list, say=print) -> None:
         f'much of the split below is\n  a precedence rather than a reading')
     lost = sum(r['qty'] for r in rows if r['camp_lost'])
     if lost:
-        say(f'  {lost:,.0f} of those unit(s) are in the residual only because '
-            f'the plan line that best fits\n  the price names no campaign while '
-            f'another that fits does - a tie-break away from\n  being '
-            f'attributed')
+        say(f'  {lost:,.0f} unit(s) ({lost / tot_q * 100:.1f}%) took their '
+            f'campaign from a plan line other than the one\n  the price picked '
+            f'- the nearest line that names one. Without that they would be in '
+            f'the\n  residual, which is a tie-break and not a reading')
+    # What is actually left, now that a tie-break cannot be the reason.
+    out = [r for r in rows if not r['camp'][0] and r['fitted']]
+    if out:
+        oq = sum(r['qty'] for r in out)
+        say(f'\n  {oq:,.0f} unit(s) ({oq / tot_q * 100:.0f}%) matched a plan '
+            f'line and **no** line that fits them names a\n  campaign in any '
+            f'of the three columns. That is the plan saying nothing, not the '
+            f'match\n  failing. Where they sit:')
+        by = collections.Counter()
+        for r in out:
+            by[r.get('div') or '(blank)'] += r['qty']
+        n = sum(by.values()) or 1
+        for k, v in by.most_common(8):
+            say(f'    {k[:30]:<30}{v:>10,.0f}{v / n * 100:>7.1f}%')
 
     def table(key, title, pool, note=''):
         t = collections.Counter()
@@ -1649,7 +1663,19 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         # it ran in and the family it was; which source could name it is an
         # attribute of the row, not part of what the row is.
         fam = family_label(o_type, o_detail, order_of)
-        camp0 = one_campaign(guess.get('camp'), canon)
+        # The campaign and the mechanic are two axes, so they need not come off
+        # the same plan line. The mechanic has to: it is what the price bought.
+        # The campaign does not, and taking it only from the price-nearest line
+        # threw away every campaign named by a line that fitted just as well -
+        # the candidates are already sorted price-nearest first, so the first
+        # that names one is the nearest that does.
+        best = one_campaign(guess.get('camp'), canon)
+        camp0 = best
+        for cand in (guess.get('cands') or []):
+            if camp0:
+                break
+            camp0 = one_campaign(cand.get('camp'), canon)
+        rescued = bool(camp0 and not best)
         key = (camp0 or (NO_CAMPAIGN if guess['promo'] else NO_PLAN), fam)
         agg = by_promo.setdefault(key, [0.0, 0.0, 0.0, collections.Counter(),
                                         collections.Counter()])
@@ -1714,9 +1740,8 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             # same campaign are not two answers.
             'camp_alts': len({one_campaign(x.get('camp'), canon)
                               for x in (guess.get('cands') or [])}),
-            'camp_lost': bool(not camp0 and guess.get('cands')
-                              and any(one_campaign(x.get('camp'), canon)
-                                      for x in guess['cands'])),
+            'camp_lost': rescued,
+            'div': cell(r, O['division']) or '(blank)',
             'fitted': bool(guess['promo']), 'type': o_type,
             'group': group, 'sku': cell(r, O['sku']),
             'day': order['date'].isoformat() if order['date'] else '',
