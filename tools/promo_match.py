@@ -1374,6 +1374,11 @@ def main() -> int:
     ap.add_argument('--amount-is', choices=('line', 'unit'), default='line',
                     help='whether the order amount is the whole line or one '
                          'unit (default line, so it is divided by quantity)')
+    ap.add_argument('--only', metavar='CODE',
+                    help='one product only, by any part of its code - '
+                         '--only SM-F9 for the Fold. Everything is then about '
+                         'that product: its orders, the rules they came in on, '
+                         'and every plan line the plan has for it')
     ap.add_argument('--precedence', metavar='LIST',
                     help='which family a line counts as where it matches '
                          'several, highest first, comma separated. The default '
@@ -1549,6 +1554,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     slack_used = 0
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
     camp_rows, tier_rows = [], []
+    only = code_norm(args.only) if args.only else ''
     order_of = [x.strip() for x in (args.precedence or '').split(',') if x.strip()]
     bad = [x for x in order_of if x not in {n for n, _ in FAMILIES}]
     if bad:
@@ -1573,6 +1579,8 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         if amount is not None:
             per = amount / qty if args.amount_is == 'line' and qty else amount
             paid = per * (1 + args.gst / 100) if per is not None else None
+        if only and only not in code_norm(cell(r, O['sku'])):
+            continue
         order = {'code': code_norm(cell(r, O['sku'])),
                  'date': to_date(cell(r, O['date'])), 'price': paid}
 
@@ -1862,6 +1870,26 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         if abs(mid) > 1:
             print('  a median far from zero means the two quote prices on '
                   'different bases - try --gst or --amount-is')
+
+    if only:
+        mine = [r for r in plan_rows if only in r['code']]
+        print(f'\nwhat the plan has for {args.only!r}: {len(mine):,} live '
+              f'line(s) over {len({r["code"] for r in mine}):,} product code(s)')
+        if not mine:
+            print('  nothing. Every order of it must therefore come back as '
+                  '"the plan has no line for\n  this product", whatever the '
+                  'rule says - that is the plan missing, not the match failing.')
+        for r in sorted(mine, key=lambda r: (r['start'] or date(1900, 1, 1),
+                                             r['code']))[:25]:
+            win = (f'{r["start"]:%d%b} - {r["end"]:%d%b}'
+                   if r['start'] and r['end'] else 'no window')
+            price = ', '.join(f'{c.replace("_Price", "")} {v:,.0f}'
+                              for c, v in sorted(r['prices'].items()))
+            print(f'  {r["code"][:18]:<18}{win:<16}{r["type"][:18]:<19}'
+                  f'{(one_campaign(r.get("camp"), canon) or "-")[:18]:<19}'
+                  f'{price[:46]}')
+        if len(mine) > 25:
+            print(f'  ... and {len(mine) - 25:,} more')
 
     if tier_rows:
         tier_report(tier_rows)
