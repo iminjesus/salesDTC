@@ -1223,6 +1223,60 @@ def rules_on_line(rules: list, rrp, paid, own_dc, tol: float = 0.01) -> tuple:
     return rules, False
 
 
+def suggest_price_columns(head, body, amount_i, qty_i, say=print) -> None:
+    """Which columns behave like a list price or a discount rate.
+
+    The names vary and guessing more of them is a losing game, so where neither
+    is recognised the file is asked instead: a column that is numeric and sits
+    consistently above what was paid behaves like a list price, and one whose
+    values all fall between zero and one behaves like a rate. Named here, they
+    can be passed with --order-rrp and --order-disc, and the run is exact rather
+    than approximately right.
+    """
+    rows = body[:4000]
+    paid, rate, above = [], [], []
+    for i, h in enumerate(head):
+        if not h or i in (amount_i, qty_i):
+            continue
+        vals, over, n = [], 0, 0
+        for r in rows:
+            v = parse_number(r[i] if i < len(r) else '')
+            if v is None:
+                continue
+            a = parse_number(r[amount_i] if amount_i is not None
+                             and amount_i < len(r) else '')
+            q = parse_number(r[qty_i] if qty_i is not None
+                             and qty_i < len(r) else '') or 1.0
+            vals.append(v)
+            if a is not None and q:
+                n += 1
+                over += v >= a / q
+        if len(vals) < 20:
+            continue
+        # Zeros are ordinary - a line given away has no price and a line at
+        # list has no discount - so they are allowed on both tests. Requiring
+        # every value to be positive was enough on its own to find nothing in
+        # an export that plainly carries both columns.
+        if n and over >= n * 0.95 and any(v > 0 for v in vals):
+            above.append((h, len(vals)))
+        if min(vals) >= 0 and max(vals) <= 1 and len(set(vals)) > 5:
+            rate.append((h, len(vals)))
+    if above:
+        say('  columns that behave like a list price (always at or above what '
+            'a unit was paid):\n    ' + ', '.join(h for h, _ in above[:8]))
+    if rate:
+        say('  columns that behave like a rate (every value between 0 and 1):'
+            '\n    ' + ', '.join(h for h, _ in rate[:8]))
+    if above or rate:
+        say('  pass one with --order-rrp and --order-disc and the discount is '
+            'read off the order\n  itself, which is the only discount a '
+            'product the plan does not list can have')
+    else:
+        say('  nothing in this export behaves like a list price or a rate, so '
+            'a discount can only\n  come from the plan - and not at all for a '
+            'product the plan does not list')
+
+
 def own_discount(disc, rrp, amount, qty, basis=1.0):
     """The discount the order line states about itself, or None.
 
@@ -1548,7 +1602,9 @@ def main() -> int:
                        ('order-no', 'order number'),
                        ('order-qty', 'units'),
                        ('order-rule', "the store's own promotion code"),
-                       ('order-voucher', 'voucher the customer used')):
+                       ('order-voucher', 'voucher the customer used'),
+                       ('order-rrp', 'the list price the order states'),
+                       ('order-disc', 'the discount rate the order states')):
         ap.add_argument(f'--{flag}', metavar='COLUMN', help=what)
     args = ap.parse_args()
 
@@ -1606,8 +1662,8 @@ def main() -> int:
         'division': choose(o_head, o_body, 'division', None),
         'portal': choose(o_head, o_body, 'portal', None),
         'cancel': choose(o_head, o_body, 'cancel', None),
-        'rrp': choose(o_head, o_body, 'rrp', None),
-        'disc': choose(o_head, o_body, 'disc', None),
+        'rrp': choose(o_head, o_body, 'rrp', args.order_rrp),
+        'disc': choose(o_head, o_body, 'disc', args.order_disc),
     }
 
     print('\ncolumns chosen  (--flags override any of these):')
@@ -1714,6 +1770,9 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     # One pass over the export to settle how its own prices are quoted, before
     # a single discount is read off them.
     basis = 1.0
+    if O['rrp'] is None:
+        print('\nthe order export states no list price this build recognises:')
+        suggest_price_columns(o_head, o_body, O['amount'], O['qty'])
     if O['rrp'] is not None:
         print('\nthe order export prices itself:')
         basis = gst_basis([(cell(r, O['disc']), cell(r, O['rrp']),
