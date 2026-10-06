@@ -504,6 +504,43 @@ after says what the offer was. The shape is read off the dates rather than off
 fixed positions, because the positions vary. One cell can hold several rules,
 comma-separated; all of them are kept.
 
+## Was anything able to name the discount that came off?
+
+"Is all of this caught?" is two questions, and they have different answers. The
+export states a discount per line; whether a *promotion* could be put against
+that discount is separate. Four outcomes, counted in units, revenue and average
+discount:
+
+| | |
+|---|---|
+| **named** | the rule, the voucher or the plan answered |
+| **rule not read** | the cell holds something, but not a shape this build can parse - `2025_05_02_20_PERCENT_FIRST_PURCHASE_DISCOUNT_WESTPAC_BUSINESS` |
+| **no rule recorded** | the discount is real and `promotion_rule` is empty - order `AU260803-38105969` lost 25% with nothing to say why |
+| **trade-in, not a price cut** | the only discount is the phone the customer handed over |
+
+The last two get three real rows each, biggest revenue first, because they are
+the ones worth looking up. A number cannot be chased; `SM-S938BZKEATS` on
+`AU260803-38105969` can.
+
+### Net discount, not customer discount
+
+The export states both, and they are not the same thing:
+
+| | |
+|---|---|
+| `Average Customer Discount` | everything off the sticker, trade-in and redeemed points included |
+| `Average Net Discount` | what the promotion took off the price |
+
+A Fold8 traded up reads `0.760685056` and `0.5` on one line: 76% is what the
+customer experienced, 50% is what the promotion cost. **Net is read**, and
+`AUD Trade-in Product Value excl. GST` and `Points Redeemed AUD Price` are read
+beside it so the gap can be named rather than silently included. Where the two
+columns disagree the run says by how much and on how many units.
+
+`AUD RRP`, `Average Net Discount`, `Average Customer Discount`, the trade-in and
+the points columns are all found by name now, so the August export needs no
+`--order-rrp` or `--order-disc` at all.
+
 ## Did the orders come in on the promotions that were planned?
 
 That is what the run's last block answers, and it compares the two sides four

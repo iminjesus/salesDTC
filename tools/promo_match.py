@@ -77,10 +77,20 @@ NAMES = {
     # The order export states its own list price and its own discount. Where it
     # does, the discount needs no plan at all - which is the only way to see one
     # on a product the plan has no line for, and accessories are most of those.
-    'rrp':     ('RRP', 'List Price', 'Original Price', 'Retail Price',
-                'Gross Price', 'Standard Price'),
-    'disc':    ('Discount Rate', 'Discount %', 'discount_rate', 'Discount',
+    'rrp':     ('AUD RRP', 'RRP', 'List Price', 'Original Price',
+                'Retail Price', 'Gross Price', 'Standard Price'),
+    # Net before Customer, deliberately. The two differ by exactly the trade-in
+    # and the points redeemed - 0.76 against 0.50 on a Fold8 traded up - and a
+    # trade-in is not a price discount: the customer handed over a phone for it.
+    # Net is what the promotion took off the price.
+    'disc':    ('Average Net Discount', 'Average Customer Discount',
+                'Discount Rate', 'Discount %', 'discount_rate', 'Discount',
                 'Promotion Discount'),
+    # Kept beside it so the gap can be named rather than silently included.
+    'disc_all': ('Average Customer Discount', 'Customer Discount'),
+    'trade':   ('AUD Trade-in Product Value excl. GST', 'Trade-in Value',
+                'Trade-In Value', 'Trade-in Product Value'),
+    'points':  ('Points Redeemed AUD Price', 'Points Redeemed'),
     # The plan names the product as well as the offer, which is the only
     # description a material that has not sold yet has anywhere.
     'category': ('Category', 'Product Category'),
@@ -1364,6 +1374,63 @@ def own_discount_report(rows: list, say=print) -> None:
     say(f'  {nil:,.0f} unit(s) ({nil / mine * 100:.0f}%) came off at nothing - '
         f'the list price was paid.')
 
+def unnamed_discount_report(rows: list, say=print) -> None:
+    """Lines where money came off and nothing said what for.
+
+    This is the only honest answer to "did it catch all of this": a discount
+    the export states is a fact, and whether anything named it is a separate
+    fact. Four outcomes, and they are not degrees of the same thing - a rule
+    was read, a rule was there but unreadable, no rule was recorded at all,
+    or the discount is a trade-in and was never a price cut.
+    """
+    got = [r for r in rows if (r.get('own_dc') or 0) >= 0.005]
+    if not got:
+        return
+    say('\nlines where a discount came off - was anything able to name it')
+    buckets = {'named': [], 'rule not read': [], 'no rule recorded': [],
+               'trade-in, not a price cut': []}
+    for r in got:
+        if r.get('how') in ('rule', 'voucher', 'plan'):
+            buckets['named'].append(r)
+        elif (r.get('trade') or 0) > 0 and not (r.get('rule_raw') or '').strip():
+            buckets['trade-in, not a price cut'].append(r)
+        elif (r.get('rule_raw') or '').strip():
+            buckets['rule not read'].append(r)
+        else:
+            buckets['no rule recorded'].append(r)
+    tot = sum(r['qty'] for r in got) or 1.0
+    say(f'  {"":<28}{"units":>9}{"revenue":>14}{"discount":>10}')
+    for name, rs in buckets.items():
+        if not rs:
+            continue
+        q = sum(r['qty'] for r in rs)
+        amt = sum(r.get('amt_line') or 0.0 for r in rs)
+        dc = sum(r['qty'] * r['own_dc'] for r in rs) / (q or 1)
+        say(f'  {name:<28}{q:>9,.0f}{amt:>14,.0f}{dc * 100:>9.0f}%'
+            f'   {q / tot * 100:>3.0f}% of discounted units')
+    # The two residuals are where the work is, so each gets real rows rather
+    # than a number: a code to look up, and what the cell did or did not hold.
+    for name in ('no rule recorded', 'rule not read'):
+        rs = sorted(buckets[name], key=lambda r: -(r.get('amt_line') or 0.0))
+        for r in rs[:3]:
+            say(f'    {name}: {r["sku"]} {r["day"]} {r["qty"]:,.0f} unit(s) '
+                f'-{r["own_dc"] * 100:.0f}% order {r.get("order") or "?"}'
+                + (f' rule {(r.get("rule_raw") or "")[:52]}' if name ==
+                   'rule not read' else ''))
+    both = [r for r in rows if r.get('cust_dc') is not None
+            and r.get('own_dc') is not None]
+    apart = [r for r in both if abs(r['cust_dc'] - r['own_dc']) >= 0.005]
+    if apart:
+        q = sum(r['qty'] for r in apart)
+        say(f'  {q:,.0f} unit(s) state two different discounts - the customer '
+            f'one averages\n  '
+            f'{sum(r["qty"] * r["cust_dc"] for r in apart) / q * 100:.0f}% and '
+            f'the net one '
+            f'{sum(r["qty"] * r["own_dc"] for r in apart) / q * 100:.0f}%. '
+            f'The gap is the trade-in and the points\n  redeemed, which the '
+            f'customer gave something for. Net is read here.')
+
+
 def campaign_fit(rows: list) -> dict:
     """The numbers that say whether a campaign stack is a measurement.
 
@@ -1664,7 +1731,17 @@ def main() -> int:
         'cancel': choose(o_head, o_body, 'cancel', None),
         'rrp': choose(o_head, o_body, 'rrp', args.order_rrp),
         'disc': choose(o_head, o_body, 'disc', args.order_disc),
+        # The gross discount and what makes it gross. Neither is used to price
+        # anything; they are there so a discount that is really a trade-in can
+        # be told apart from one the promotion gave.
+        'disc_all': choose(o_head, o_body, 'disc_all', None),
+        'trade': choose(o_head, o_body, 'trade', None),
+        'points': choose(o_head, o_body, 'points', None),
     }
+    # Both discount columns found and the same column chosen for each means the
+    # export has only one of them; nothing to tell apart then.
+    if O['disc_all'] == O['disc']:
+        O['disc_all'] = None
 
     print('\ncolumns chosen  (--flags override any of these):')
     rows_out = []
@@ -1688,7 +1765,10 @@ def main() -> int:
                  (op.name, 'portal group', O['group'], o_head, ''),
                  (op.name, 'portal', O['portal'], o_head, ''),
                  (op.name, 'list price', O['rrp'], o_head, ''),
-                 (op.name, 'discount', O['disc'], o_head, '')]
+                 (op.name, 'discount', O['disc'], o_head, '--order-disc'),
+                 (op.name, 'gross discount', O['disc_all'], o_head, ''),
+                 (op.name, 'trade-in value', O['trade'], o_head, ''),
+                 (op.name, 'points redeemed', O['points'], o_head, '')]
     width = max(len(n[:18]) for n, *_ in rows_out)
     for side, what, i, head, flag in rows_out:
         print(f'  {side[:18]:<{width}} {what:<16} '
@@ -2005,7 +2085,21 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                                 and order['date'] > d['end'])
                             for d in rules),
             'rrp': ((guess.get('cands') or [{}])[0].get('prices') or {}).get('RRP')
-                   if guess['promo'] else None})
+                   if guess['promo'] else None,
+            # What answered for this line, and what the export says about the
+            # discount besides its size. Together these decide whether a
+            # discount that happened was also named - which is a different
+            # question from whether it can be measured.
+            'how': how,
+            'rule_raw': cell(r, O['rule']),
+            'cust_dc': parse_number(cell(r, O['disc_all']))
+                       if O['disc_all'] is not None else None,
+            'trade': parse_number(cell(r, O['trade']))
+                     if O['trade'] is not None else None,
+            'points': parse_number(cell(r, O['points']))
+                      if O['points'] is not None else None,
+            'order': cell(r, O['order']),
+            'amt_line': amount})
         out.append([
             cell(r, O['order']), cell(r, O['sku']), cell(r, O['group']),
             order['date'].isoformat() if order['date'] else '',
@@ -2177,6 +2271,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
               f'each line is now read as what happened to it.')
     if camp_rows:
         own_discount_report(camp_rows)
+        unnamed_discount_report(camp_rows)
         days = [d for d in (o['day'] for o in camp_rows) if d]
         if days:
             lo = date(int(min(days)[:4]), int(min(days)[5:7]), 1)
