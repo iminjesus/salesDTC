@@ -1165,6 +1165,62 @@ def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print) -> None:
         'reason for the left two columns')
 
 
+# What a rule claims it takes off, read out of its own text. `50PCT` and
+# `50-PERCENT` are a rate; `120OFF` and `$120-OFF` are an amount.
+CLAIM_PCT = re.compile(r'(\d{1,2})\s*-?\s*(?:PCT|PERCENT)\b')
+CLAIM_OFF = re.compile(r'(\d{2,4})\s*-?\s*OFF\b')
+
+
+def claims_of(text: str) -> list:
+    """Every discount a rule's text claims, as ('pct', 0.3) or ('off', 120)."""
+    up = re.sub(r'[^A-Z0-9]+', ' ', str(text).upper())
+    return ([('pct', int(m) / 100) for m in CLAIM_PCT.findall(up)]
+            + [('off', float(m)) for m in CLAIM_OFF.findall(up)])
+
+
+def rules_on_line(rules: list, rrp, paid, own_dc, tol: float = 0.01) -> tuple:
+    """Which of a cell's rules actually ran on **this** line.
+
+    One cell carries every rule the order qualified for, and an order is more
+    than one line. A Fold8 bought with a case comes back on both lines with the
+    same pair - the accessories PWP and the eco voucher - but the phone got the
+    voucher and the case got the thirty percent, and reading the two together
+    files the phone under "Accessories offer", which is simply not what happened
+    to it.
+
+    The line's own numbers settle it: a rule claiming 30% fits a line that lost
+    30%, a rule claiming $120 fits a line that lost $120, and a rule claiming
+    neither cannot be told apart and is kept. Only where the claims disagree
+    with each other is anything dropped - with one rule, or with no numbers to
+    test against, nothing changes.
+    """
+    if len(rules) < 2 or own_dc is None:
+        return rules, False
+    off = (rrp - paid) if (rrp and paid is not None) else None
+    keep, judged = [], False
+    for d in rules:
+        cl = claims_of(d['what'])
+        if not cl:
+            keep.append(d)                 # claims nothing, so it cannot miss
+            continue
+        fits = False
+        for kind, v in cl:
+            if kind == 'pct' and abs(own_dc - v) <= tol:
+                fits = True
+            if kind == 'off' and off is not None and abs(off - v) <= 1.0:
+                fits = True
+        judged = True
+        if fits:
+            keep.append(d)
+    # Only narrow where something was judged and something survived: a line
+    # whose every rule misses is a line this test cannot explain, and dropping
+    # them all would turn it into "no promotion", which is worse than the
+    # over-wide reading it replaced.
+    if judged and keep and len(keep) < len(rules):
+        return keep, True
+    return rules, False
+
+
 def own_discount(disc, rrp, amount, qty, basis=1.0):
     """The discount the order line states about itself, or None.
 
@@ -1663,6 +1719,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                             parse_number(cell(r, O['qty'])) or 0.0)
                            for r in o_body])
     only_orders: set = set()
+    narrowed_n = 0
     order_of = [x.strip() for x in (args.precedence or '').split(',') if x.strip()]
     bad = [x for x in order_of if x not in {n for n, _ in FAMILIES}]
     if bad:
@@ -1695,6 +1752,13 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                  'date': to_date(cell(r, O['date'])), 'price': paid}
 
         rules = [parse_rule(t) for t in split_rules(cell(r, O['rule']))]
+        own_dc = own_discount(cell(r, O['disc']), cell(r, O['rrp']),
+                              amount, qty, basis)
+        rules, narrowed = rules_on_line(
+            rules, parse_number(cell(r, O['rrp'])),
+            (amount / qty * basis) if (amount is not None and qty) else None,
+            own_dc)
+        narrowed_n += bool(narrowed)
         vouchers = [code_norm(v) for v in split_rules(cell(r, O['voucher']))]
         v_hits = [p for v in vouchers for p in plan.by_voucher.get(v, [])]
         if vouchers:
@@ -1862,8 +1926,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             # What the export itself says came off, before any plan is
             # consulted. A rate is taken as a rate; otherwise the list price and
             # what was paid are divided.
-            'own_dc': own_discount(cell(r, O['disc']), cell(r, O['rrp']),
-                                   amount, qty, basis),
+            'own_dc': own_dc,
             'div': cell(r, O['division']) or '(blank)',
             'fitted': bool(guess['promo']), 'type': o_type,
             'group': group, 'sku': cell(r, O['sku']),
@@ -2044,6 +2107,13 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     if tier_rows:
         tier_report(tier_rows)
         rule_price_report(tier_rows, args.price_tolerance)
+    if narrowed_n:
+        print(f'\n{narrowed_n:,} order line(s) carry a rule the line itself '
+              f'rules out - the cell holds every rule\n  the order qualified '
+              f'for, and an order is more than one line. A Fold8 bought with a '
+              f'case\n  comes back on both lines with the same pair; the phone '
+              f'lost the voucher and the case\n  lost the thirty percent, and '
+              f'each line is now read as what happened to it.')
     if camp_rows:
         own_discount_report(camp_rows)
         days = [d for d in (o['day'] for o in camp_rows) if d]

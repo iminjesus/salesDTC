@@ -71,6 +71,34 @@ table has therefore moved into `tools/promo_match.py`, beside `MECHANIC` and
 `EXECUTED_AS` - they are one vocabulary layer, and the cross-check needs it as
 much as `promo.py` does.
 
+## A cell's rules are the order's, not the line's
+
+```
+AU_B2C_WEB_SP_14AUG26_09SEP26_PWP_FF8-ACCESSORIES-30PCT ,
+AU_B2C_WEB_SP_14AUG26_09SEP26_DISCOUNT_H8Q8-ECO-VOUCHER-120OFF
+```
+
+Both lines of a Fold8 bought with a case carry **that same pair**, because the
+cell holds every rule the order qualified for and an order is more than one
+line. But the phone lost $120 and the case lost 30%:
+
+| | RRP | paid | off | which rule |
+|---|---|---|---|---|
+| `SM-F971BLVDATS` Fold8 | 2,699.00 | 2,579.00 | 120.00 = **4.45%** | the eco voucher |
+| `EF-CF976CTEGWW` case | 89.00 | 62.30 | 26.70 = **30.0%** | the accessories PWP |
+
+Read together, the phone was filed under **Accessories offer** - which is not
+what happened to it.
+
+The line's own numbers settle it. A rule's text says what it claims to take off
+- `30PCT` is a rate, `120OFF` is an amount - and a claim either fits the line or
+it does not. Rules claiming nothing cannot miss and are kept; a line with one
+rule, or with no numbers to test against, is unchanged; and where **every** rule
+misses, nothing is dropped, because turning a line into "no promotion" is worse
+than the over-wide reading it would replace.
+
+The run says how many lines were narrowed this way.
+
 ## Did the customer pay the price their own channel is quoted?
 
 The plan prices a promotion five times over - `S.COM_Price`, `T1`, `T2`, `T3`,
