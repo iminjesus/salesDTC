@@ -427,12 +427,32 @@ function drawBars(all, totalAmount) {
     },
   });
 
+  // Whether this level can divide revenue at all, said where it is being read.
+  // A stacked bar is a claim that every unit is in exactly one band, and for
+  // every level but the nationwide campaign that claim is false - so the levels
+  // inside it say so, and the campaign says how well it holds.
+  const f = DATA.fit;
+  let fitLine = '';
+  if (f && state.dim === DATA.campaignDim) {
+    fitLine = ` This level divides the revenue: every unit is in one campaign. `
+      + `${f.split}% of units sit on an order whose plan lines gave more than one `
+      + `answer, so that much is a precedence; ${f.lost}% are in the residual `
+      + `only because the line that best fits the price names no campaign. `
+      + `Of ${f.rows} product-and-portal rows, ${f.pure}% sit on one campaign `
+      + `and the biggest holds ${f.biggest}% on average - that is how close a `
+      + `profit chart stacked this way would be to a measurement.`;
+  } else if (f && state.dim > DATA.campaignDim) {
+    fitLine = ` This level does not divide the revenue - an order can be in `
+      + `several at once - so read the bars as what the band is a mixture of, `
+      + `not as a split of it.`;
+  }
   document.getElementById('promoHint').textContent =
     `${shown.length} of ${rows.length} ${lv.name.toLowerCase()}(s), biggest first. `
     + 'Each bar is split by which source answered, so a bar that is mostly blue '
     + 'needed no inference.'
     + (canDrill ? ` Click a bar to open it by ${DATA.levels[state.dim + 1].name}.`
-                : ' This is the last level; Back steps out.');
+                : ' This is the last level; Back steps out.')
+    + fitLine;
 
   const tot = shown.reduce((a, r) => ({ n: a.n + r.n, q: a.q + r.q, a: a.a + r.a }),
                            { n: 0, q: 0, a: 0 });

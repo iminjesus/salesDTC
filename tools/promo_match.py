@@ -704,6 +704,39 @@ NO_CAMPAIGN = '(no nationwide campaign)'
 NO_PLAN = '(no plan line fits this order)'
 
 
+def campaign_fit(rows: list) -> dict:
+    """The numbers that say whether a campaign stack is a measurement.
+
+    The same three the console block prints, kept as data so the page can carry
+    them: a stacked bar that divides revenue by something which does not divide
+    it has to say so where it is being read, not only where it was built.
+    """
+    tot = sum(r['qty'] for r in rows) or 1.0
+    per = collections.defaultdict(collections.Counter)
+    for r in rows:
+        nat = (r['camp'][0] or (NO_CAMPAIGN if r['fitted'] else NO_PLAN))
+        per[(r['group'], code_norm(r['sku']))][nat] += r['qty']
+    pure = n = 0
+    share = 0.0
+    for c in per.values():
+        t = sum(c.values())
+        if t <= 0:
+            continue
+        n += 1
+        share += max(c.values()) / t
+        pure += 1 if len(c) == 1 else 0
+    return {
+        'units': round(tot),
+        'split': round(sum(r['qty'] for r in rows if r['camp_alts'] > 1) * 100
+                       / tot, 1),
+        'lost': round(sum(r['qty'] for r in rows if r['camp_lost']) * 100
+                      / tot, 1),
+        'rows': n,
+        'pure': round(pure * 100 / n) if n else 0,
+        'biggest': round(share * 100 / n) if n else 0,
+    }
+
+
 def campaign_report(rows: list, say=print) -> None:
     """Can a chart stack by campaign, and what is the rest of it made of?
 
@@ -1169,10 +1202,17 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             how_page = 'loose'
         else:
             how_page = how
+        camp = guess.get('camp') or ['', '', '']
         page.append((how_page,
                      c.get('channel') or unset,
                      c.get('type') or unset, c.get('type2') or unset,
-                     group, cell(r, O['portal']) or '(blank)', o_type, o_detail,
+                     group, cell(r, O['portal']) or '(blank)',
+                     # The campaign half, widest first. The same two residuals
+                     # the report keeps apart: no campaign is not no plan.
+                     camp[0] or (NO_CAMPAIGN if guess['promo'] else NO_PLAN),
+                     camp[1] or '(no DTC campaign 1)',
+                     camp[2] or '(no DTC campaign 2)',
+                     o_type, o_detail,
                      cell(r, O['cat']) or '(blank)',
                      order['date'].isoformat() if order['date'] else '',
                      qty, amount or 0.0))
@@ -1364,12 +1404,13 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     if args.html is not None:
         path = Path(args.html) if args.html else ROOT / 'dashboard' / 'promo_2608.html'
         write_page(path, args, ' + '.join(f['path'].name for f in plans),
-                   op, page, ranked, cancelled)
+                   op, page, ranked, cancelled,
+                   campaign_fit(camp_rows) if camp_rows else None)
     return 0
 
 
 def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
-               cancelled: int) -> None:
+               cancelled: int, fit: dict | None = None) -> None:
     """One self-contained page, with the profit chart's controls.
 
     The rows are rolled up to one per source, per level value and per day -
@@ -1383,7 +1424,12 @@ def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
     # folded against the customer master; the offer half is the promotion.
     # Portal sits under Portal Group and comes off the order itself, so it
     # breaks the customer down further without inferring anything.
+    # The campaign levels sit at the top of the offer half, because the
+    # nationwide campaign is the only one of these that divides revenue - every
+    # unit is in exactly one - and a drill should start from the level that can
+    # be stacked honestly and get looser as it goes in, not the other way round.
     LEVELS = ['Channel', 'Type', 'Type2', 'Portal Group', 'Portal',
+              'Campaign', 'DTC Campaign 1', 'DTC Campaign 2',
               'Offer Type', 'Offer Detail', 'Product Category']
     sources: dict[str, int] = {}
     values: list[dict[str, int]] = [{} for _ in LEVELS]
@@ -1393,8 +1439,10 @@ def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
     def idx(d, v):
         return d.setdefault(v, len(d))
 
+    n_lv = len(LEVELS)
     for row in page:
-        how, levels, day, qty, amt = row[0], row[1:9], row[9], row[10], row[11]
+        how, levels = row[0], row[1:1 + n_lv]
+        day, qty, amt = row[1 + n_lv], row[2 + n_lv], row[3 + n_lv]
         days.add(day)
         key = (idx(sources, how),) + tuple(idx(values[i], v)
                                            for i, v in enumerate(levels)) + (day,)
@@ -1409,9 +1457,9 @@ def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
         'lines': len(page), 'cancelled': cancelled,
         'sources': list(sources),
         'days': sorted(days),
-        # Offer Type is where the page opens: it is the question this file
-        # answers, and Offer Detail sits one click inside it.
-        'startDim': LEVELS.index('Offer Type'),
+        # Campaign is where the page opens: it is the one level a stacked bar
+        # can divide revenue by, and the looser levels sit inside it.
+        'startDim': LEVELS.index('Campaign'),
         'custDepth': 5,
         'levels': [{'name': n, 'values': list(v)}
                    for n, v in zip(LEVELS, values)],
@@ -1419,6 +1467,8 @@ def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
                   'n': int(v[0]), 'q': round(v[1], 2), 'a': round(v[2], 2)}
                  for k, v in buckets.items()],
         'reasons': [[w, n] for w, n in reasons[:12]],
+        'campaignDim': LEVELS.index('Campaign'),
+        'fit': fit,
     }
     here = Path(__file__).resolve().parent.parent / 'dashboard'
     html = (here / 'promo_template.html').read_text(encoding='utf-8')
