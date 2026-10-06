@@ -1,5 +1,50 @@
 # ASP - average selling price
 
+## Two workbooks, for Excel
+
+```powershell
+py tools\asp_xlsx.py --months 2607 2608 2609
+```
+
+Writes exactly two files, keyed on **material code**:
+
+| | |
+|---|---|
+| `Material.xlsx` | every material code, all channels |
+| `Online ASP.xlsx` | every material code, the online channel only |
+
+Each row carries the quantity and net sales for **each month**, then the span's
+totals and the ASP. The span columns are **formulas** - `=F2+H2+J2`, not a
+number worked out here - so the sheet still adds up when a month's column is
+edited. Each formula also carries the value it comes to, which is how Excel
+stores one itself: the sheet recalculates on open, and anything reading the file
+without opening it still sees the number rather than a blank.
+
+### The three-month figure is weighted
+
+ASP over a span is **the span's totals divided**, not the average of the three
+months' own prices. A flat mean would let a month that sold forty units weigh as
+much as one that sold four thousand. On a small test that is not a rounding
+difference:
+
+| material | weighted | flat mean | gap |
+|---|---|---|---|
+| RF9000 | 1,143.24 | 1,259.42 | **-116.18** |
+| WW11 | 1,297.54 | 1,229.91 | +67.63 |
+| SM-S926 | 809.66 | 842.88 | -33.22 |
+
+A material whose returns outweigh its sales over the span has no price: the cell
+is left **blank** and the count is reported, rather than dividing into a
+negative. The note at the foot of each sheet says all of this where the reader
+will see it.
+
+### Written with the standard library
+
+`tools/xlsx.py` writes the workbook from `zipfile` and strings - an .xlsx is a
+zip of XML, and `rawdata.py` already reads one that way. Nothing to install,
+which is the point: these tools run where installing things is not an option.
+
+
 ```powershell
 py tools\asp.py                          # -> docs\asp_sku.csv, docs\asp_category.csv
 py tools\asp.py --by Division Category Range
