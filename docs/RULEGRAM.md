@@ -67,6 +67,34 @@ off that run rather than invented, and reported as a **different kind** from the
 groups the master does spell, so a wrong one is visible rather than blended in.
 Edit the table, not the code.
 
+## One promotion, two rules
+
+```
+AU_EPP_T2-T3_all_welcome-voucher_..._always-on_240207
+AU_EPP_T2-T3_all_welcome-voucher_..._always-on_240207_message
+```
+
+Those are not two promotions. One changes the price and the other puts the
+message on the page, and they sit in the **same cell** on the same order line -
+so counting rule occurrences counts that promotion twice, and a chart stacked by
+rule shows it as two bands.
+
+They are found by shape rather than by a list of suffixes: a rule that is
+another rule plus a trailing piece is one of a pair. The run reports the share
+of units on such rules and which trailing pieces do it.
+
+## The six and eight digit tails
+
+`240207` and `231103` are not serials. They read as **dates** - 7 Feb 2024, 3
+Nov 2023 - and that is what an always-on rule has instead of a window: the day
+it was made. The run tries every six and eight digit piece as `YYMMDD` and
+`YYYYMMDD`, reports what share parse into a sane range and what that range is,
+and lists the commonest with what each reads as. `000000` reads as nothing and
+is a serial, which is exactly the distinction worth drawing.
+
+(The `AUME-20217` / `AUME-20448` / `AUME-20530` family is the other thing: a
+five-digit sequence, nothing like a date, and the promotion's own id.)
+
 ## How wide is a rule?
 
 The number that decides whether a rule can be matched to a plan at all. The plan

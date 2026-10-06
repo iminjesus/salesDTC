@@ -30,6 +30,7 @@ import collections
 import csv
 import re
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -319,6 +320,71 @@ def main() -> int:
         if c:
             print(f'\n  of those, the ones that sit {side}: '
                   + ', '.join(f'{k} {v:,.0f}' for k, v in c.most_common(12)))
+
+    # ── rules that come in pairs ────────────────────────────────────────────
+    # One promotion arrives as two rules: the one that changes the price and the
+    # one that puts the message on the page. They sit in the same cell, so a
+    # count of rule occurrences counts the promotion twice, and a chart stacked
+    # by rule shows it as two. Found by shape rather than by a list of suffixes
+    # - a rule that is another rule plus a trailing piece is that pair.
+    twins = collections.Counter()
+    twin_u = 0.0
+    for raw in seen:
+        parts = parts_of(raw)
+        for cut in (1, 2):
+            if len(parts) > cut:
+                stem = '_'.join(parts[:-cut])
+                if stem in seen:
+                    twins['_'.join(parts[-cut:]).upper()] += units[raw]
+                    twin_u += units[raw]
+                    break
+    if twins:
+        print(f'\nrules that are another rule plus a trailing piece - '
+              f'{twin_u:,.0f} unit(s), {twin_u / tot_u * 100:.0f}%')
+        for k, v in twins.most_common(12):
+            print(f'    +{k[:38]:<38}{v:>10,.0f}{v / twin_u * 100:>7.1f}%')
+        print('  one promotion written as two rules - the one that changes the '
+              'price and the one\n  that announces it - so counting rule '
+              'occurrences counts that promotion twice.')
+
+    # ── the pieces that are dates in disguise ───────────────────────────────
+    # A six or eight digit tail is not a serial if it reads as a date, and the
+    # difference matters: a serial is noise and a date is when the rule was
+    # made, which is the only thing an always-on rule has instead of a window.
+    def as_date(t):
+        for fmt, n in (('%y%m%d', 6), ('%Y%m%d', 8)):
+            if len(t) == n:
+                try:
+                    return datetime.strptime(t, fmt).date()
+                except ValueError:
+                    return None
+        return None
+
+    digits = collections.Counter()
+    dates = []
+    for raw, n in units.items():
+        for p_ in parts_of(raw):
+            if re.fullmatch(r'\d{6}|\d{8}', p_):
+                digits[p_] += n
+                d = as_date(p_)
+                if d and date(2015, 1, 1) <= d <= date(2035, 1, 1):
+                    dates.append((d, p_, n))
+    if digits:
+        on = sum(n for _, _, n in dates)
+        all_u = sum(digits.values())
+        print(f'\nsix and eight digit pieces: {len(digits):,} distinct, '
+              f'{all_u:,.0f} unit(s)')
+        print(f'  {on / all_u * 100:.0f}% of those units carry one that reads '
+              f'as a date'
+              + (f', between {min(dates)[0]} and {max(dates)[0]}' if dates
+                 else ''))
+        for k, v in digits.most_common(8):
+            d = as_date(k)
+            print(f'    {k:<12}{v:>10,.0f}   '
+                  + (f'reads as {d}' if d else 'not a date'))
+        print('  a tail that reads as a date is when the rule was made, which '
+              'is the only thing an\n  always-on rule has instead of a window; '
+              'one that does not is a serial.')
 
     # ── how wide is a rule? ─────────────────────────────────────────────────
     # The thing that decides whether a rule can be matched to a plan at all. The
