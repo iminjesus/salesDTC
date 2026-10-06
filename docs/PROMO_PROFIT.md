@@ -115,10 +115,11 @@ the same as in `docs\RECONCILE.md`.
 
 ## The stack: how much of the month ran on a promotion
 
-The page opens on **one bar, split into bands** - the shape this was asked for -
-and clicking it opens that bar by the band itself, then by the offer inside it,
-with the customer levels last. Every bar at every level is split the same way,
-so a bar can be read against any other and the split holds all the way down.
+The page, the drill and the opening level are unchanged. **Only what the bars
+stack by changed**: the promotion band, instead of which source identified the
+promotion. Every bar carries the same split, at whatever level is being read, so
+one bar can be read against another and the split holds all the way down the
+drill. The picker beside it narrows the page to a single band.
 
 | band | |
 |---|---|
@@ -138,17 +139,32 @@ plan line would make this page disagree with that one about the same order,
 because the price rejects lines the plan does cover: a trade-in or a stacked
 voucher moves what was collected away from what the plan quotes.
 
-## Last month's promotion, this month's profit
+## What carried over, and only that
 
 A promotion that ran in July is in July's order export. An order it brought in
-can complete in August, and then its profit is in August's profit file with no
+can ship in August, and then its profit is in August's profit file with no
 promotion against it - so it lands in *No promotion*, which is the one answer it
 certainly is not.
 
-So **the month before is read too**, automatically, wherever its file is on
-disk: `26 DTC Aug` pulls in `26 DTC Jul`, and January steps the year back to
-`25 DTC Dec`. `--orders` takes several stems if the derived name is not the
-right one, and `--no-previous` turns it off.
+So the month before is read too, wherever its file is on disk - `26 DTC Aug`
+pulls in `26 DTC Jul`, and January steps the year back to `25 DTC Dec`. But
+**last month's file is not last month's carry-over.** Adding all of it would
+pull in every order July both took and shipped, which is July's profit, not
+August's.
+
+Which ones carried over is a fact only **SAP's `Goods Issue Date`** carries -
+the store export says when an order was placed and nothing about when it
+shipped. So the SAP sales-order export is read (`--sap`, default `orders`),
+keyed back to the store's order code by the customer reference, and a line from
+last month is taken **only where it shipped in the profit file's own month**.
+That is the same `Created On` / `Goods Issue Date` pair the despatch report
+measures carry-over with, so the two cannot disagree.
+
+| | |
+|---|---|
+| no SAP export with a goods issue date | last month is left out **entirely**, and the run says so - guessing would add a whole month of profit to the wrong one |
+| a line with no goods issue date | left with last month, where it was already counted, and counted out loud |
+| `--no-previous` | reads only the files named |
 
 Neighbouring exports overlap - a cut taken part-way through a month turns up
 again in the next file - so an order line seen twice is counted once, by order,
@@ -156,3 +172,18 @@ product, date, quantity and amount. Double counting would not move the totals,
 which come off the profit file, but it would skew the share each promotion is
 allocated. The run says how many it folded, and the page names every file it
 read rather than the one stem that was asked for.
+
+## Every month, not just August
+
+The page was titled `August 2026 Promotion profit` and written to
+`promo_profit.html` whatever month was fed to it, so a September run overwrote
+August's page and csv with September's numbers under August's name. The month
+now comes off the profit file - `profit_2609` gives
+`promo_profit_2609.html/.csv` and a September title - which is the same fix the
+promotion page needed.
+
+A stem that matches no file is now reported and dropped **in step with its
+file**. Dropping it from the file list while leaving it in the stem list shifted
+every later file onto the wrong stem: a September run with no September export
+read August's orders as if they were September's own, rather than as the month
+before.

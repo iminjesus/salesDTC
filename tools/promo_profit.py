@@ -29,8 +29,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
 import promo_match as PM                                       # noqa: E402
+# The despatch report already settled where a month's orders land: SAP's
+# `Created On` is when an order arrived and `Goods Issue Date` is when it left,
+# and the gap between them is the carry-over. Its column names and the key that
+# joins a SAP line back to the store's order code are taken from there rather
+# than written again here.
+from despatch import C_GI, C_REF                                # noqa: E402
+from link import order_key                                      # noqa: E402
 from rawdata import (find, key_norm, master, parse_number,     # noqa: E402
-                     pick_file, pick_latest, read_any)
+                     pick_file, pick_latest, pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -80,6 +87,55 @@ def band_of(plan, code: str, day, promoted: bool) -> str:
     if nat:
         return 'voucher'
     return 'loose' if (promoted or live) else 'none'
+
+
+def month_in_name(name: str):
+    """(year, month) out of a file name like profit_2608 or 26 DTC Aug."""
+    import re as _re
+    m = _re.search(r'(?<!\d)(\d{2})(0[1-9]|1[0-2])(?!\d)', name)
+    if m:
+        return 2000 + int(m.group(1)), int(m.group(2))
+    for i, mon in enumerate(MONTHS):
+        if mon.lower() in name.lower():
+            y = _re.match(r'\s*(\d{2})', name)
+            return (2000 + int(y.group(1)) if y else 0), i + 1
+    return None
+
+
+def despatch_months(folder, prefix: str, say=print) -> tuple:
+    """When each store order left, out of SAP's goods issue date.
+
+    The store export says when an order was placed and nothing about when it
+    shipped, so it cannot say on its own which month an order belongs to. SAP
+    can. Keyed by the store's own order code, which is what SAP carries as the
+    customer reference - the same join the despatch report uses.
+
+    Where an order shipped over more than one day the earliest is kept: the
+    month it first left is the month it started landing in.
+    """
+    for cand in pick_series(Path(folder), prefix):
+        try:
+            rows, _ = read_any(cand)
+        except ValueError:
+            continue
+        if not rows:
+            continue
+        head = [h.strip() for h in rows[0]]
+        i_ref, i_gi = find(head, *C_REF), find(head, *C_GI)
+        if i_ref is None or i_gi is None:
+            continue
+        out: dict[str, tuple] = {}
+        for r in rows[1:]:
+            k = order_key(r[i_ref] if i_ref < len(r) else '')
+            d = PM.to_date(r[i_gi] if i_gi < len(r) else '')
+            if not k or d is None:
+                continue
+            if k not in out or (d.year, d.month) < out[k]:
+                out[k] = (d.year, d.month)
+        if out:
+            say(f'  {cand.name}: {len(out):,} order(s) with a goods issue date')
+            return out, cand.name
+    return {}, ''
 
 
 def previous_stem(stem: str) -> str | None:
@@ -132,6 +188,10 @@ def main() -> int:
                          'turns that off')
     ap.add_argument('--no-previous', action='store_true',
                     help='read only the order file(s) named')
+    ap.add_argument('--sap', default='orders', metavar='STEM',
+                    help='the SAP sales-order export that carries Goods Issue '
+                         'Date, which is what says an order carried over '
+                         '(default: orders)')
     ap.add_argument('--plan', nargs='+', metavar='STEM',
                     default=['MX_product', 'ce_product'],
                     help='the promotion plan(s), one per division, '
@@ -164,12 +224,23 @@ def main() -> int:
     # the earlier file that profit has no promotion against it and falls into
     # "no promotion", which is the one answer it certainly is not.
     stems = list(args.orders)
+    carried_from = set()
     if not args.no_previous:
         for st in list(stems):
             prev = previous_stem(st)
             if prev and prev not in stems and pick_file(folder, prev):
                 stems.append(prev)
-    ops = [f for f in (pick_file(folder, st) for st in stems) if f]
+                carried_from.add(prev)
+    # Paired, not two lists: dropping the stems that found no file while
+    # keeping the rest would shift every later file onto the wrong stem, and
+    # the carry-over flag along with it - a September run with no September
+    # file read August as if it were September's own orders.
+    found = [(st, pick_file(folder, st)) for st in stems]
+    for st, f in found:
+        if f is None:
+            print(f'  no file named like {st!r} - left out')
+    found = [(st, f) for st, f in found if f]
+    ops = [f for _, f in found]
     pf = (pick_file(folder, args.profit) if args.profit
           else pick_latest(folder, 'profit'))
     if not ops:
@@ -184,20 +255,51 @@ def main() -> int:
     # Read together, with the header of the first. A later export can carry
     # extra columns; the ones this report reads are found by name on the first
     # file and a row that is short simply answers blank.
-    o_head, o_body = [], []
-    for f in ops:
+    o_head, o_body, from_prev = [], [], []
+    for st, f in found:
         rows, _ = read_any(f)
         if not o_head:
             o_head = [h.strip() for h in rows[0]]
-        o_body += rows[1:]
-        print(f'  {f.name}: {len(rows) - 1:,} rows')
+        body = rows[1:]
+        (from_prev if st in carried_from else o_body).extend(body)
+        print(f'  {f.name}: {len(body):,} rows'
+              + ('  (last month - only what carried over is taken)'
+                 if st in carried_from else ''))
     f_rows, _ = read_any(pf)
     f_head, f_body = [h.strip() for h in f_rows[0]], f_rows[1:]
     print(f'  {pf.name}: {len(f_body):,} rows')
-    if len(ops) > 1:
-        print(f'  {len(ops)} order export(s) read together, so a promotion '
-              f'that ran last month keeps\n  the orders it brought in that '
-              f'were recognised this month')
+    # Last month's file is not last month's orders. What belongs in this
+    # month's profit is the part of it that carried over - placed last month,
+    # shipped this month - and that is a fact only SAP's goods issue date
+    # carries. Without it the whole of last month would be added to this one.
+    if from_prev:
+        want = month_in_name(pf.name) or month_in_name(args.orders[0])
+        gi, gi_file = despatch_months(folder, args.sap)
+        i_order = find(o_head, *PM.NAMES['order'])
+        if not gi:
+            print(f'  no {args.sap}_* export carries a goods issue date, so '
+                  f'which of last month\'s\n  orders carried over cannot be '
+                  f'told - last month is left out entirely rather than\n  '
+                  f'added whole')
+        elif want is None or i_order is None:
+            print('  cannot tell which month the profit file is for, so last '
+                  'month is left out')
+        else:
+            kept = unknown = 0
+            for r in from_prev:
+                k = order_key(r[i_order] if i_order < len(r) else '')
+                when = gi.get(k)
+                if when is None:
+                    unknown += 1
+                elif when == want:
+                    o_body.append(r)
+                    kept += 1
+            print(f'  carried over from last month: {kept:,} line(s) left in '
+                  f'{want[1]:02d}/{want[0]} by {gi_file}')
+            if unknown:
+                print(f'  {unknown:,} of last month\'s line(s) have no goods '
+                      f'issue date to judge by and are left\n  with last '
+                      f'month, where they were already counted')
 
     def cell(r, i):
         return (r[i].strip() if i is not None and i < len(r) else '')
@@ -284,10 +386,12 @@ def main() -> int:
         if bands.get(key):
             print(f'  {label:<34}{bands[key]:>10,.0f}{bands[key] / tot_u * 100:>7.1f}%')
     return allocate(args, folder, f_head, f_body, units, cell,
-                    ' + '.join(f.name for f in ops))
+                    ' + '.join(f.name for f in ops),
+                    month_in_name(pf.name) or month_in_name(args.orders[0]), pf.name)
 
 
-def allocate(args, folder, f_head, f_body, units, cell, read: str = '') -> int:
+def allocate(args, folder, f_head, f_body, units, cell, read: str = '',
+             when=None, profit_name: str = '') -> int:
     """Split each product's online profit across the promotions it sold under."""
     F = {k: find(f_head, *names) for k, _, names in FIGURES}
     F['sku'] = find(f_head, 'Material', 'Product Number', 'SKU', 'Material Code')
@@ -427,7 +531,13 @@ def allocate(args, folder, f_head, f_body, units, cell, read: str = '') -> int:
 
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
-    path = outdir / 'promo_profit.csv'
+    # Named for the month it is about, read off the profit file rather than
+    # written here. The page was called promo_profit.html and titled August
+    # whatever month was fed to it, so a September run overwrote August's with
+    # September's numbers under August's name - the one mistake a file name can
+    # make that nobody catches, because the file is there and it opens.
+    yymm = f'{when[0] % 100:02d}{when[1]:02d}' if when else ''
+    path = outdir / f'promo_profit{("_" + yymm) if yymm else ""}.csv'
     with path.open('w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f)
         w.writerow(['Source', 'Promotion', 'Offer type', 'Offer detail',
@@ -450,14 +560,15 @@ def allocate(args, folder, f_head, f_body, units, cell, read: str = '') -> int:
           'promotions; it does not measure what a discount cost.')
     if args.html is not None:
         write_page(Path(args.html) if args.html
-                   else ROOT / 'dashboard' / 'promo_profit.html',
+                   else ROOT / 'dashboard' /
+                   f'promo_profit{("_" + yymm) if yymm else ""}.html',
                    args, out, keys, cov_net / all_net * 100 if all_net else 0.0,
-                   read)
+                   read, when, profit_name)
     return 0
 
 
 def write_page(path: Path, args, out: dict, keys: list, coverage: float,
-               read: str = '') -> None:
+               read: str = '', when=None, profit_name: str = '') -> None:
     """The allocation as one self-contained page.
 
     One row per source, per customer level and per offer - which is the finest
@@ -465,13 +576,14 @@ def write_page(path: Path, args, out: dict, keys: list, coverage: float,
     """
     import json
 
-    # The drill, top first. It opens on a level with one value, so the first
-    # chart is a single bar split into the bands - which is the shape this was
-    # asked for in - and a click opens that bar by the band itself, then by the
-    # offer inside it, with the customer levels last to step further in.
-    ALL = 'every order the profit covers'
-    LEVELS = ['Promotion mix', 'Promotion', 'Offer type', 'Offer detail',
-              'Channel', 'Type', 'Type2', 'Customer']
+    # The drill is the one this page already had: the customer half off the
+    # payer on the profit row, the offer half from the promotion, opening on
+    # Offer type because that is the question the file answers. What changed is
+    # only what the bars stack by - the promotion band instead of which source
+    # identified it - so every bar carries the split and it holds down the
+    # drill, at whatever level is being read.
+    LEVELS = ['Channel', 'Type', 'Type2', 'Customer', 'Offer type',
+              'Offer detail']
     sources: dict[str, int] = {}
     values: list[dict[str, int]] = [{} for _ in LEVELS]
 
@@ -481,7 +593,7 @@ def write_page(path: Path, args, out: dict, keys: list, coverage: float,
     rows = []
     for key, v in out.items():
         src, band, kind, detail = key[0], key[1], key[2], key[3]
-        order = (ALL, BAND_LABEL.get(band, band), kind, detail) + key[4:8]
+        order = key[4:8] + (kind, detail)
         # The stack is the band, not which source identified it: the question
         # the page is opened with is how much of the month ran on a promotion,
         # and the source is a property of how that was worked out.
@@ -489,19 +601,20 @@ def write_page(path: Path, args, out: dict, keys: list, coverage: float,
                      'k': [idx(values[i], x) for i, x in enumerate(order)],
                      'v': [round(v[j], 2) for j in range(len(keys))]})
     payload = {
-        'title': 'August 2026 Promotion profit',
+        'title': (f'{MONTHS[when[1] - 1]} {when[0]} Promotion profit'
+                  if when else 'Promotion profit'),
         # The files actually read, not the one stem asked for: the month
         # before is added on its own, and a page that does not say so looks
         # like it is counting orders that are not in the file it names.
         'orders': read or ', '.join(args.orders),
-        'profit': args.profit or 'profit_2608_*',
+        'profit': profit_name or args.profit or 'the latest profit export',
         'status': args.status,
         'channel': args.account or args.online or 'every channel',
         'coverage': round(coverage, 1),
         'sources': list(sources),
         # The bands, in the order they stack, and only those this run has.
         'sourceLabels': [[k, lbl] for k, lbl in BANDS if k in sources],
-        'startDim': LEVELS.index('Promotion mix'),
+        'startDim': LEVELS.index('Offer type'),
         'custDepth': 4,
         'levels': [{'name': n, 'values': list(v)}
                    for n, v in zip(LEVELS, values)],
