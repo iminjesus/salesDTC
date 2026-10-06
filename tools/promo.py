@@ -57,6 +57,9 @@ D_GROUP = ('Portal Group', 'Portal', 'Site', 'Channel', 'Store')
 D_STATUS = ('order_status', 'Order Status', 'Status')
 
 NONE = '(no promotion)'
+# A store line whose product code nothing knows. Named rather than left blank:
+# a division filter cannot keep it, and that is worth seeing as a count.
+NOT_IN_MASTER = '(no division for this code)'
 
 
 # What an offer *does*, which is the level a person can hold in their head.
@@ -279,6 +282,10 @@ def main() -> int:
     # Division, so the question can be asked of MX on its own.
     div = {}
     if args.division:
+        # Every source that knows a division, not the first one that answers.
+        # The master decides where it knows a code; the plans fill in the codes
+        # it has never heard of, which is the only way a store line for a
+        # product the master has not caught up with lands anywhere at all.
         plans = [pick_file(folder, n) for n in ('MX_product', 'ce_product')]
         for cand in pick_series(folder, args.product) + [c for c in plans if c]:
             try:
@@ -288,32 +295,46 @@ def main() -> int:
                                             'Div')}, say=lambda *a: None)
             except (ValueError, OSError, IndexError):
                 continue
-            if info:
-                div = {k: v.get('division', '') for k, v in info.items()}
-                print(f'  product master: {cand.name}, {len(div):,} code(s)')
-                break
+            added = {k: v['division'] for k, v in info.items()
+                     if v.get('division') and k not in div}
+            if added:
+                div.update(added)
+                print(f'  division from {cand.name}: {len(added):,} more '
+                      f'code(s), {len(div):,} in all')
         asked = {d.upper() for d in args.division}
-        label = ', '.join(sorted(asked))
+        label = ', '.join(args.division)
         if not div:
-            print(f'  no product master, so --division {label} cannot '
+            print(f'  nothing carries a division, so --division {label} cannot '
                   'be applied', file=sys.stderr)
             return 1
         before = len(lines)
-        # What the master actually spells, and how many of these lines sit in
-        # each - printed whether the filter worked or not. A division asked for
-        # by the wrong name otherwise comes back as "nothing", which reads as
-        # "nothing was promoted" when it means "that is not the word".
+        # The breakdown of **every line read**, not of what was asked for: the
+        # names on the left are the ones --division will accept, and the counts
+        # beside them are what each would give. Printed whether the filter
+        # worked or not, because a division asked for by a name nothing uses
+        # otherwise comes back as "nothing", which reads as "nothing was
+        # promoted" when it means "that is not the word".
         spread = collections.Counter(
-            (div.get(key_norm(l['sku'])) or '(not in the master)').upper()
-            for l in lines)
+            div.get(key_norm(l['sku'])) or NOT_IN_MASTER for l in lines)
         lines = [l for l in lines
                  if (div.get(key_norm(l['sku'])) or '').upper() in asked]
         print(f'  {label}: {len(lines):,} of {before:,} line(s)')
+        missing = spread.get(NOT_IN_MASTER, 0)
+        if not lines or missing:
+            where = sys.stderr if not lines else sys.stdout
+            print(f'  these {before:,} order line(s) carry these divisions - '
+                  f'the names are what --division takes,\n  and the counts are '
+                  f'what each would select:', file=where)
+            for name, n in spread.most_common():
+                print(f'    {name:<28} {n:>9,} line(s)'
+                      + ('   <- asked for' if name.upper() in asked else ''),
+                      file=where)
+            if missing:
+                print(f'  the {missing:,} with no division are store lines '
+                      f'whose product code is in neither the\n  product master '
+                      f'nor a plan file, so no division filter can keep them',
+                      file=where)
         if not lines:
-            print(f'  nothing in {label}. The master spells its divisions:',
-                  file=sys.stderr)
-            for name, n in spread.most_common(12):
-                print(f'    {name:<24} {n:,} line(s)', file=sys.stderr)
             return 1
 
     order = [s.strip() for s in args.precedence.split(',') if s.strip()] \
