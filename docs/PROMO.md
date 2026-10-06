@@ -117,6 +117,58 @@ did not pay its price. The bottom row comes with the pairs - what the rule ran
 against what the plan priced - which is where a missing plan line or a family
 the table still splits in two shows up.
 
+## One campaign, out of three columns
+
+The plan writes a campaign in three places - `Nationwide_Campaign`,
+`DTC_Campaign1`, `DTC_Campaign2` - and keeping them as three levels made two
+thirds of CE's plan lines look campaign-less when most of them are not: they are
+in Samsung Week or Clearance or Tech Fest, which the nationwide column never
+holds. The three are read as **one**: nationwide first because it is the widest,
+then the DTC columns, with the rest kept on an `Also in` level so a line naming
+two can be seen to.
+
+Spellings that differ only by case or punctuation are folded, with the plan's own
+commonest spelling as the canonical one - read off the plan rather than from a
+table here, so a spelling that becomes the commoner one later is followed without
+an edit:
+
+```
+  3 campaign name(s) are spelled more than one way and are read as one:
+    Boxing Day <- BOXING DAY
+    Father's Day <- Father's day
+    Mother's Day <- Mother's day
+```
+
+Letter typos are left alone. `Samsung Weel` is not `Samsung Week` by any rule
+that would not also merge two real campaigns, and `Samsung Boost` is not
+`Samsung Boost Week` - those are a decision for whoever owns the plan, and the
+run shows them side by side so the decision can be made.
+
+## Did the orders arrive on what was planned?
+
+The question a chart of the orders alone cannot answer, because a campaign that
+took no orders leaves no row to chart. So both sides go in one table - the plan
+side is what was live in the month and on how many product codes, the order side
+is what actually arrived:
+
+```
+what the plan said would run in this month, against what arrived
+  campaign                       plan SKUs plan lines order lines    units       revenue
+  Father's Day                         109        543         866    1,348     2,985,788
+  Tech Fest                            180        339         400      662     2,201,045
+  Samsung Boost Week                   122        196          39       65       175,212
+  SECRET SALE                           28         28           2        2         2,180
+  Samsung AI Week                       39         43           0        0             0
+  outside every campaign                 -          -         799    1,299     3,045,978
+  no plan line fits the order            -          -         890    1,395     2,653,835
+  3 campaign(s) were planned and nothing arrived on them: Samsung AI Week, ...
+```
+
+A campaign with plan lines and no orders was planned and did not happen. A
+campaign with orders and no plan lines is the other way round. The two bottom
+rows stay apart, because *outside every campaign* - a plan line was found and it
+names none - is a different thing from *no plan line fits the order* at all.
+
 ## Campaign and mechanic are two axes, not two words for one thing
 
 A promotion's **mechanic** comes off the store's rule: the engine applied it, and

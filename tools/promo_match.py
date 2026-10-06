@@ -980,6 +980,123 @@ def tier_report(rows: list, say=print) -> None:
             f'the list price was paid')
 
 
+# ── one campaign, out of three columns ──────────────────────────────────────
+# The plan writes a campaign in three places - Nationwide_Campaign,
+# DTC_Campaign1, DTC_Campaign2 - and keeping them as three levels makes two
+# thirds of CE's plan lines look campaign-less when most of them are not: they
+# are in Samsung Week or Clearance, which the nationwide column never holds.
+# So the three are read as one. Nationwide first because it is the widest, then
+# the DTC columns; the rest are kept so a line that names two can be seen to.
+NO_CAMPAIGN = '(outside every campaign)'
+NO_PLAN = '(no plan line fits this order)'
+
+
+def canon_campaigns(rows: list, say=print) -> dict:
+    """Fold campaign spellings that differ only by case or punctuation.
+
+    `Father's Day` and `Father's day` are one campaign and came out as two
+    bands of a chart. The canonical spelling is the one the plan uses most, read
+    off the plan itself rather than from a table here - which also means a
+    spelling that becomes the commoner one later is followed without an edit.
+    Letter typos are a different thing and are left alone: `Samsung Weel` is not
+    `Samsung Week` by any rule that would not also merge two real campaigns.
+    """
+    seen: dict[str, collections.Counter] = {}
+    for r in rows:
+        for v in r.get('camp') or []:
+            if v:
+                seen.setdefault(re.sub(r'[^A-Z0-9]', '', v.upper()),
+                                collections.Counter())[v] += 1
+    out, folded = {}, []
+    for k, c in seen.items():
+        best = c.most_common(1)[0][0]
+        for v in c:
+            out[v] = best
+        if len(c) > 1:
+            folded.append((best, sorted(x for x in c if x != best)))
+    if folded:
+        say(f'  {len(folded):,} campaign name(s) are spelled more than one way '
+            f'and are read as one:')
+        for best, rest in sorted(folded)[:8]:
+            say(f'    {best} <- ' + ', '.join(rest))
+    return out
+
+
+def one_campaign(camp, canon: dict) -> str:
+    """The campaign a plan line ran in: the first of its three columns to say."""
+    for v in camp or []:
+        if v:
+            return canon.get(v, v)
+    return ''
+
+
+def all_campaigns(camp, canon: dict) -> list:
+    """Every campaign it names, in the order the columns are read."""
+    out = []
+    for v in camp or []:
+        if v and canon.get(v, v) not in out:
+            out.append(canon.get(v, v))
+    return out
+
+
+def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print) -> None:
+    """Did the orders come in on what the plan said would run?
+
+    Two sides of one table. The plan side is what was live in the month and on
+    how many product codes; the order side is what actually arrived. A campaign
+    with plan lines and no orders was planned and did not happen - which no
+    chart of the orders alone can show, because a thing that did not happen
+    leaves no row to chart. A campaign with orders and no plan lines is the
+    other way round and is just as worth seeing.
+    """
+    live = collections.defaultdict(set)
+    lines = collections.Counter()
+    for r in plan_rows:
+        if (r['start'] and r['start'] > hi) or (r['end'] and r['end'] < lo):
+            continue
+        for name in all_campaigns(r.get('camp'), canon) or [NO_CAMPAIGN]:
+            live[name].add(r['code'])
+            lines[name] += 1
+    got = collections.Counter()
+    units = collections.Counter()
+    amt = collections.Counter()
+    for o in orders:
+        # The order side keeps its campaign as a one-element list, because the
+        # chart rows want it that way; here it is one name.
+        name = o['camp'][0] or (NO_CAMPAIGN if o['fitted'] else NO_PLAN)
+        got[name] += 1
+        units[name] += o['qty']
+        amt[name] += o['amt']
+
+    names = set(live) | set(got)
+    names -= {NO_CAMPAIGN, NO_PLAN}      # these two are the rows below, not campaigns
+    rows = sorted(names, key=lambda n: (-amt.get(n, 0), -lines.get(n, 0), n))
+    say(f'\nwhat the plan said would run in this month, against what arrived')
+    say(f'  {"campaign":<30}{"plan SKUs":>10}{"plan lines":>11}'
+        f'{"order lines":>12}{"units":>9}{"revenue":>14}')
+    for n in rows:
+        say(f'  {n[:30]:<30}{len(live.get(n, ())):>10,}{lines.get(n, 0):>11,}'
+            f'{got.get(n, 0):>12,}{units.get(n, 0):>9,.0f}'
+            f'{amt.get(n, 0):>14,.0f}')
+    for n, label in ((NO_CAMPAIGN, 'outside every campaign'),
+                     (NO_PLAN, 'no plan line fits the order')):
+        if got.get(n):
+            say(f'  {label[:30]:<30}{"-":>10}{"-":>11}'
+                f'{got[n]:>12,}{units[n]:>9,.0f}{amt[n]:>14,.0f}')
+    dark = [n for n in rows if lines.get(n) and not got.get(n)]
+    new = [n for n in rows if got.get(n) and not lines.get(n)]
+    if dark:
+        say(f'  {len(dark):,} campaign(s) were planned and nothing arrived on '
+            f'them: ' + ', '.join(dark[:6])
+            + (f' and {len(dark) - 6:,} more' if len(dark) > 6 else ''))
+    if new:
+        say(f'  {len(new):,} campaign(s) took orders with no plan line live '
+            f'this month: ' + ', '.join(new[:6]))
+    say('  a campaign with plan lines and no orders cannot appear in any chart '
+        'of the orders\n  alone - it left no row to chart - which is the whole '
+        'reason for the left two columns')
+
+
 def campaign_fit(rows: list) -> dict:
     """The numbers that say whether a campaign stack is a measurement.
 
@@ -1081,16 +1198,13 @@ def campaign_report(rows: list, say=print) -> None:
     if rest:
         rq = sum(r['qty'] for r in rest)
         say(f'\n  inside {NO_CAMPAIGN} - {rq:,.0f} unit(s), '
-            f'{rq / tot_q * 100:.0f}% of everything:')
-        table(lambda r: r['camp'][1] or '(no DTC campaign 1)',
-              'by DTC_Campaign1', rest)
-        table(lambda r: r['camp'][2] or '(no DTC campaign 2)',
-              'by DTC_Campaign2', rest)
+            f'{rq / tot_q * 100:.0f}% of everything. These are plan lines that '
+            f'name no campaign in\n  any of the three columns, so there is '
+            f'nothing campaign-shaped left to open them by:')
         table(lambda r: r['type'], 'by what was done to the price', rest,
-              note='these last two cannot be stacked - an order can be in '
-                   'several at once - but they\n  say what the band is a '
-                   'mixture of, which is what a legend entry called "none" '
-                   'owes\n  the reader')
+              note='this cannot be stacked - an order can be in several at '
+                   'once - but it says what\n  the band is a mixture of, which '
+                   'is what a legend entry called "none" owes the\n  reader')
 
     # And the same concentration test the levels get, for the campaign: a profit
     # row can only carry a campaign by being shared out over its orders'.
@@ -1327,6 +1441,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         plan_rows += got
         dropped += lost
     plan = Plan(plan_rows, args.stem)
+    canon = canon_campaigns(plan_rows)
     portals = {}
     cp = pick_latest(Path(args.dir), 'customer')
     if cp:
@@ -1473,7 +1588,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         # it ran in and the family it was; which source could name it is an
         # attribute of the row, not part of what the row is.
         fam = family_label(o_type, o_detail, order_of)
-        camp0 = (guess.get('camp') or [''])[0]
+        camp0 = one_campaign(guess.get('camp'), canon)
         key = (camp0 or (NO_CAMPAIGN if guess['promo'] else NO_PLAN), fam)
         agg = by_promo.setdefault(key, [0.0, 0.0, 0.0, collections.Counter(),
                                         collections.Counter()])
@@ -1505,12 +1620,15 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                      c.get('channel') or unset,
                      c.get('type') or unset, c.get('type2') or unset,
                      group, cell(r, O['portal']) or '(blank)',
-                     # The campaign half, widest first. The same two residuals
-                     # the report keeps apart: no campaign is not no plan.
-                     camp[0] or (NO_CAMPAIGN if guess['promo'] else NO_PLAN),
-                     camp[1] or '(no DTC campaign 1)',
-                     camp[2] or '(no DTC campaign 2)',
-                     o_type, o_detail,
+                     # One campaign out of the plan's three columns. The two
+                     # residuals stay apart: outside every campaign is not the
+                     # same as no plan line fitting at all.
+                     one_campaign(camp, canon)
+                     or (NO_CAMPAIGN if guess['promo'] else NO_PLAN),
+                     # And the rest of what it named, where it named more.
+                     ' + '.join(all_campaigns(camp, canon)[1:])
+                     or '(names only the one)',
+                     fam, o_type, o_detail,
                      cell(r, O['cat']) or '(blank)',
                      order['date'].isoformat() if order['date'] else '',
                      qty, amount or 0.0))
@@ -1528,12 +1646,19 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                          if guess['promo'] else ''),
             'cands': guess.get('cands') or [], 'paid': paid})
         camp_rows.append({
-            'camp': guess.get('camp') or ['', '', ''],
-            'camp_alts': guess.get('camp_alts', 0),
-            'camp_lost': guess.get('camp_lost', False),
+            'camp': [camp0, '', ''],
+            'qty': qty, 'amt': amount or 0.0,
+            # Measured on the merged campaign, not on the nationwide column:
+            # two candidate lines that differ only in which column named the
+            # same campaign are not two answers.
+            'camp_alts': len({one_campaign(x.get('camp'), canon)
+                              for x in (guess.get('cands') or [])}),
+            'camp_lost': bool(not camp0 and guess.get('cands')
+                              and any(one_campaign(x.get('camp'), canon)
+                                      for x in guess['cands'])),
             'fitted': bool(guess['promo']), 'type': o_type,
             'group': group, 'sku': cell(r, O['sku']),
-            'qty': qty, 'amt': amount or 0.0})
+            'day': order['date'].isoformat() if order['date'] else ''})
         out.append([
             cell(r, O['order']), cell(r, O['sku']), cell(r, O['group']),
             order['date'].isoformat() if order['date'] else '',
@@ -1642,6 +1767,13 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         tier_report(tier_rows)
         rule_price_report(tier_rows, args.price_tolerance)
     if camp_rows:
+        days = [d for d in (o['day'] for o in camp_rows) if d]
+        if days:
+            lo = date(int(min(days)[:4]), int(min(days)[5:7]), 1)
+            e = max(days)
+            y, m = int(e[:4]), int(e[5:7])
+            hi = date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1)
+            planned_vs_arrived(plan_rows, camp_rows, lo, hi, canon)
         campaign_report(camp_rows)
 
     outdir = Path(args.out)
@@ -1780,7 +1912,7 @@ def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
     # unit is in exactly one - and a drill should start from the level that can
     # be stacked honestly and get looser as it goes in, not the other way round.
     LEVELS = ['Channel', 'Type', 'Type2', 'Portal Group', 'Portal',
-              'Campaign', 'DTC Campaign 1', 'DTC Campaign 2',
+              'Campaign', 'Also in', 'Promotion',
               'Offer Type', 'Offer Detail', 'Product Category']
     sources: dict[str, int] = {}
     values: list[dict[str, int]] = [{} for _ in LEVELS]
