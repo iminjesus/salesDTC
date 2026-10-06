@@ -122,7 +122,10 @@ function readColours() {
         margin:css('--c-margin'), rule:css('--s-rule'), voucher:css('--s-voucher'),
         plan:css('--s-plan'), loose:css('--s-loose'), none:css('--s-none') };
 }
-const SOURCES = [
+// What the bars stack by, and what to call each band. The page supplies it, so
+// a run with four bands does not name five and show one of them structurally
+// empty. The keys are colour slots, which is why they read like sources.
+const SOURCES = DATA.sourceLabels || [
   ['rule',    "the store's own promotion rule"],
   ['voucher', 'a voucher the plan lists'],
   ['plan',    'inferred from the plan'],
@@ -161,9 +164,9 @@ function render() {
     `<option value="${i}">${lv.name}</option>`).join('');
   dimSel.value = state.depth;
   const sel = document.getElementById('srcPick');
-  sel.innerHTML = '<option value="-1">All sources</option>'
-    + SOURCES.map(([s], i) => DATA.sources.includes(s)
-        ? `<option value="${DATA.sources.indexOf(s)}">${s}</option>` : '').join('');
+  sel.innerHTML = '<option value="-1">All promotions</option>'
+    + SOURCES.map(([s, text]) => DATA.sources.includes(s)
+        ? `<option value="${DATA.sources.indexOf(s)}">${text}</option>` : '').join('');
   sel.value = state.src;
   document.getElementById('backBtn').disabled = state.depth === 0;
   document.getElementById('mNet').classList.toggle('active', state.metric === 'net');
@@ -313,9 +316,10 @@ function draw(all, tot) {
 
   document.getElementById('hint').textContent =
     `${shown.length} of ${all.length} ${DATA.levels[state.depth].name.toLowerCase()}(s), `
-    + `biggest ${label.toLowerCase()} first. Bars are split by which source identified `
-    + 'the promotion, so a bar resting on inference is not mistaken for one the '
-    + 'store’s own rule answered. The line is operating profit over net '
+    + `biggest ${label.toLowerCase()} first. Every bar is split the same way, `
+    + `into ${SOURCES.filter(([s]) => DATA.sources.includes(s)).length} band(s), `
+    + 'so a bar can be read against any other and the split holds all the way '
+    + 'down the drill. The line is operating profit over net '
     + 'sales; gross margin sits beside it in the table. A tall spike on a '
     + 'short bar is a small denominator, not a good promotion.'
     + (canDrill ? ` Click a bar to open it by ${DATA.levels[state.depth + 1].name}.`
@@ -325,15 +329,16 @@ function draw(all, tot) {
   const gm = (v) => (I.gm !== undefined && v[I.net])
     ? v[I.gm] / v[I.net] * 100 : null;
   document.getElementById('tableBox').innerHTML = `<table>
-    <thead><tr><th>${DATA.levels[state.depth].name}</th><th>Mostly from</th>
+    <thead><tr><th>${DATA.levels[state.depth].name}</th><th>Mostly</th>
       <th>Units</th><th>Net sales</th><th>COGS</th><th>Operating cost</th>
       <th>Op profit</th><th>Op profit %</th><th>Gross margin %</th>
       <th>Share of net</th></tr></thead>
     <tbody>${shown.map(r => {
       const top = Object.entries(r.by).sort((a, b) => b[1] - a[1])[0] || ['none', 0];
+      const topName = (SOURCES.find(([s]) => s === top[0]) || [, top[0]])[1];
       const m = r.v[I.net] ? r.v[I.profit] / r.v[I.net] * 100 : null;
       return `<tr><td>${r.name}</td>
-        <td><span class="tag" style="background:${C[top[0]]}">${top[0]}</span></td>
+        <td><span class="tag" style="background:${C[top[0]]}">${topName}</span></td>
         <td>${fmt(r.v[I.qty])}</td><td>${fmt(r.v[I.net])}</td>
         <td>${fmt(r.v[I.cogs])}</td><td>${fmt(r.v[I.opex])}</td>
         <td class="${r.v[I.profit] < 0 ? 'neg' : ''}">${fmt(r.v[I.profit])}</td>

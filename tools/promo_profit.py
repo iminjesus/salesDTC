@@ -34,6 +34,79 @@ from rawdata import (find, key_norm, master, parse_number,     # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# How an order line is banded for the stack. Four answers, not two: the sketch
+# this came from shows No promotion, DTC + Nation-wide and DTC promotion, and a
+# nationwide campaign with no DTC campaign beside it is a real fourth that would
+# otherwise have to be filed under one of the three it is not.
+BANDS = [
+    # key - reuses the page's existing colour slots, so no new CSS - and label
+    ('plan',    'DTC promotion'),
+    ('rule',    'DTC + Nation-wide'),
+    ('voucher', 'Nation-wide only'),
+    ('loose',   'promoted, but no campaign named'),
+    ('none',    'No promotion'),
+]
+BAND_LABEL = dict(BANDS)
+
+MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+
+
+def band_of(plan, code: str, day, promoted: bool) -> str:
+    """Which band an order line belongs in.
+
+    Read the same way the simple match reads it: the plan lines for this
+    product whose window covers this date, and which campaign columns they
+    name. Not off the price-matched line - the price rejects lines the plan
+    does cover, because a trade-in or a stacked voucher moves what was
+    collected away from what the plan quotes, and a band decided that way would
+    disagree with the DTC page about the same order.
+
+    `promoted` says whether anything at all answered for the line. One a rule
+    named but no plan line did is promoted with no campaign, which is not "no
+    promotion" - saying so is the point of having that band.
+    """
+    cands, _ = plan.candidates(code)
+    live = [c for c in cands
+            if day is not None
+            and (not c['start'] or day >= c['start'])
+            and (not c['end'] or day <= c['end'])]
+    nat = any((c.get('camp') or [''])[0] for c in live)
+    dtc = any(any((c.get('camp') or ['', '', ''])[1:]) for c in live)
+    if dtc and nat:
+        return 'rule'
+    if dtc:
+        return 'plan'
+    if nat:
+        return 'voucher'
+    return 'loose' if (promoted or live) else 'none'
+
+
+def previous_stem(stem: str) -> str | None:
+    """`26 DTC Aug` -> `26 DTC Jul`, and January steps the year back too.
+
+    A promotion that ran in July is paid for in July's order file, but an order
+    it brought in can complete in August and land in August's profit. Reading
+    only this month's orders leaves that profit with no promotion against it.
+    """
+    for i, m in enumerate(MONTHS):
+        if m.lower() not in stem.lower():
+            continue
+        cut = stem.lower().rindex(m.lower())
+        prev = MONTHS[i - 1]
+        out = stem[:cut] + prev + stem[cut + len(m):]
+        if i == 0:
+            # January's previous month is December of the year before, and the
+            # year is in the stem as two digits.
+            import re as _re
+            yy = _re.match(r'\s*(\d{2})', out)
+            if yy:
+                out = (out[:yy.start(1)] + f'{int(yy.group(1)) - 1:02d}'
+                       + out[yy.end(1):])
+        return out
+    return None
+
+
 # The P&L figures worth carrying through, and the headers they arrive under.
 FIGURES = [
     ('qty',    'Qty',           ('Quantity(Net)', 'Net Sales Qty', 'Qty')),
@@ -50,7 +123,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata')
-    ap.add_argument('--orders', default='26 DTC Aug')
+    ap.add_argument('--orders', nargs='+', default=['26 DTC Aug'],
+                    metavar='STEM',
+                    help='the order export(s). The month before is added '
+                         'automatically where its file exists, because an '
+                         'order from last month\'s promotion completes this '
+                         'month and its profit lands here; --no-previous '
+                         'turns that off')
+    ap.add_argument('--no-previous', action='store_true',
+                    help='read only the order file(s) named')
     ap.add_argument('--plan', nargs='+', metavar='STEM',
                     default=['MX_product', 'ce_product'],
                     help='the promotion plan(s), one per division, '
@@ -77,21 +158,46 @@ def main() -> int:
     args = ap.parse_args()
 
     folder = Path(args.dir)
-    op = pick_file(folder, args.orders)
+    # This month's orders, and the month before where it is on disk. A
+    # promotion that ran in July is in July's export, and an order it brought
+    # in can complete in August and be recognised in August's profit; without
+    # the earlier file that profit has no promotion against it and falls into
+    # "no promotion", which is the one answer it certainly is not.
+    stems = list(args.orders)
+    if not args.no_previous:
+        for st in list(stems):
+            prev = previous_stem(st)
+            if prev and prev not in stems and pick_file(folder, prev):
+                stems.append(prev)
+    ops = [f for f in (pick_file(folder, st) for st in stems) if f]
     pf = (pick_file(folder, args.profit) if args.profit
           else pick_latest(folder, 'profit'))
-    for what, p in (('order', op), ('profit', pf)):
-        if p is None:
-            print(f'no {what} file in {folder.resolve()}', file=sys.stderr)
-            return 2
+    if not ops:
+        print(f'no order file matching {", ".join(stems)} in '
+              f'{folder.resolve()}', file=sys.stderr)
+        return 2
+    if pf is None:
+        print(f'no profit file in {folder.resolve()}', file=sys.stderr)
+        return 2
 
     print('reading:')
-    o_rows, _ = read_any(op)
+    # Read together, with the header of the first. A later export can carry
+    # extra columns; the ones this report reads are found by name on the first
+    # file and a row that is short simply answers blank.
+    o_head, o_body = [], []
+    for f in ops:
+        rows, _ = read_any(f)
+        if not o_head:
+            o_head = [h.strip() for h in rows[0]]
+        o_body += rows[1:]
+        print(f'  {f.name}: {len(rows) - 1:,} rows')
     f_rows, _ = read_any(pf)
-    o_head, o_body = [h.strip() for h in o_rows[0]], o_rows[1:]
     f_head, f_body = [h.strip() for h in f_rows[0]], f_rows[1:]
-    for f, b in ((op, o_body), (pf, f_body)):
-        print(f'  {f.name}: {len(b):,} rows')
+    print(f'  {pf.name}: {len(f_body):,} rows')
+    if len(ops) > 1:
+        print(f'  {len(ops)} order export(s) read together, so a promotion '
+              f'that ran last month keeps\n  the orders it brought in that '
+              f'were recognised this month')
 
     def cell(r, i):
         return (r[i].strip() if i is not None and i < len(r) else '')
@@ -111,15 +217,28 @@ def main() -> int:
 
     # ── completed orders, attributed, rolled up per product ────────────────
     O = {k: find(o_head, *PM.NAMES[k]) for k in
-         ('sku', 'date', 'qty', 'amount', 'rule', 'voucher', 'group')}
+         ('sku', 'date', 'qty', 'amount', 'rule', 'voucher', 'group', 'order')}
     O['status'] = find(o_head, 'order_status', 'Order Status', 'Status')
     keep = {s.strip().upper() for s in args.status.split(',') if s.strip()}
     units: dict[str, dict[tuple, float]] = {}
-    counted = skipped = 0
+    counted = skipped = repeated = 0
+    bands: dict[str, float] = {}
+    # Two exports of neighbouring months overlap: a cut taken part-way through
+    # a month turns up again in the next file. Counted once, by the order line
+    # it is - double counting it would not change the totals, which come off
+    # the profit file, but it would skew the share each promotion is allocated.
+    seen: set = set()
     for r in o_body:
         if (cell(r, O['status']).upper() not in keep):
             skipped += 1
             continue
+        fingerprint = (cell(r, O['order']), cell(r, O['sku']),
+                       cell(r, O['date']), cell(r, O['qty']),
+                       cell(r, O['amount']))
+        if fingerprint in seen:
+            repeated += 1
+            continue
+        seen.add(fingerprint)
         counted += 1
         code = key_norm(cell(r, O['sku']))
         qty = parse_number(cell(r, O['qty'])) or 0.0
@@ -147,15 +266,28 @@ def main() -> int:
         else:
             src = 'none'
             kind = detail = '(no promotion found)'
+        # Which band the stack puts it in. The campaign comes off the plan line
+        # that fitted, whichever source named the offer: the rule says what was
+        # done to the price and the plan says which campaign it belonged to.
+        band = band_of(plan, order['code'], order['date'], src != 'none')
+        bands[band] = bands.get(band, 0.0) + qty
         share = units.setdefault(code, {})
-        key = (src, kind, detail)
+        key = (src, band, kind, detail)
         share[key] = share.get(key, 0.0) + qty
     print(f'orders: {counted:,} line(s) counted, {skipped:,} left out by status '
-          f'({", ".join(sorted(keep))})')
-    return allocate(args, folder, f_head, f_body, units, cell)
+          f'({", ".join(sorted(keep))})'
+          + (f', {repeated:,} the same line seen twice across the exports'
+             if repeated else ''))
+    tot_u = sum(bands.values()) or 1.0
+    print(f'\nthe stack - every counted unit in exactly one band')
+    for key, label in BANDS:
+        if bands.get(key):
+            print(f'  {label:<34}{bands[key]:>10,.0f}{bands[key] / tot_u * 100:>7.1f}%')
+    return allocate(args, folder, f_head, f_body, units, cell,
+                    ' + '.join(f.name for f in ops))
 
 
-def allocate(args, folder, f_head, f_body, units, cell) -> int:
+def allocate(args, folder, f_head, f_body, units, cell, read: str = '') -> int:
     """Split each product's online profit across the promotions it sold under."""
     F = {k: find(f_head, *names) for k, _, names in FIGURES}
     F['sku'] = find(f_head, 'Material', 'Product Number', 'SKU', 'Material Code')
@@ -231,7 +363,7 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
         code, who = cellkey[0], cellkey[1:]
         share = units.get(code)
         if not share:
-            key = ('none', '(sold with no completed order)',
+            key = ('none', 'none', '(sold with no completed order)',
                    '(sold with no completed order)') + who
             agg = out.setdefault(key, [0.0] * (len(keys) + 1))
             for j in range(len(keys)):
@@ -245,7 +377,12 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
                 agg[j] += totals[j] * w
             agg[-1] += u * w                   # the units that earned the share
 
-    def table(depth, title: str, at: int = None) -> None:
+    # Where each piece of the key now sits: source, band, offer type, offer
+    # detail, then the four customer levels.
+    AT = {'band': 1, 'type': 2, 'detail': 3,
+          'channel': 4, 'ctype': 5, 'ctype2': 6, 'customer': 7}
+
+    def table(cols, title: str) -> None:
         """One row per offer, whichever source answered for it.
 
         The source is how the promotion was identified, not a promotion of its
@@ -255,7 +392,7 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
         rolled: dict[tuple, list[float]] = {}
         origin: dict[tuple, dict[str, float]] = {}
         for key, v in out.items():
-            k = (key[at:at + 1] if at is not None else key[1:1 + depth])
+            k = tuple(key[i] for i in cols)
             agg = rolled.setdefault(k, [0.0] * len(v))
             for j in range(len(v)):
                 agg[j] += v[j]
@@ -267,7 +404,9 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
               f'{"op prof %":>10}{"share":>7}  from')
         tot_net = sum(v[net_i] for _, v in rows) or 1
         for k, v in rows[:args.top]:
-            name = ' / '.join(k)
+            # The band is stored as its colour slot, so it is spelled out
+            # wherever a person reads it.
+            name = ' / '.join(BAND_LABEL.get(x, x) for x in k)
             margin = (v[profit_i] / v[net_i] * 100
                       if profit_i is not None and v[net_i] else None)
             src = max(origin[k], key=origin[k].get)
@@ -279,21 +418,24 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
         if len(rows) > args.top:
             print(f'  ... and {len(rows) - args.top:,} more in the csv')
 
-    table(1, 'by offer type  (profit allocated by unit share, not measured)')
-    table(2, 'by offer detail')
-    table(None, 'by customer Type', at=4)
-    table(None, 'by customer', at=6)
+    table([AT['band']],
+          'by promotion  (profit allocated by unit share, not measured)')
+    table([AT['type']], 'by offer type')
+    table([AT['type'], AT['detail']], 'by offer detail')
+    table([AT['ctype']], 'by customer Type')
+    table([AT['customer']], 'by customer')
 
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
     path = outdir / 'promo_profit.csv'
     with path.open('w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f)
-        w.writerow(['Source', 'Offer type', 'Offer detail', 'Channel',
-                    'Type', 'Type2', 'Customer', 'Allocated units']
+        w.writerow(['Source', 'Promotion', 'Offer type', 'Offer detail',
+                    'Channel', 'Type', 'Type2', 'Customer', 'Allocated units']
                    + [label for _, label, _ in FIGURES]
                    + ['Op profit %', 'Gross margin %'])
         for key, v in sorted(out.items(), key=lambda kv: -kv[1][net_i]):
+            key = (key[0], BAND_LABEL.get(key[1], key[1])) + key[2:]
             margin = (v[profit_i] / v[net_i] * 100
                       if profit_i is not None and v[net_i] else '')
             gm = (v[keys.index('gm')] / v[net_i] * 100
@@ -309,11 +451,13 @@ def allocate(args, folder, f_head, f_body, units, cell) -> int:
     if args.html is not None:
         write_page(Path(args.html) if args.html
                    else ROOT / 'dashboard' / 'promo_profit.html',
-                   args, out, keys, cov_net / all_net * 100 if all_net else 0.0)
+                   args, out, keys, cov_net / all_net * 100 if all_net else 0.0,
+                   read)
     return 0
 
 
-def write_page(path: Path, args, out: dict, keys: list, coverage: float) -> None:
+def write_page(path: Path, args, out: dict, keys: list, coverage: float,
+               read: str = '') -> None:
     """The allocation as one self-contained page.
 
     One row per source, per customer level and per offer - which is the finest
@@ -321,12 +465,13 @@ def write_page(path: Path, args, out: dict, keys: list, coverage: float) -> None
     """
     import json
 
-    # The drill, top first: the customer half comes off the payer on the profit
-    # row, the offer half from the promotion. The page opens on Offer type,
-    # since that is the question the file answers, with the customer levels
-    # above it to step up into.
-    LEVELS = ['Channel', 'Type', 'Type2', 'Customer', 'Offer type',
-              'Offer detail']
+    # The drill, top first. It opens on a level with one value, so the first
+    # chart is a single bar split into the bands - which is the shape this was
+    # asked for in - and a click opens that bar by the band itself, then by the
+    # offer inside it, with the customer levels last to step further in.
+    ALL = 'every order the profit covers'
+    LEVELS = ['Promotion mix', 'Promotion', 'Offer type', 'Offer detail',
+              'Channel', 'Type', 'Type2', 'Customer']
     sources: dict[str, int] = {}
     values: list[dict[str, int]] = [{} for _ in LEVELS]
 
@@ -335,19 +480,28 @@ def write_page(path: Path, args, out: dict, keys: list, coverage: float) -> None
 
     rows = []
     for key, v in out.items():
-        src, kind, detail = key[0], key[1], key[2]
-        order = key[3:7] + (kind, detail)
-        rows.append({'s': idx(sources, src),
+        src, band, kind, detail = key[0], key[1], key[2], key[3]
+        order = (ALL, BAND_LABEL.get(band, band), kind, detail) + key[4:8]
+        # The stack is the band, not which source identified it: the question
+        # the page is opened with is how much of the month ran on a promotion,
+        # and the source is a property of how that was worked out.
+        rows.append({'s': idx(sources, band),
                      'k': [idx(values[i], x) for i, x in enumerate(order)],
                      'v': [round(v[j], 2) for j in range(len(keys))]})
     payload = {
         'title': 'August 2026 Promotion profit',
-        'orders': args.orders, 'profit': args.profit or 'profit_2608_*',
+        # The files actually read, not the one stem asked for: the month
+        # before is added on its own, and a page that does not say so looks
+        # like it is counting orders that are not in the file it names.
+        'orders': read or ', '.join(args.orders),
+        'profit': args.profit or 'profit_2608_*',
         'status': args.status,
         'channel': args.account or args.online or 'every channel',
         'coverage': round(coverage, 1),
         'sources': list(sources),
-        'startDim': LEVELS.index('Offer type'),
+        # The bands, in the order they stack, and only those this run has.
+        'sourceLabels': [[k, lbl] for k, lbl in BANDS if k in sources],
+        'startDim': LEVELS.index('Promotion mix'),
         'custDepth': 4,
         'levels': [{'name': n, 'values': list(v)}
                    for n, v in zip(LEVELS, values)],

@@ -112,3 +112,47 @@ The attribution is the same one `promo_match` makes, so `--stem`,
 things. `docs\PROMO.md` covers what each loosening buys and what it costs.
 `--online` and `--account` pick which side of the profit file is allocated,
 the same as in `docs\RECONCILE.md`.
+
+## The stack: how much of the month ran on a promotion
+
+The page opens on **one bar, split into bands** - the shape this was asked for -
+and clicking it opens that bar by the band itself, then by the offer inside it,
+with the customer levels last. Every bar at every level is split the same way,
+so a bar can be read against any other and the split holds all the way down.
+
+| band | |
+|---|---|
+| **DTC promotion** | a plan line covering this product on this date names a DTC campaign |
+| **DTC + Nation-wide** | it names both |
+| **Nation-wide only** | it names the nationwide campaign and no DTC one |
+| **promoted, but no campaign named** | something answered for the line - a rule, a voucher, a priced plan line - but no campaign is on it |
+| **No promotion** | nothing covers it at all |
+
+The fourth band exists because the alternative is filing those units under one
+of the three they are not. The last two are different statements and are kept
+apart.
+
+**The band is read from the product code and the date, not from the price** -
+the same test `promo_match --dtc-only` uses. Deciding it off the price-matched
+plan line would make this page disagree with that one about the same order,
+because the price rejects lines the plan does cover: a trade-in or a stacked
+voucher moves what was collected away from what the plan quotes.
+
+## Last month's promotion, this month's profit
+
+A promotion that ran in July is in July's order export. An order it brought in
+can complete in August, and then its profit is in August's profit file with no
+promotion against it - so it lands in *No promotion*, which is the one answer it
+certainly is not.
+
+So **the month before is read too**, automatically, wherever its file is on
+disk: `26 DTC Aug` pulls in `26 DTC Jul`, and January steps the year back to
+`25 DTC Dec`. `--orders` takes several stems if the derived name is not the
+right one, and `--no-previous` turns it off.
+
+Neighbouring exports overlap - a cut taken part-way through a month turns up
+again in the next file - so an order line seen twice is counted once, by order,
+product, date, quantity and amount. Double counting would not move the totals,
+which come off the profit file, but it would skew the share each promotion is
+allocated. The run says how many it folded, and the page names every file it
+read rather than the one stem that was asked for.
