@@ -539,8 +539,36 @@ What that costs is printed, not hidden:
 
 Campaign spellings are folded first, so `DTC Boost week` and `DTC Boost Week`
 are one row. One line per order goes to `docs/promo_dtc_<yymm>.csv` with the
-campaign and how many covered it, so a pair row can be chased. `--only CODE`
-narrows it to one product.
+campaign, the offer and how many campaigns covered it, so a pair row can be
+chased. `--only CODE` narrows it to one product.
+
+### The offer is what the page is opened to read
+
+A campaign total with nothing under it does not answer *"did FF8 Pre-Order
+happen"*. `FF8 Pre-Order` is the plan's `Offer_Detail`, so the mode carries it
+through to its own table and to the page:
+
+```
+  offer the plan names                        lines     units       revenue
+  FF8 Pre-Order                                   3         3         5,634
+  (no DTC campaign covers it)                     2         2           679
+  Stock Clear                                     1         1         1,465
+```
+
+Add `--html` and it writes `promo_dtc_<yymm>.html` - a **different file from the
+long match's** `promo_<yymm>.html`, because it is a different answer about the
+same month and must not overwrite it. The drill is shorter, since this mode
+infers no channel and reads no price:
+
+> Portal Group -> Portal -> **DTC Campaign** -> Also in -> Offer -> Mechanic ->
+> Product Category
+
+Two things the page needed before it could carry this. Its level list was a
+constant inside `write_page` and is now an argument. Its *source* list was a
+constant inside the template - five entries, `rule`/`voucher`/`plan`/`loose`/
+`none` - and anything else was silently dropped from every chart and every card,
+so a page built with a sixth source drew empty bars. The sources now come from
+the payload, and this mode declares two: **On a DTC campaign** and **On none**.
 
 ## A trade-in is not a discount, and it sits in the price column
 

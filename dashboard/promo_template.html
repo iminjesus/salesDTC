@@ -138,7 +138,10 @@ function readColours() {
         rule:css('--s-rule'), voucher:css('--s-voucher'), plan:css('--s-plan'),
         loose:css('--s-loose'), none:css('--s-none') };
 }
-const SOURCES = [
+// Which sources this page has, and what to call them. The simple read has two
+// where the long match has five, and a page that names five while four of them
+// are structurally zero reads as broken rather than as empty.
+const SOURCES = DATA.sourceLabels || [
   ['rule',    "the store's own promotion rule"],
   ['voucher', 'a voucher the plan lists'],
   ['plan',    'inferred from the plan'],
@@ -295,8 +298,9 @@ function render() {
   document.getElementById('kpis').innerHTML = [
     ['Order lines', fmt(lines), ''],
     ['Attributed', lines ? pct(known * 100 / lines) : '-', `${fmt(known)} lines`],
-    ...SOURCES.map(([s]) => [
-      s === 'none' ? 'Nothing fits' : s === 'loose' ? 'Loosened rule' : `By ${s}`,
+    ...SOURCES.map(([s, label, card]) => [
+      card || (s === 'none' ? 'Nothing fits'
+               : s === 'loose' ? 'Loosened rule' : `By ${s}`),
       fmt(bySource[s] ? bySource[s][1] : 0),
       `${fmt(bySource[s] ? bySource[s][0] : 0)} lines`]),
     ['Revenue in view', fmt(amount), ''],
@@ -448,8 +452,10 @@ function drawBars(all, totalAmount) {
   }
   document.getElementById('promoHint').textContent =
     `${shown.length} of ${rows.length} ${lv.name.toLowerCase()}(s), biggest first. `
-    + 'Each bar is split by which source answered, so a bar that is mostly blue '
-    + 'needed no inference.'
+    // Named rather than coloured: which source is first - and so which colour
+    // means "answered" - is the page's, not this sentence's.
+    + `Each bar is split by which source answered, so a bar that is mostly `
+    + `"${SOURCES[0][1]}" needed no inference.`
     + (canDrill ? ` Click a bar to open it by ${DATA.levels[state.dim + 1].name}.`
                 : ' This is the last level; Back steps out.')
     + fitLine;

@@ -1486,11 +1486,16 @@ def dtc_only(plan, plan_rows, o_body, O, canon, args, cell, say=print):
             if not name:
                 continue
             windows.setdefault(r['code'], []).append(
-                (canon.get(name, name), r['start'], r['end']))
+                (canon.get(name, name), r['start'], r['end'],
+                 # What the plan called the offer. This is where FF8 Pre-Order
+                 # is written, and it is the label the page is read for - a
+                 # campaign total with no offer under it answers nothing.
+                 r['detail'] or '(the plan names no offer)',
+                 r['type'] or '(the plan names no mechanic)'))
     span: dict[str, list] = {}
     skus: dict[str, set] = collections.defaultdict(set)
     for code, hits in windows.items():
-        for name, lo, hi in hits:
+        for name, lo, hi, _detail, _type in hits:
             skus[name].add(code)
             was = span.setdefault(name, [lo, hi])
             if lo and (was[0] is None or lo < was[0]):
@@ -1503,7 +1508,7 @@ def dtc_only(plan, plan_rows, o_body, O, canon, args, cell, say=print):
     lines = collections.Counter()
     two = []                      # inside more than one DTC campaign at once
     undated = 0                   # a DTC line with no window - covers nothing
-    out = []
+    out, page = [], []
     miss = {'code': 0, 'date': 0, 'no dtc': 0}
     for r in o_body:
         if not args.keep_cancelled and cell(r, O['cancel']).lower() in (
@@ -1516,19 +1521,22 @@ def dtc_only(plan, plan_rows, o_body, O, canon, args, cell, say=print):
         amount = parse_number(cell(r, O['amount'])) or 0.0
         day = to_date(cell(r, O['date']))
         cands, how = plan.candidates(code)
+        offers, mechanics = [], []
         if not cands:
             miss['code'] += 1
             got = []
         else:
-            mine = [(n, lo, hi) for c in cands
-                    for n, lo, hi in windows.get(c['code'], [])]
+            mine = [w for c in cands for w in windows.get(c['code'], [])]
             if not mine:
                 miss['no dtc'] += 1
-            got = sorted({n for n, lo, hi in mine
-                          if day is not None
-                          and (lo is None or day >= lo)
-                          and (hi is None or day <= hi)})
-            undated += sum(1 for n, lo, hi in mine if lo is None and hi is None)
+            live = [w for w in mine
+                    if day is not None
+                    and (w[1] is None or day >= w[1])
+                    and (w[2] is None or day <= w[2])]
+            got = sorted({w[0] for w in live})
+            offers = sorted({w[3] for w in live})
+            mechanics = sorted({w[4] for w in live})
+            undated += sum(1 for w in mine if w[1] is None and w[2] is None)
             if mine and not got:
                 miss['date'] += 1
         name = got[0] if len(got) == 1 else (
@@ -1540,7 +1548,16 @@ def dtc_only(plan, plan_rows, o_body, O, canon, args, cell, say=print):
         lines[name] += 1
         out.append([cell(r, O['order']), cell(r, O['sku']),
                     day.isoformat() if day else '', qty, amount,
-                    name, len(got)])
+                    name, len(got), ' + '.join(offers)])
+        page.append(('plan' if got else 'none',
+                     cell(r, O['group']) or '(blank)',
+                     cell(r, O['portal']) or '(blank)',
+                     name,
+                     ' + '.join(got[1:]) or '(names only the one)',
+                     ' + '.join(offers) or NO_DTC,
+                     ' + '.join(mechanics) or NO_DTC,
+                     cell(r, O['cat']) or '(blank)',
+                     day.isoformat() if day else '', qty, amount))
 
     tot = sum(units.values()) or 1.0
     say(f'\nwhich DTC campaign the order came in on - product code and date '
@@ -1578,7 +1595,23 @@ def dtc_only(plan, plan_rows, o_body, O, canon, args, cell, say=print):
         f'product code for, {miss["no dtc"]:,}\n  on a product the plan lists '
         f'under no DTC campaign, {miss["date"]:,} on a date outside every DTC\n'
         f'  window the product is in')
-    return out
+    # The offer, which is what the page is actually opened to read: a campaign
+    # total with nothing under it does not answer "did FF8 Pre-Order happen".
+    say(f'\n  {"offer the plan names":<40}{"lines":>9}{"units":>10}'
+        f'{"revenue":>14}')
+    by_offer = collections.Counter()
+    off_amt = collections.Counter()
+    off_lines = collections.Counter()
+    for row in page:
+        by_offer[row[5]] += row[9]
+        off_amt[row[5]] += row[10]
+        off_lines[row[5]] += 1
+    for o, q in by_offer.most_common(12):
+        say(f'  {o[:40]:<40}{off_lines[o]:>9,}{q:>10,.0f}{off_amt[o]:>14,.0f}')
+    reasons = [('the plan has no line for this product', miss['code']),
+               ('the plan lists it under no DTC campaign', miss['no dtc']),
+               ('the date is outside every DTC window it is in', miss['date'])]
+    return out, page, [(w, n) for w, n in reasons if n]
 
 
 def campaign_fit(rows: list) -> dict:
@@ -1969,7 +2002,8 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     plan = Plan(plan_rows, args.stem)
     canon = canon_campaigns(plan_rows)
     if args.dtc_only:
-        rows = dtc_only(plan, plan_rows, o_body, O, canon, args, cell)
+        rows, dtc_page, why = dtc_only(plan, plan_rows, o_body, O, canon,
+                                       args, cell)
         outdir = Path(args.out)
         outdir.mkdir(parents=True, exist_ok=True)
         yymm, _ = months_in([r[2] for r in rows if r[2]])
@@ -1977,9 +2011,28 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         with path.open('w', newline='', encoding='utf-8-sig') as fh:
             w = csv.writer(fh)
             w.writerow(['order', 'sku', 'date', 'units', 'amount',
-                        'dtc campaign', 'campaigns covering it'])
+                        'dtc campaign', 'campaigns covering it', 'offer'])
             w.writerows(rows)
         print(f'\n-> {path}')
+        if args.html is not None:
+            # The page is how this is read, so the simple mode builds one too -
+            # a shorter drill, because it infers no channel and reads no price,
+            # and a different file name, because it is a different answer about
+            # the same month and must not overwrite the long match's page.
+            hp = (Path(args.html) if args.html else ROOT / 'dashboard' /
+                  f'promo_dtc_{yymm or "nodate"}.html')
+            write_page(hp, args, ' + '.join(f['path'].name for f in plans),
+                       op, dtc_page, why, 0,
+                       levels=['Portal Group', 'Portal', 'DTC Campaign',
+                               'Also in', 'Offer', 'Mechanic',
+                               'Product Category'],
+                       cust_depth=2, start='DTC Campaign',
+                       campaign='DTC Campaign',
+                       source_labels=[
+                           ['plan', 'the plan: this product, on this date',
+                            'On a DTC campaign'],
+                           ['none', 'no DTC campaign covers it',
+                            'On none']])
         return 0
     portals = {}
     cp = pick_latest(Path(args.dir), 'customer')
@@ -2622,7 +2675,10 @@ def months_in(dates) -> tuple:
 
 
 def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
-               cancelled: int, fit: dict | None = None) -> None:
+               cancelled: int, fit: dict | None = None,
+               levels: list | None = None, cust_depth: int = 5,
+               start: str = 'Campaign', campaign: str = 'Campaign',
+               source_labels: list | None = None) -> None:
     """One self-contained page, with the profit chart's controls.
 
     The rows are rolled up to one per source, per level value and per day -
@@ -2640,9 +2696,11 @@ def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
     # nationwide campaign is the only one of these that divides revenue - every
     # unit is in exactly one - and a drill should start from the level that can
     # be stacked honestly and get looser as it goes in, not the other way round.
-    LEVELS = ['Channel', 'Type', 'Type2', 'Portal Group', 'Portal',
-              'Campaign', 'Also in', 'Promotion',
-              'Offer Type', 'Offer Detail', 'Product Category']
+    # The simple read has its own, shorter drill - it infers no channel and
+    # names no mechanic - so the levels are an argument rather than a constant.
+    LEVELS = levels or ['Channel', 'Type', 'Type2', 'Portal Group', 'Portal',
+                        'Campaign', 'Also in', 'Promotion',
+                        'Offer Type', 'Offer Detail', 'Product Category']
     sources: dict[str, int] = {}
     values: list[dict[str, int]] = [{} for _ in LEVELS]
     days = set()
@@ -2671,15 +2729,16 @@ def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
         'days': sorted(days),
         # Campaign is where the page opens: it is the one level a stacked bar
         # can divide revenue by, and the looser levels sit inside it.
-        'startDim': LEVELS.index('Campaign'),
-        'custDepth': 5,
+        'startDim': LEVELS.index(start),
+        'custDepth': cust_depth,
         'levels': [{'name': n, 'values': list(v)}
                    for n, v in zip(LEVELS, values)],
         'rows': [{'s': k[0], 'k': list(k[1:1 + len(LEVELS)]), 'd': k[-1],
                   'n': int(v[0]), 'q': round(v[1], 2), 'a': round(v[2], 2)}
                  for k, v in buckets.items()],
+        'sourceLabels': source_labels,
         'reasons': [[w, n] for w, n in reasons[:12]],
-        'campaignDim': LEVELS.index('Campaign'),
+        'campaignDim': LEVELS.index(campaign),
         'fit': fit,
     }
     here = Path(__file__).resolve().parent.parent / 'dashboard'
