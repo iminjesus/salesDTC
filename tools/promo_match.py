@@ -1159,8 +1159,8 @@ def main() -> int:
                     help='describe both files and stop')
     ap.add_argument('--out', default=str(ROOT / 'docs'))
     ap.add_argument('--html', nargs='?', const='', metavar='PATH',
-                    help='also write a page to look at it in '
-                         '(default dashboard/promo_2608.html)')
+                    help='also write a page to look at it in (default '
+                         'dashboard/promo_<the month the orders fall in>.html)')
     ap.add_argument('--cdn', action='store_true',
                     help='link Chart.js in the page instead of embedding it')
     ap.add_argument('--price-tolerance', type=float, default=3.0, metavar='PCT',
@@ -1721,11 +1721,43 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             print(f'  {count:>8,}  {why}')
 
     if args.html is not None:
-        path = Path(args.html) if args.html else ROOT / 'dashboard' / 'promo_2608.html'
+        yymm, _ = months_in(d for _, d in sorted(
+            {(i, r[-3]) for i, r in enumerate(page)}))
+        path = (Path(args.html) if args.html else
+                ROOT / 'dashboard' / f'promo_{yymm or "nodate"}.html')
         write_page(path, args, ' + '.join(f['path'].name for f in plans),
                    op, page, ranked, cancelled,
                    campaign_fit(camp_rows) if camp_rows else None)
     return 0
+
+
+MONTH_NAME = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
+              'August', 'September', 'October', 'November', 'December')
+
+
+def months_in(dates) -> tuple:
+    """(yymm, a title) for the months these order dates fall in.
+
+    Read off the orders rather than written into the code. The page was named
+    promo_2608.html and titled "August 2026 Promotions" whatever month was fed
+    to it, so a September run overwrote August's page with September's data
+    under August's name - the one mistake a file name can make that nobody
+    catches, because the file is there and it opens.
+    """
+    seen = collections.Counter(d[:7] for d in dates if d and len(d) >= 7)
+    if not seen:
+        return '', 'Promotions'
+    keys = sorted(seen)
+    def name(k):
+        y, m = k.split('-')
+        return f'{MONTH_NAME[int(m) - 1]} {y}'
+    first, last = keys[0], keys[-1]
+    yymm = f'{first[2:4]}{first[5:7]}'
+    if first == last:
+        return yymm, f'{name(first)} Promotions'
+    # A span, named as one: two months in a file is worth seeing in its title.
+    return (f'{yymm}-{last[2:4]}{last[5:7]}',
+            f'{name(first)} - {name(last)} Promotions')
 
 
 def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
@@ -1771,7 +1803,7 @@ def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
         b[2] += amt
 
     payload = {
-        'title': 'August 2026 Promotions',
+        'title': months_in(days)[1],
         'plan': plan_name, 'orders': op.name,
         'lines': len(page), 'cancelled': cancelled,
         'sources': list(sources),
