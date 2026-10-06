@@ -1061,7 +1061,8 @@ def plan_discount(line) -> float | None:
     return None
 
 
-def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print) -> None:
+def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print,
+                       what: str = '') -> None:
     """Did the orders come in on what the plan said would run?
 
     Two sides of one table. The plan side is what was live in the month and on
@@ -1121,7 +1122,8 @@ def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print) -> None:
         return None if not n2 else (xs[n2 // 2] if n2 % 2
                                     else (xs[n2 // 2 - 1] + xs[n2 // 2]) / 2)
 
-    say(f'\nwhat the plan said would run in this month, and how it was applied')
+    say(f'\nwhat the plan said would run in this month, and how it was applied'
+        + (f' - {what} only' if what else ''))
     def row(name, named, skus, pl, u, rev, late, pd_, rd):
         say(f'  {name[:28]:<28}{named[:11]:<12}{skus:>6}{pl:>7}'
             f'{u:>9,.0f}{rev:>13,.0f}'
@@ -2122,7 +2124,15 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             e = max(days)
             y, m = int(e[:4]), int(e[5:7])
             hi = date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1)
-            planned_vs_arrived(plan_rows, camp_rows, lo, hi, canon)
+            # With --only the orders are one product's; the plan side has to
+            # be the same product's, or every campaign in the file turns up
+            # with its full plan counts against nothing, and "planned and
+            # nothing arrived" becomes a list of campaigns that were never
+            # about this product in the first place.
+            mine = ([r for r in plan_rows if only in r['code']] if only
+                    else plan_rows)
+            planned_vs_arrived(mine, camp_rows, lo, hi, canon,
+                               what=args.only if only else '')
         campaign_report(camp_rows)
 
     outdir = Path(args.out)
