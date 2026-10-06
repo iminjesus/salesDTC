@@ -112,9 +112,36 @@ built from, by the units behind them. A token on a large share of the units is a
 grouping waiting to be named: a campaign, a mechanic the vocabulary is missing,
 or a wave code that only fragments what is otherwise one offer.
 
-`--division MX` asks the question of one division; `--month 2608` of one month.
+`--division MX` asks the question of one division and takes several names, so
+`--division VD DA` asks it of CE if the master splits it that way;
+`--month 2608` asks it of one month. A division asked for by a name the master
+does not use comes back with **the names it does use**, and their line counts,
+rather than with "nothing" - which otherwise reads as "nothing was promoted"
+when it means "that is not the word".
+
 Output goes to `docs/promo_levels.csv`, which is **not** committed - like every
 other csv these tools write, it holds real customers and real revenue.
+
+### The family table is MX's table
+
+It was read off MX's own codes, so pointed at another division it is a
+hypothesis. CE's offers run to cashback, redemption, a bonus gift, delivery and
+installation, and none of those is in the table. So every run reports what the
+table **fails** to name - the share of promoted units in the residual, and the
+commonest pieces those units are built from:
+
+```
+what the family table does not name: <units> unit(s) (<pct>% of the promoted)
+    TV                                   <units>   71%
+    INSTALL                              <units>   29%
+    DELIVERY                             <units>   29%
+    FREE                                 <units>   29%
+```
+
+That list is where the division's own families get written from - the same way
+MX's were - and `FAMILIES` at the top of `tools/promo.py` is where they go. A
+high residual means the table does not fit that division yet, not that its
+offers are unstructured.
 
 ## The order export already knows
 
@@ -216,8 +243,46 @@ keeping.
 
 ## The plan
 
+### One plan file per division, read together
+
+`--plan` takes several stems and defaults to **`MX_product ce_product`**. An
+order does not know which division's file it belongs to, so it is matched
+against all of them at once, and the plan line it matched records which file
+answered. That is the difference between "the plan has no line for this product"
+and "the other division's plan has it", which are not the same fault and do not
+have the same fix. A stem that names no file is said and skipped, not fatal: one
+division's plan arriving late should cost that division's rows, not the run.
+
+The two files are **the same shape with a few differences**, and the differences
+are where a column quietly reads as blank, so every run with more than one plan
+prints them before doing anything with the data:
+
+```
+the plan files, side by side: <n> column(s) in all of MX_product.csv, ce_product.csv
+  only in MX_product.csv: DTC_Campaign2, Offer_Type, SKU, Start_Date, Voucher_Code
+  only in ce_product.csv: Bonus_Gift, Model Code, Offer Type, Promo Price, Start Date
+  what each file answers with:
+    MX_product.csv  sku='SKU', promo='Nationwide_Campaign', type='Offer_Type', ...
+    ce_product.csv  sku='Model Code', promo='Promotion Name', type='Offer Type', ...
+                    nothing for: voucher - read as blank
+```
+
+The last two lines are the ones that matter: a slot with nothing behind it is
+read as blank for every row of that file, and a file with no `RRP` column gives
+no list price. `--promo-sku` and the other overrides apply to whichever file has
+that column and are a warning, not an abort, for the one that does not.
+
+`tools/promo_match.py`, `tools/promo_profit.py` and `tools/asp_xlsx.py` all read
+the plan through the same loader, so none of them can disagree with the others
+about which status was never live, which columns hold a price, or how a window
+is read.
+
+### The label
+
 `MX_product` has no single promotion-name column, so the label is built from
-`Nationwide_Campaign`, `DTC_Campaign2` and `Offer_Type` - whichever are filled.
+`Nationwide_Campaign`, `DTC_Campaign2` and `Offer_Type` - whichever are filled;
+in `ce_product` the same three slots land on `Promotion Name`, `Offer Detail`
+and `Offer Type`.
 Lines whose `Status` or `PUMI` reads cancelled, tentative, draft or rejected
 are **left out**: nothing sold under a promotion that was never live.
 `--keep-cancelled` keeps them, and cancelled orders, in.

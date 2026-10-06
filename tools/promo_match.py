@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """Work out which promotion each order came in on.
 
-    py tools\\promo_match.py --profile     # describe both files, change nothing
+    py tools\\promo_match.py --profile     # describe every file, change nothing
     py tools\\promo_match.py               # attribute, and cross-check the two
+
+The plan arrives as one file per division - MX_product, ce_product - in the same
+shape with a few of the columns spelled differently. Both are read together, and
+where they differ from each other is printed before anything is read out of
+them, because a column one file spells differently is a column that reads as
+blank in the other.
 
 The order export already answers most of this itself: `promotion_rule` is what
 the store applied, and `Voucher Code(s)` is what the customer typed. Neither is
@@ -361,8 +367,39 @@ def plan_price_columns(head: list[str]) -> list:
     return [(c, i) for c in PRICE_COLS if (i := find(head, c)) is not None]
 
 
-def plan_lines(body, P, price_cols, keep_cancelled: bool = False) -> tuple:
-    """The plan as rows `Plan` can index, and how many were never live."""
+def plan_fields(head: list[str], body: list, args, name: str = '') -> dict:
+    """The plan's columns, with any --promo-* override applied.
+
+    An override that names a column this file does not have is a warning and
+    not the end of the run: with a plan per division the flag that fixes MX's
+    spelling need not exist in CE's, and aborting on that would make the flag
+    unusable for the pair.
+    """
+    P = plan_columns(head)
+    for slot, flag in (('sku', 'promo_sku'), ('promo', 'promo_name'),
+                       ('start', 'promo_start'), ('end', 'promo_end'),
+                       ('voucher', 'promo_voucher')):
+        want = getattr(args, flag, None)
+        if not want:
+            continue
+        i = find(head, want)
+        if i is None:
+            print(f'  {name}: no column named {want!r}, keeping '
+                  + (repr(head[P[slot]]) if P.get(slot) is not None else 'none'))
+            continue
+        P[slot] = i
+    return P
+
+
+def plan_lines(body, P, price_cols, keep_cancelled: bool = False,
+               source: str = '') -> tuple:
+    """The plan as rows `Plan` can index, and how many were never live.
+
+    Each row remembers which file it came from. With one plan that is noise;
+    with a plan per division it is the difference between "the plan has no line
+    for this product" and "the plan for the other division has it", which are
+    not the same fault and do not have the same fix.
+    """
     def cell(r, i):
         return (r[i].strip() if i is not None and i < len(r) else '')
 
@@ -378,7 +415,8 @@ def plan_lines(body, P, price_cols, keep_cancelled: bool = False) -> tuple:
                                        cell(r, P['type']))
                            if x and x != '-') or '(unnamed plan line)'
         rows.append({
-            'code': code, 'promo': label, 'type': cell(r, P['type']),
+            'code': code, 'promo': label, 'source': source,
+            'type': cell(r, P['type']),
             'detail': cell(r, P['promo2b']) or cell(r, P['promo2']),
             'start': to_date(cell(r, P['start'])),
             'end': to_date(cell(r, P['end'])),
@@ -408,7 +446,8 @@ def load_plan(path: Path, *, keep_cancelled: bool = False, stem: int = 0,
     if P['sku'] is None:
         raise ValueError(f'{path.name} has no product code column')
     price_cols = plan_price_columns(head)
-    lines, dropped = plan_lines(rows[1:], P, price_cols, keep_cancelled)
+    lines, dropped = plan_lines(rows[1:], P, price_cols, keep_cancelled,
+                                path.name)
     dated = sum(1 for r in lines if r['start'] or r['end'])
     say(f'  {path.name}: {info["format"]}, {len(lines):,} live line(s), '
         f'{dated:,} with a window'
@@ -416,6 +455,91 @@ def load_plan(path: Path, *, keep_cancelled: bool = False, stem: int = 0,
     say('    prices: ' + (', '.join(c for c, _ in price_cols) or 'none'))
     return Plan(lines, stem), {'prices': [c for c, _ in price_cols],
                                'dropped': dropped, 'lines': len(lines)}
+
+
+def load_plans(folder: Path, stems, *, keep_cancelled: bool = False,
+               stem: int = 0, say=print) -> tuple:
+    """Several plan files as one plan - a plan per division, read together.
+
+    MX and CE keep their own file, in the same shape with the same columns
+    spelled a little differently, and an order does not know which of them it
+    belongs to. Reading them together means a CE order is matched against CE's
+    plan without being told to look there, and a stem that is in neither comes
+    back as genuinely unplanned rather than as "the file I happened to load
+    does not have it".
+
+    A stem that names no file is said and skipped, not fatal: one division's
+    plan arriving a week late should cost that division's rows, not the run.
+    """
+    lines, meta = [], []
+    for want in stems:
+        path = pick_file(folder, want)
+        if path is None:
+            say(f'  no file matching {want!r} - skipped')
+            continue
+        try:
+            rows, info = read_any(path)
+            if not rows:
+                raise ValueError('it is empty')
+            head = [h.strip() for h in rows[0]]
+            P = plan_columns(head)
+            if P['sku'] is None:
+                raise ValueError('no product code column')
+            price_cols = plan_price_columns(head)
+            got, dropped = plan_lines(rows[1:], P, price_cols, keep_cancelled,
+                                      path.name)
+        except (ValueError, OSError, IndexError, KeyError) as e:
+            say(f'  {path.name}: {e} - skipped')
+            continue
+        lines += got
+        meta.append({'path': path, 'head': head, 'P': P, 'lines': len(got),
+                     'dropped': dropped,
+                     'prices': [c for c, _ in price_cols],
+                     'dated': sum(1 for r in got if r['start'] or r['end'])})
+        say(f'  {path.name}: {info["format"]}, {len(got):,} live line(s), '
+            f'{meta[-1]["dated"]:,} with a window'
+            + (f', {dropped:,} cancelled or unapproved left out'
+               if dropped else ''))
+        say('    prices: ' + (', '.join(c for c, _ in price_cols) or 'none'))
+    return Plan(lines, stem), meta
+
+
+def plan_structure(meta: list, say=print) -> None:
+    """Where two plan files disagree about their own shape.
+
+    Said out loud because the alternative is finding out from a column that
+    quietly read as blank for half the rows. A header one file has and the
+    other does not is the whole of "similar, with a few differences", and it is
+    cheaper to read it here than to explain a missing RRP later.
+    """
+    if len(meta) < 2:
+        return
+    names = [m['path'].name for m in meta]
+    sets = [{h for h in m['head'] if h} for m in meta]
+    shared = set.intersection(*sets)
+    say(f'\nthe plan files, side by side: {len(shared)} column(s) in all of '
+        + ', '.join(names))
+    for m, own in zip(meta, sets):
+        only = sorted(own - shared)
+        if only:
+            say(f'  only in {m["path"].name}: ' + ', '.join(only[:12])
+                + (f' ... and {len(only) - 12} more' if len(only) > 12 else ''))
+    # The columns this tool actually reads matter more than the rest of them.
+    want = ('sku', 'promo', 'promo2', 'type', 'start', 'end', 'status', 'site',
+            'voucher')
+    say('  what each file answers with:')
+    width = max(len(n) for n in names)
+    for m in meta:
+        head, P = m['head'], m['P']
+        got = [f'{k}={head[P[k]]!r}' for k in want if P.get(k) is not None]
+        gap = [k for k in want if P.get(k) is None]
+        say(f'    {m["path"].name:<{width}}  ' + ', '.join(got))
+        if gap:
+            say(f'    {"":<{width}}  nothing for: ' + ', '.join(gap)
+                + ' - read as blank')
+        if 'RRP' not in m['prices']:
+            say(f'    {"":<{width}}  no RRP column, so no list price from this '
+                f'file')
 
 
 def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
@@ -522,7 +646,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata')
-    ap.add_argument('--plan', default='MX_product')
+    ap.add_argument('--plan', nargs='+', default=['MX_product', 'ce_product'],
+                    metavar='STEM',
+                    help='the promotion plan(s), one per division, read '
+                         'together (default: MX_product ce_product; a '
+                         'stem that names no file is skipped)')
     ap.add_argument('--orders', default='26 DTC Aug')
     ap.add_argument('--profile', action='store_true',
                     help='describe both files and stop')
@@ -575,35 +703,43 @@ def main() -> int:
     if not folder.is_dir():
         print(f'no such folder: {folder.resolve()}', file=sys.stderr)
         return 2
-    pp, op = pick_file(folder, args.plan), pick_file(folder, args.orders)
-    for what, p, asked in (('plan', pp, args.plan), ('orders', op, args.orders)):
-        if p is None:
-            print(f'no {what} file matching {asked!r} in {folder.resolve()}',
-                  file=sys.stderr)
-            return 2
-
-    p_rows, p_info = read_any(pp)
-    o_rows, o_info = read_any(op)
-    p_head, p_body = [h.strip() for h in p_rows[0]], p_rows[1:]
-    o_head, o_body = [h.strip() for h in o_rows[0]], o_rows[1:]
+    op = pick_file(folder, args.orders)
+    if op is None:
+        print(f'no orders file matching {args.orders!r} in {folder.resolve()}',
+              file=sys.stderr)
+        return 2
     print('reading:')
-    print(f'  {pp.name}: {p_info["format"]}, {p_info["encoding"]}, {len(p_body):,} rows')
+    plans = []
+    for want in args.plan:
+        path = pick_file(folder, want)
+        if path is None:
+            print(f'  no plan file matching {want!r} - skipped')
+            continue
+        rows, info = read_any(path)
+        if not rows:
+            print(f'  {path.name} is empty - skipped')
+            continue
+        head, body = [h.strip() for h in rows[0]], rows[1:]
+        print(f'  {path.name}: {info["format"]}, {info["encoding"]}, '
+              f'{len(body):,} rows')
+        plans.append({'path': path, 'head': head, 'body': body})
+    if not plans:
+        print(f'none of {", ".join(repr(w) for w in args.plan)} is in '
+              f'{folder.resolve()}', file=sys.stderr)
+        return 2
+
+    o_rows, o_info = read_any(op)
+    o_head, o_body = [h.strip() for h in o_rows[0]], o_rows[1:]
     print(f'  {op.name}: {o_info["format"]}, {o_info["encoding"]}, {len(o_body):,} rows')
 
     if args.profile:
-        profile(pp.name, p_head, p_body)
+        for f in plans:
+            profile(f['path'].name, f['head'], f['body'])
         profile(op.name, o_head, o_body)
 
-    P = {k: choose(p_head, p_body, k, getattr(args, f'promo_{k}', None)
-                   if k in ('sku', 'name', 'start', 'end', 'voucher') else None)
-         for k in ('sku', 'promo', 'promo2', 'type', 'start', 'end', 'status',
-                   'site', 'voucher')}
-    P['sku'] = choose(p_head, p_body, 'sku', args.promo_sku)
-    P['promo'] = choose(p_head, p_body, 'promo', args.promo_name)
-    P['start'] = choose(p_head, p_body, 'start', args.promo_start)
-    P['end'] = choose(p_head, p_body, 'end', args.promo_end)
-    P['voucher'] = choose(p_head, p_body, 'voucher', args.promo_voucher)
-    P['promo2b'] = find(p_head, 'Offer_Detail', 'Offer Detail')
+    for f in plans:
+        f['P'] = plan_fields(f['head'], f['body'], args, f['path'].name)
+        f['price_cols'] = plan_price_columns(f['head'])
     O = {
         'sku': choose(o_head, o_body, 'sku', args.order_sku),
         'date': choose(o_head, o_body, 'date', args.order_date),
@@ -618,48 +754,71 @@ def main() -> int:
         'portal': choose(o_head, o_body, 'portal', None),
         'cancel': choose(o_head, o_body, 'cancel', None),
     }
-    price_cols = [(c, find(p_head, c)) for c in PRICE_COLS]
-    price_cols = [(c, i) for c, i in price_cols if i is not None]
 
     print('\ncolumns chosen  (--flags override any of these):')
-    rows_out = [(pp.name, 'product code', P['sku'], p_head, '--promo-sku'),
-                (pp.name, 'campaign', P['promo'], p_head, '--promo-name'),
-                (pp.name, 'also labelled by', P['promo2'], p_head, ''),
-                (pp.name, 'offer type', P['type'], p_head, ''),
-                (pp.name, 'starts', P['start'], p_head, '--promo-start'),
-                (pp.name, 'ends', P['end'], p_head, '--promo-end'),
-                (pp.name, 'status', P['status'], p_head, ''),
-                (pp.name, 'voucher', P['voucher'], p_head, '--promo-voucher'),
-                (op.name, 'product code', O['sku'], o_head, '--order-sku'),
-                (op.name, 'order date', O['date'], o_head, '--order-date'),
-                (op.name, 'order number', O['order'], o_head, '--order-no'),
-                (op.name, 'units', O['qty'], o_head, '--order-qty'),
-                (op.name, 'paid', O['amount'], o_head, '--order-amount'),
-                (op.name, 'promotion rule', O['rule'], o_head, '--order-rule'),
-                (op.name, 'voucher', O['voucher'], o_head, '--order-voucher'),
-                (op.name, 'portal group', O['group'], o_head, ''),
-                (op.name, 'portal', O['portal'], o_head, '')]
+    rows_out = []
+    for f in plans:
+        n, P, head = f['path'].name, f['P'], f['head']
+        rows_out += [(n, 'product code', P['sku'], head, '--promo-sku'),
+                     (n, 'campaign', P['promo'], head, '--promo-name'),
+                     (n, 'also labelled by', P['promo2'], head, ''),
+                     (n, 'offer type', P['type'], head, ''),
+                     (n, 'starts', P['start'], head, '--promo-start'),
+                     (n, 'ends', P['end'], head, '--promo-end'),
+                     (n, 'status', P['status'], head, ''),
+                     (n, 'voucher', P['voucher'], head, '--promo-voucher')]
+    rows_out += [(op.name, 'product code', O['sku'], o_head, '--order-sku'),
+                 (op.name, 'order date', O['date'], o_head, '--order-date'),
+                 (op.name, 'order number', O['order'], o_head, '--order-no'),
+                 (op.name, 'units', O['qty'], o_head, '--order-qty'),
+                 (op.name, 'paid', O['amount'], o_head, '--order-amount'),
+                 (op.name, 'promotion rule', O['rule'], o_head, '--order-rule'),
+                 (op.name, 'voucher', O['voucher'], o_head, '--order-voucher'),
+                 (op.name, 'portal group', O['group'], o_head, ''),
+                 (op.name, 'portal', O['portal'], o_head, '')]
+    width = max(len(n[:18]) for n, *_ in rows_out)
     for side, what, i, head, flag in rows_out:
-        print(f'  {side[:18]:<18} {what:<16} '
+        print(f'  {side[:18]:<{width}} {what:<16} '
               + (repr(head[i]) if i is not None
-                 else f'-- none --' + (f'  ({flag})' if flag else '')))
-    print(f'  {pp.name[:18]:<18} {"prices":<16} '
-          + (', '.join(c for c, _ in price_cols) or '-- none --'))
+                 else '-- none --' + (f'  ({flag})' if flag else '')))
+    for f in plans:
+        print(f'  {f["path"].name[:18]:<{width}} {"prices":<16} '
+              + (', '.join(c for c, _ in f['price_cols']) or '-- none --'))
+
+    # Where several plans were read, how they differ from each other is the
+    # first thing worth knowing about them.
+    plan_structure([{'path': f['path'], 'head': f['head'], 'P': f['P'],
+                     'prices': [c for c, _ in f['price_cols']]}
+                    for f in plans])
+
     if args.profile:
         return 0
-    if P['sku'] is None or O['sku'] is None:
+    live = [f for f in plans if f['P']['sku'] is not None]
+    for f in plans:
+        if f['P']['sku'] is None:
+            print(f'\n{f["path"].name} has no product code column, so nothing '
+                  f'in it can be matched - left out', file=sys.stderr)
+    if not live or O['sku'] is None:
         print('\nWithout a product code on both sides nothing can be matched.',
               file=sys.stderr)
         return 1
-    return run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols)
+    return run(args, live, op, o_head, o_body, O)
 
 
-def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
+def run(args, plans, op, o_head, o_body, O) -> int:
     def cell(r, i):
         return (r[i].strip() if i is not None and i < len(r) else '')
 
     # ── the plan ────────────────────────────────────────────────────────────
-    plan_rows, dropped = plan_lines(p_body, P, price_cols, args.keep_cancelled)
+    # Every plan file given, read into one plan. An order does not know which
+    # division's file it belongs to, so it is matched against all of them and
+    # the line it matched says which one answered.
+    plan_rows, dropped = [], 0
+    for f in plans:
+        got, lost = plan_lines(f['body'], f['P'], f['price_cols'],
+                               args.keep_cancelled, f['path'].name)
+        plan_rows += got
+        dropped += lost
     plan = Plan(plan_rows, args.stem)
     portals = {}
     cp = pick_latest(Path(args.dir), 'customer')
@@ -670,6 +829,18 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
           f'code(s); {dated:,} carry a window, {len(plan.by_voucher):,} voucher '
           f'code(s)' + (f'; {dropped:,} cancelled or unapproved line(s) left out'
                         if dropped else ''))
+    if len(plans) > 1:
+        per = collections.Counter(r['source'] for r in plan_rows)
+        codes = {f['path'].name: {r['code'] for r in plan_rows
+                                  if r['source'] == f['path'].name}
+                 for f in plans}
+        for f in plans:
+            n = f['path'].name
+            print(f'  {n}: {per[n]:,} line(s) over {len(codes[n]):,} code(s)')
+        shared = set.intersection(*codes.values()) if codes else set()
+        if shared:
+            print(f'  {len(shared):,} product code(s) are in more than one plan '
+                  f'file, where the nearest price decides which line wins')
 
     # ── the orders ──────────────────────────────────────────────────────────
     out, gaps, page = [], [], []
@@ -966,11 +1137,12 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
 
     if args.html is not None:
         path = Path(args.html) if args.html else ROOT / 'dashboard' / 'promo_2608.html'
-        write_page(path, args, pp, op, page, ranked, cancelled)
+        write_page(path, args, ' + '.join(f['path'].name for f in plans),
+                   op, page, ranked, cancelled)
     return 0
 
 
-def write_page(path: Path, args, pp, op, page: list, reasons: list,
+def write_page(path: Path, args, plan_name: str, op, page: list, reasons: list,
                cancelled: int) -> None:
     """One self-contained page, with the profit chart's controls.
 
@@ -1007,7 +1179,7 @@ def write_page(path: Path, args, pp, op, page: list, reasons: list,
 
     payload = {
         'title': 'August 2026 Promotions',
-        'plan': pp.name, 'orders': op.name,
+        'plan': plan_name, 'orders': op.name,
         'lines': len(page), 'cancelled': cancelled,
         'sources': list(sources),
         'days': sorted(days),

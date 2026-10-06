@@ -55,15 +55,19 @@ that goes to stderr, because it would be a fault here and not in the export.
 
 ### RRP, and the GST underneath it
 
-The plan (`MX_product`) is asked first - it is kept month by month and carries
-the windows, so it knows a price that changed in the middle of August - and the
-product master answers where the plan has nothing. Which one answered is
+The plans are asked first - they are kept month by month and carry the windows,
+so they know a price that changed in the middle of August - and the product
+master answers where they have nothing. `--plan` defaults to **`MX_product
+ce_product`**, one file per division read together, and a run with more than one
+prints where their columns differ before using them (see `docs/PROMO.md`); a
+stem that names no file is skipped. Which one answered is
 counted, not blended:
 
 ```
 RRP, for <n> material code(s):
-      <n>  plan, in month
-      <n>  plan, another month
+      <n>  MX_product.csv, in month
+      <n>  ce_product.csv, in month
+      <n>  MX_product.csv, another month
       <n>  product master
       <n>  nothing says
 ```

@@ -199,8 +199,8 @@ def enrich(months, folder: Path, dims, args, say=print) -> set:
                 'division': ('Product Division', 'Division', 'Div'),
                 'category': ('Product Category', 'Category', 'Sub Category')}
         info, src = {}, None
-        for cand in pick_series(folder, args.product) + \
-                [c for c in [pick_file(folder, 'MX_product')] if c]:
+        plans = [pick_file(folder, n) for n in ('MX_product', 'ce_product')]
+        for cand in pick_series(folder, args.product) + [c for c in plans if c]:
             try:
                 info = master(cand, ('SKU', 'Product Code', 'Material',
                                      'Product Number', 'Model Code'), want,

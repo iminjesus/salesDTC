@@ -3,6 +3,7 @@
 
     py tools\\promo.py                    # every store export in the folder
     py tools\\promo.py --division MX      # one division only
+    py tools\\promo.py --division VD DA   # or several, if CE is split in the master
     py tools\\promo.py --month 2608       # one month
 
 The store export carries a promotion on every order line, as one
@@ -69,6 +70,12 @@ NONE = '(no promotion)'
 # First match wins, so the order is the precedence: an accessories offer at 30%
 # is filed under Accessories rather than under percent-off. Edit the table, not
 # the code - that is the point of it being a table.
+#
+# These came off **MX's** codes. Another division writes its offers differently -
+# CE's run to cashback, redemption, a bonus gift, delivery and installation - so
+# on CE this table is a hypothesis, and the run says how much of it the table
+# fails to name along with the tokens those unnamed units are built from. Write
+# the new families from that list rather than from what sounds likely.
 FAMILIES = [
     ('EPP welcome voucher', r'WELCOME'),
     ('Trade-in / Trade-up',  r'TRADE'),
@@ -186,8 +193,9 @@ def main() -> int:
                          "'26 DTC Aug' is also tried)")
     ap.add_argument('--product', default='product', metavar='STEM',
                     help='how the product master is named (default: product)')
-    ap.add_argument('--division', metavar='NAME',
-                    help='one division only, e.g. MX')
+    ap.add_argument('--division', nargs='+', metavar='NAME',
+                    help='these divisions only, e.g. MX, or VD DA for CE if '
+                         'that is how the master spells it')
     ap.add_argument('--month', metavar='YYMM',
                     help='one month only, by the digits in the file name')
     ap.add_argument('--top', type=int, default=12, metavar='N')
@@ -233,8 +241,8 @@ def main() -> int:
     # Division, so the question can be asked of MX on its own.
     div = {}
     if args.division:
-        for cand in pick_series(folder, args.product) + \
-                [c for c in [pick_file(folder, 'MX_product')] if c]:
+        plans = [pick_file(folder, n) for n in ('MX_product', 'ce_product')]
+        for cand in pick_series(folder, args.product) + [c for c in plans if c]:
             try:
                 info = master(cand, ('SKU', 'Product Code', 'Material',
                                      'Product Number', 'Model Code'),
@@ -246,17 +254,28 @@ def main() -> int:
                 div = {k: v.get('division', '') for k, v in info.items()}
                 print(f'  product master: {cand.name}, {len(div):,} code(s)')
                 break
+        asked = {d.upper() for d in args.division}
+        label = ', '.join(sorted(asked))
         if not div:
-            print(f'  no product master, so --division {args.division} cannot '
+            print(f'  no product master, so --division {label} cannot '
                   'be applied', file=sys.stderr)
             return 1
         before = len(lines)
+        # What the master actually spells, and how many of these lines sit in
+        # each - printed whether the filter worked or not. A division asked for
+        # by the wrong name otherwise comes back as "nothing", which reads as
+        # "nothing was promoted" when it means "that is not the word".
+        spread = collections.Counter(
+            (div.get(key_norm(l['sku'])) or '(not in the master)').upper()
+            for l in lines)
         lines = [l for l in lines
-                 if (div.get(key_norm(l['sku'])) or '').upper()
-                 == args.division.upper()]
-        print(f'  {args.division}: {len(lines):,} of {before:,} line(s)')
+                 if (div.get(key_norm(l['sku'])) or '').upper() in asked]
+        print(f'  {label}: {len(lines):,} of {before:,} line(s)')
         if not lines:
-            print(f'  nothing in {args.division}', file=sys.stderr)
+            print(f'  nothing in {label}. The master spells its divisions:',
+                  file=sys.stderr)
+            for name, n in spread.most_common(12):
+                print(f'    {name:<24} {n:,} line(s)', file=sys.stderr)
             return 1
 
     order = [s.strip() for s in args.precedence.split(',') if s.strip()] \
@@ -344,6 +363,29 @@ def main() -> int:
               'the precedence rather than read off the code. A family whose\n'
               '  "only this one" is low is one the precedence is lending units '
               'to, or taking\n  them from.')
+
+    # ── what the table does not name ────────────────────────────────────────
+    # The family table was read off MX's own codes, so it is MX's table. Pointed
+    # at another division it is a guess until this number says otherwise: the
+    # share of units it files under the residual, and the pieces those units are
+    # built from - which is the list the division's own families get written
+    # from, the same way MX's were.
+    rest = [l for l in on if l['family'] == OTHER]
+    rest_q = sum(l['qty'] for l in rest)
+    print(f'\nwhat the family table does not name: {rest_q:,.0f} unit(s) '
+          f'({rest_q / (on_q or 1) * 100:.0f}% of the promoted)')
+    if rest:
+        tok = collections.Counter()
+        for l in rest:
+            for w in {p.upper() for p in
+                      re.split(r'[^A-Za-z0-9]+', l['offer']) if p}:
+                tok[w] += l['qty']
+        for k, v in tok.most_common(args.top):
+            print(f'    {k[:40]:<40}{v:>12,.0f}{v / (rest_q or 1) * 100:>6.0f}%')
+        print('  a token high here is a family the table is missing: these are '
+              'the pieces the\n  unnamed units are built from, as a share of '
+              'the unnamed. FAMILIES at the top of\n  tools/promo.py is where '
+              'one goes, and the order of that table is the precedence.')
 
     # ── can the profit page stack by this? ──────────────────────────────────
     # A profit row is one customer and one product. It can only carry a

@@ -51,7 +51,11 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata')
     ap.add_argument('--orders', default='26 DTC Aug')
-    ap.add_argument('--plan', default='MX_product')
+    ap.add_argument('--plan', nargs='+', metavar='STEM',
+                    default=['MX_product', 'ce_product'],
+                    help='the promotion plan(s), one per division, '
+                         'read together (default: MX_product '
+                         'ce_product)')
     ap.add_argument('--profit', default=None)
     ap.add_argument('--status', default='COMPLETED', metavar='LIST',
                     help='order statuses to count, comma separated '
@@ -74,53 +78,35 @@ def main() -> int:
 
     folder = Path(args.dir)
     op = pick_file(folder, args.orders)
-    pl = pick_file(folder, args.plan)
     pf = (pick_file(folder, args.profit) if args.profit
           else pick_latest(folder, 'profit'))
-    for what, p in (('order', op), ('plan', pl), ('profit', pf)):
+    for what, p in (('order', op), ('profit', pf)):
         if p is None:
             print(f'no {what} file in {folder.resolve()}', file=sys.stderr)
             return 2
 
     print('reading:')
     o_rows, _ = read_any(op)
-    p_rows, _ = read_any(pl)
     f_rows, _ = read_any(pf)
     o_head, o_body = [h.strip() for h in o_rows[0]], o_rows[1:]
-    p_head, p_body = [h.strip() for h in p_rows[0]], p_rows[1:]
     f_head, f_body = [h.strip() for h in f_rows[0]], f_rows[1:]
-    for f, b in ((op, o_body), (pl, p_body), (pf, f_body)):
+    for f, b in ((op, o_body), (pf, f_body)):
         print(f'  {f.name}: {len(b):,} rows')
 
     def cell(r, i):
         return (r[i].strip() if i is not None and i < len(r) else '')
 
     # ── the plan, as promo_match builds it ─────────────────────────────────
-    P = {k: find(p_head, *PM.NAMES[k]) for k in
-         ('sku', 'promo', 'promo2', 'type', 'start', 'end', 'status', 'voucher')}
-    P['detail'] = find(p_head, 'Offer_Detail', 'Offer Detail')
-    price_cols = [(c, find(p_head, c)) for c in PM.PRICE_COLS]
-    price_cols = [(c, i) for c, i in price_cols if i is not None]
-    plan_rows = []
-    for r in p_body:
-        code = PM.code_norm(cell(r, P['sku']))
-        if not code or cell(r, P['status']).lower() in PM.DEAD:
-            continue
-        plan_rows.append({
-            'code': code, 'type': cell(r, P['type']),
-            'detail': cell(r, P['detail']) or cell(r, P['promo2']),
-            'promo': ' / '.join(x for x in (cell(r, P['promo']),
-                                            cell(r, P['type'])) if x and x != '-')
-                     or '(unnamed plan line)',
-            'start': PM.to_date(cell(r, P['start'])),
-            'end': PM.to_date(cell(r, P['end'])),
-            'vouchers': [PM.code_norm(v)
-                         for v in PM.split_rules(cell(r, P['voucher']))],
-            'prices': {c: v for c, i in price_cols
-                       if (v := parse_number(cell(r, i))) is not None},
-        })
-    plan = PM.Plan(plan_rows, args.stem)
-    print(f'\nplan: {len(plan_rows):,} live line(s) over {len(plan.by_code):,} '
+    # Built there and not here: which status was never live, which columns hold
+    # a price and how a window is read are decisions this report has no business
+    # making differently from the cross-check it is meant to agree with.
+    plan, pmeta = PM.load_plans(folder, args.plan, stem=args.stem)
+    if not pmeta:
+        print(f'no plan file matching {", ".join(args.plan)} in '
+              f'{folder.resolve()}', file=sys.stderr)
+        return 2
+    PM.plan_structure(pmeta)
+    print(f'\nplan: {len(plan.rows):,} live line(s) over {len(plan.by_code):,} '
           f'product code(s)')
 
     # ── completed orders, attributed, rolled up per product ────────────────

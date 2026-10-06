@@ -131,8 +131,8 @@ class ListPrice:
                     return False
                 return True
 
-            for pool, where in ((list(filter(covers, cands)), 'plan, in month'),
-                                (cands, 'plan, another month')):
+            for pool, where in ((list(filter(covers, cands)), 'in month'),
+                                (cands, 'another month')):
                 vals = [c['prices']['RRP'] for c in pool if 'RRP' in c['prices']]
                 if vals:
                     # The commonest value, and the highest where several are
@@ -140,8 +140,11 @@ class ListPrice:
                     # under it.
                     n = collections.Counter(vals)
                     top = max(n.values())
-                    self.whence[where] += 1
-                    return max(v for v in n if n[v] == top), where
+                    best = max(v for v in n if n[v] == top)
+                    src = next((c['source'] for c in pool
+                                if c['prices'].get('RRP') == best), '')
+                    self.whence[f'{src or "plan"}, {where}'] += 1
+                    return best, f'{src or "plan"}, {where}'
         got = parse_number((self.prod.get(key_norm(sku)) or {}).get('rrp'))
         if got:
             self.whence['product master'] += 1
@@ -217,9 +220,11 @@ def main() -> int:
     ap.add_argument('--channel', default=CUST.ONLINE, metavar='NAME',
                     help=f'which channel the second workbook keeps '
                          f'(default: {CUST.ONLINE})')
-    ap.add_argument('--plan', default='MX_product', metavar='STEM',
-                    help='the promotion plan the RRP is read from '
-                         '(default: MX_product)')
+    ap.add_argument('--plan', nargs='+', default=['MX_product', 'ce_product'],
+                    metavar='STEM',
+                    help='the promotion plan(s) the RRP is read from, one per '
+                         'division, read together (default: MX_product '
+                         'ce_product; a stem that names no file is skipped)')
     ap.add_argument('--gst', type=float, default=1.1, metavar='N',
                     help='what the RRP is divided by before it is compared '
                          'against net sales, because a plan RRP is a consumer '
@@ -295,18 +300,16 @@ def main() -> int:
         return 1
 
     # ── the plan, for the RRP ───────────────────────────────────────────────
-    plan = None
-    print('\nplan:')
-    planp = pick_file(folder, args.plan)
-    if planp is None:
-        print(f'  no file matching {args.plan!r} - the RRP falls back to the '
-              f'product master')
-    else:
-        try:
-            plan, _ = PM.load_plan(planp, say=lambda m: print(m))
-        except (ValueError, OSError, IndexError, KeyError) as e:
-            print(f'  {planp.name}: {e} - the RRP falls back to the product '
-                  f'master')
+    print('\nplan(s), for the RRP:')
+    plan, pmeta = PM.load_plans(folder, args.plan)
+    if not pmeta:
+        print('  nothing readable - the RRP falls back to the product master')
+        plan = None
+    # Where more than one was read, where they differ from each other is the
+    # first thing worth knowing: a column one file spells differently is read
+    # as blank in the other, and a blank RRP is indistinguishable from a
+    # material nobody priced.
+    PM.plan_structure(pmeta)
     price = ListPrice(plan, prod)
 
     # ── the store's own orders, for the promotion ───────────────────────────
