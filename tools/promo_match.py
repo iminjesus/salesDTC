@@ -880,8 +880,6 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
 
 
 # ── describing a file ───────────────────────────────────────────────────────
-NO_CAMPAIGN = '(no nationwide campaign)'
-NO_PLAN = '(no plan line fits this order)'
 
 
 # Which price column a channel is supposed to pay. The plan quotes a price per
@@ -1460,6 +1458,129 @@ def unnamed_discount_report(rows: list, say=print) -> None:
             f'customer gave something for. Net is read here.')
 
 
+# Its own residual label: this mode asks only about the two DTC columns, so a
+# line that lands nowhere is outside every DTC campaign - which is not the same
+# statement as the long match's "outside every campaign".
+NO_DTC = '(no DTC campaign covers it)'
+
+
+def dtc_only(plan, plan_rows, o_body, O, canon, args, cell, say=print):
+    """Which DTC campaign an order came in on, from the code and the date alone.
+
+    The long match asks four questions - code, window, price, mechanic - and the
+    price is the one that rejects lines the plan does in fact cover: a trade-in,
+    a stacked voucher or a bundle all move what was collected away from the
+    price the plan quotes. This asks two. A DTC campaign named a set of products
+    and a set of dates; an order for one of those products on one of those dates
+    came in on it. Nothing about the money is read.
+
+    The cost of that is stated rather than hidden: an order can sit inside two
+    DTC campaigns at once and the price was what used to tell them apart, so
+    those lines are counted and listed instead of being assigned.
+    """
+    # Only the two DTC columns. camp is [nationwide, DTC_Campaign1,
+    # DTC_Campaign2] and the nationwide one is a different question.
+    windows: dict[str, list] = {}
+    for r in plan_rows:
+        for name in (r.get('camp') or ['', '', ''])[1:]:
+            if not name:
+                continue
+            windows.setdefault(r['code'], []).append(
+                (canon.get(name, name), r['start'], r['end']))
+    span: dict[str, list] = {}
+    skus: dict[str, set] = collections.defaultdict(set)
+    for code, hits in windows.items():
+        for name, lo, hi in hits:
+            skus[name].add(code)
+            was = span.setdefault(name, [lo, hi])
+            if lo and (was[0] is None or lo < was[0]):
+                was[0] = lo
+            if hi and (was[1] is None or hi > was[1]):
+                was[1] = hi
+
+    units = collections.Counter()
+    amt = collections.Counter()
+    lines = collections.Counter()
+    two = []                      # inside more than one DTC campaign at once
+    undated = 0                   # a DTC line with no window - covers nothing
+    out = []
+    miss = {'code': 0, 'date': 0, 'no dtc': 0}
+    for r in o_body:
+        if not args.keep_cancelled and cell(r, O['cancel']).lower() in (
+                'yes', 'y', 'true'):
+            continue
+        code = code_norm(cell(r, O['sku']))
+        if args.only and code_norm(args.only) not in code:
+            continue
+        qty = parse_number(cell(r, O['qty'])) or 0.0
+        amount = parse_number(cell(r, O['amount'])) or 0.0
+        day = to_date(cell(r, O['date']))
+        cands, how = plan.candidates(code)
+        if not cands:
+            miss['code'] += 1
+            got = []
+        else:
+            mine = [(n, lo, hi) for c in cands
+                    for n, lo, hi in windows.get(c['code'], [])]
+            if not mine:
+                miss['no dtc'] += 1
+            got = sorted({n for n, lo, hi in mine
+                          if day is not None
+                          and (lo is None or day >= lo)
+                          and (hi is None or day <= hi)})
+            undated += sum(1 for n, lo, hi in mine if lo is None and hi is None)
+            if mine and not got:
+                miss['date'] += 1
+        name = got[0] if len(got) == 1 else (
+            ' + '.join(got) if got else NO_DTC)
+        if len(got) > 1:
+            two.append((cell(r, O['sku']), day, got))
+        units[name] += qty
+        amt[name] += amount
+        lines[name] += 1
+        out.append([cell(r, O['order']), cell(r, O['sku']),
+                    day.isoformat() if day else '', qty, amount,
+                    name, len(got)])
+
+    tot = sum(units.values()) or 1.0
+    say(f'\nwhich DTC campaign the order came in on - product code and date '
+        f'only, no price')
+    say(f'  {"campaign":<34}{"period":<25}{"SKUs":>6}{"lines":>9}'
+        f'{"units":>10}{"revenue":>14}{"share":>8}')
+    def period(n):
+        lo, hi = span.get(n, [None, None])
+        return (f'{lo.strftime("%d %b") if lo else "-":>6} to '
+                f'{hi.strftime("%d %b %Y") if hi else "-"}') if n in span else ''
+    for n, q in units.most_common():
+        # A pair row is not a campaign and has no plan lines of its own, so it
+        # shows a dash rather than a zero that reads like "planned nothing".
+        own = f'{len(skus[n]):>6}' if n in skus else f'{"-":>6}'
+        say(f'  {n[:34]:<34}{period(n)[:25]:<25}{own}'
+            f'{lines[n]:>9,}{q:>10,.0f}{amt[n]:>14,.0f}{q / tot * 100:>7.1f}%')
+    # A campaign that only ever turns up inside a pair did get orders; it is
+    # the pair that could not be split, not the campaign that went unsold.
+    paired = {n for _, _, got in two for n in got}
+    quiet = [n for n in skus if not units.get(n) and n not in paired]
+    if quiet:
+        say(f'  {len(quiet):,} DTC campaign(s) have plan lines and no orders: '
+            + ', '.join(sorted(quiet)[:6]))
+    if two:
+        say(f'  {len(two):,} line(s) sit inside more than one DTC campaign at '
+            f'once and are left under\n  the pair, not split between them - '
+            f'the price was what used to tell them apart:')
+        for sku, day, got in two[:5]:
+            say(f'    {sku:<22}{day.isoformat() if day else "":<12}'
+                + ' + '.join(got)[:50])
+    if undated:
+        say(f'  {undated:,} DTC plan line(s) carry no window at all, so no date '
+            f'can fall inside them')
+    say(f'  of what did not land: {miss["code"]:,} line(s) the plan has no '
+        f'product code for, {miss["no dtc"]:,}\n  on a product the plan lists '
+        f'under no DTC campaign, {miss["date"]:,} on a date outside every DTC\n'
+        f'  window the product is in')
+    return out
+
+
 def campaign_fit(rows: list) -> dict:
     """The numbers that say whether a campaign stack is a measurement.
 
@@ -1685,6 +1806,10 @@ def main() -> int:
                     help='which family a line counts as where it matches '
                          'several, highest first, comma separated. The default '
                          'is the order of the FAMILIES table in this file')
+    ap.add_argument('--dtc-only', action='store_true',
+                    help='the simple read: which DTC campaign an order came in '
+                         'on, from the product code and the order date alone. '
+                         'No price, no mechanic, no nationwide campaign')
     ap.add_argument('--keep-cancelled', action='store_true',
                     help='keep cancelled orders and unapproved plan lines')
     for flag, what in (('promo-sku', 'product code in the plan'),
@@ -1843,6 +1968,19 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         dropped += lost
     plan = Plan(plan_rows, args.stem)
     canon = canon_campaigns(plan_rows)
+    if args.dtc_only:
+        rows = dtc_only(plan, plan_rows, o_body, O, canon, args, cell)
+        outdir = Path(args.out)
+        outdir.mkdir(parents=True, exist_ok=True)
+        yymm, _ = months_in([r[2] for r in rows if r[2]])
+        path = outdir / f'promo_dtc{("_" + yymm) if yymm else ""}.csv'
+        with path.open('w', newline='', encoding='utf-8-sig') as fh:
+            w = csv.writer(fh)
+            w.writerow(['order', 'sku', 'date', 'units', 'amount',
+                        'dtc campaign', 'campaigns covering it'])
+            w.writerows(rows)
+        print(f'\n-> {path}')
+        return 0
     portals = {}
     cp = pick_latest(Path(args.dir), 'customer')
     if cp:

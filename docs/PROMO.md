@@ -504,6 +504,44 @@ after says what the offer was. The shape is read off the dates rather than off
 fixed positions, because the positions vary. One cell can hold several rules,
 comma-separated; all of them are kept.
 
+## The simple read: `--dtc-only`
+
+Two questions instead of four. A DTC campaign named a set of products and a set
+of dates; an order for one of those products on one of those dates came in on
+it. **No price, no mechanic, no nationwide column** - only `DTC_Campaign1` and
+`DTC_Campaign2`, merged, against the plan line's window.
+
+```
+py tools\promo_match.py --orders "26 DTC Aug" --dtc-only
+```
+
+```
+which DTC campaign the order came in on - product code and date only, no price
+  campaign                period                  SKUs   lines   units    revenue   share
+  DTC Boost Week          16 Jul to 31 Aug 2026      3       3       3      5,454   50.0%
+  (no DTC campaign covers it)                        -       2       2        679   33.3%
+  DTC Boost Week + Samsung Week                      -       1       1      1,645   16.7%
+```
+
+The price was the test that rejected lines the plan does cover - a trade-in, a
+stacked voucher or a bundle all move what was collected away from the price the
+plan quotes. Dropping it is why this mode places lines the long match throws
+out. The same S25 Ultra that reads *"in window, but the price paid is -187.25
+(10%) from the nearest"* above lands on DTC Boost Week here.
+
+What that costs is printed, not hidden:
+
+| | |
+|---|---|
+| **a pair row** | an order inside two DTC campaigns at once. Left under `A + B`, never split - the price was what used to tell them apart, and the first five are listed by SKU and date |
+| **`(no DTC campaign covers it)`** | split three ways: the plan has no line for the product code at all, it has one under no DTC campaign, or the order date is outside every DTC window that product is in |
+| **planned and nothing arrived** | DTC campaigns with plan lines and no orders. A campaign that only ever turns up inside a pair is not listed here - it did get orders |
+
+Campaign spellings are folded first, so `DTC Boost week` and `DTC Boost Week`
+are one row. One line per order goes to `docs/promo_dtc_<yymm>.csv` with the
+campaign and how many covered it, so a pair row can be chased. `--only CODE`
+narrows it to one product.
+
 ## A trade-in is not a discount, and it sits in the price column
 
 The plan quotes what the promotion sells a phone for. The order export quotes
