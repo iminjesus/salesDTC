@@ -74,6 +74,11 @@ NAMES = {
     # Finer than the portal group and carried by the order itself, so it needs
     # no inference at all: commbank_yello_au, samsung_benefits_au, au.
     'portal': ('Portal', 'Portal Name', 'Store Portal'),
+    # The plan names the product as well as the offer, which is the only
+    # description a material that has not sold yet has anywhere.
+    'category': ('Category', 'Product Category'),
+    'prange': ('Range', 'product_range'),
+    'pname': ('Product_Name', 'Product Name', 'Description'),
 }
 # A rule spells its mechanic in short; the plan spells it out. Same thing.
 MECHANIC = {'DISC': 'Discount', 'DISCOUNT': 'Discount', 'PWP': 'PWP',
@@ -414,7 +419,7 @@ def plan_columns(head: list[str]) -> dict:
     """Where the plan keeps the pieces a promotion is made of."""
     P = {k: find(head, *NAMES[k]) for k in
          ('sku', 'promo', 'promo3', 'promo2', 'type', 'start', 'end', 'status',
-          'site', 'voucher')}
+          'site', 'voucher', 'division', 'category', 'prange', 'pname')}
     P['promo2b'] = find(head, 'Offer_Detail', 'Offer Detail')
     return P
 
@@ -473,6 +478,14 @@ def plan_lines(body, P, price_cols, keep_cancelled: bool = False,
                            if real(x)) or '(unnamed plan line)'
         rows.append({
             'code': code, 'promo': label, 'source': source,
+            # The code as the plan spells it, and what the plan says the product
+            # is: for a material that has never sold, this is the only place
+            # either comes from.
+            'sku': cell(r, P['sku']),
+            'desc': cell(r, P['pname']),
+            'division': cell(r, P['division']),
+            'category': cell(r, P['category']),
+            'range': cell(r, P['prange']),
             'type': cell(r, P['type']),
             'detail': cell(r, P['promo2b']) or cell(r, P['promo2']),
             'start': to_date(cell(r, P['start'])),

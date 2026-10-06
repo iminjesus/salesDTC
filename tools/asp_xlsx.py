@@ -117,21 +117,20 @@ class ListPrice:
                                 else ([], 'no plan was read'))
         return self.cands[code]
 
+    def live(self, sku: str, yymm: str) -> list:
+        """The plan lines for this material whose window covers this month."""
+        lo, hi = month_span(yymm)
+        cands, _ = self._candidates(PM.code_norm(sku))
+        return [c for c in cands
+                if not (c['start'] and c['start'] > hi)
+                and not (c['end'] and c['end'] < lo)]
+
     def of(self, sku: str, yymm: str):
         """(price, where it came from) - price None where neither file says."""
         code = PM.code_norm(sku)
         cands, _ = self._candidates(code)
         if cands:
-            lo, hi = month_span(yymm)
-
-            def covers(c):
-                if c['start'] and c['start'] > hi:
-                    return False
-                if c['end'] and c['end'] < lo:
-                    return False
-                return True
-
-            for pool, where in ((list(filter(covers, cands)), 'in month'),
+            for pool, where in ((self.live(sku, yymm), 'in month'),
                                 (cands, 'another month')):
                 vals = [c['prices']['RRP'] for c in pool if 'RRP' in c['prices']]
                 if vals:
@@ -237,6 +236,11 @@ def main() -> int:
                     help='which family a unit counts as where it matches '
                          'several, highest first, comma separated (default: '
                          'the order of the table in promo.py)')
+    ap.add_argument('--forecast', nargs='*', default=[], metavar='YYMM',
+                    help='also write "ASP forecast.xlsx": for every month named '
+                         'here, what the plan says about it and an ASP '
+                         'forecast built from the months above (try '
+                         '--forecast 2611 2612 2701)')
     ap.add_argument('--no-promotion', action='store_true',
                     help='skip the store exports, and the promotion columns '
                          'with them')
@@ -252,6 +256,18 @@ def main() -> int:
         print('--gst has to be positive', file=sys.stderr)
         return 2
     order = [s.strip() for s in (args.precedence or '').split(',') if s.strip()]
+    args.order = order
+    # Written into every formula that uses it rather than applied before them,
+    # so the assumption is visible in the cell. '' when there is nothing to do.
+    args.div = f'/{args.gst:g}' if args.gst != 1 else ''
+    fore = []
+    for ym in args.forecast:
+        digits = ''.join(ch for ch in ym if ch.isdigit())[-4:]
+        if len(digits) == 4:
+            fore.append(digits)
+        else:
+            print(f'--forecast {ym!r} is not a YYMM month', file=sys.stderr)
+            return 2
 
     # One export per month asked for, by the digits in its name.
     want = []
@@ -374,7 +390,7 @@ def main() -> int:
     months = [d for d, _ in want]
     # The RRP is a property of the material and the month, not of the channel,
     # so it is resolved once and both workbooks read the same answer.
-    rrp = {sku: {m: price.of(sku, m)[0] for m in months} for sku in rows}
+    rrp = {(sku, m): price.of(sku, m)[0] for sku in rows for m in months}
     print(f'\nRRP, for {len(rows):,} material code(s):')
     price.report()
     check(rows, rrp, months, args.gst)
@@ -387,6 +403,42 @@ def main() -> int:
         path = out / f'{name}.xlsx'
         made.append((path,) + write_book(path, name, rows, months, qk, ak,
                                         prod, rrp, promos, args))
+
+    if fore:
+        print(f'\nforecast, for {", ".join(month_label(m) for m in fore)}:')
+        known = set(rows) | {l['sku'] for c in (price.plan.by_code.values()
+                                               if price.plan else [])
+                             for l in c if l['sku']}
+        for m in fore:
+            live = sum(1 for sku in known if price.live(sku, m))
+            print(f'  {month_label(m)}: {live:,} material code(s) have a plan '
+                  f'line live that month')
+        fpath = out / 'ASP forecast.xlsx'
+        n, divs, info = write_forecast(fpath, rows, months, fore, 'qty', 'amt',
+                                       prod, rrp, price, args)
+        if not n:
+            print('  no material has a priced plan line in any of those months,'
+                  ' so nothing was written', file=sys.stderr)
+        else:
+            print(f'  {n:,} material code(s), {info["forecasts"]:,} '
+                  f'material-month(s) forecast; {info["own"]:,} carry a bias '
+                  f'measured on their own closed months'
+                  + (f', {info["new"]:,} did not sell in them'
+                     if info['new'] else ''))
+            if info['bias_mid'] is not None:
+                print(f'  bias: median {info["bias_mid"] * 100:+.1f}pp, '
+                      f'{info["bias_wide"]:,} material(s) beyond +/-15pp - those '
+                      f'are the rows to read before trusting')
+            if info['odd']:
+                print(f'  {len(info["odd"]):,} forecast(s) came out above the '
+                      f'RRP or below nothing, which is a bias too big for the '
+                      f'material:', file=sys.stderr)
+                for sku, m, dc in info['odd'][:5]:
+                    print(f'    {sku:<18} {month_label(m)}  '
+                          f'{dc * 100:+.0f}% off', file=sys.stderr)
+            for d, c in divs.most_common():
+                print(f'    {d[:24]:<24} {c:>6,} material code(s)')
+            print(f'-> {fpath.name}\n   {fpath.resolve()}')
 
     print()
     for path, n, blank, q, a in made:
@@ -436,7 +488,7 @@ def check(rows, rrp, months, gst) -> None:
     pairs = []
     for sku, v in rows.items():
         for m in months:
-            q, a, r = v['qty'].get(m, 0.0), v['amt'].get(m, 0.0), rrp[sku][m]
+            q, a, r = v['qty'].get(m, 0.0), v['amt'].get(m, 0.0), rrp[(sku, m)]
             if q > 0 and a > 0 and r:
                 pairs.append(a / q / r)
     if not pairs:
@@ -491,7 +543,7 @@ def write_book(path, title, rows, months, qk, ak, prod, rrp, promos, args):
     r_cells = [L(9 + COLS_PER_MONTH * k) for k in range(n_m)]
     s0 = 6 + COLS_PER_MONTH * n_m
     qcol, acol, pcol, rcol = L(s0), L(s0 + 1), L(s0 + 2), L(s0 + 3)
-    gst = f'/{args.gst:g}' if args.gst != 1 else ''
+    gst = args.div
 
     def discount(asp, r):
         return round(1 - asp / (r / args.gst), 4) if asp > 0 and r else ''
@@ -503,7 +555,7 @@ def write_book(path, title, rows, months, qk, ak, prod, rrp, promos, args):
         w_num = w_den = 0.0
         for k, m in enumerate(months):
             mq, ma = v[qk].get(m, 0.0), v[ak].get(m, 0.0)
-            mr = rrp[sku][m]
+            mr = rrp[(sku, m)]
             asp = ma / mq if mq > 0 else 0.0
             # The month's own price, and how far under the RRP it landed. The
             # RRP is divided by GST in the cell rather than before it, so the
@@ -583,6 +635,274 @@ def write_book(path, title, rows, months, qk, ak, prod, rrp, promos, args):
               + [12, 16, 12, 12, 11] + [46] * len(promo_cols))
     XL.write(path, 'ASP', out, widths=widths, styles=styles, freeze='B2')
     return len(body), blank, tot_q, tot_a
+
+# ── the months that have not happened yet ───────────────────────────────────
+# What is known about a future month is what the plan says about it: an RRP, a
+# planned price, an offer type and an offer detail. What is *not* known is how
+# far the price actually realised will sit from the planned one - and that is
+# measurable, because the same two numbers exist side by side for every month
+# that has already closed.
+#
+#   plan DC %     1 - the planned price / the RRP, as the plan writes it
+#   actual DC %   1 - net sales over units / the RRP ex GST, as it happened
+#   bias          the second minus the first, weighted by the units behind it
+#
+# A bias of +4pp says this material has been selling four points cheaper than
+# planned - EPP tiers taking more off than S.COM, a price sharpened mid-month,
+# a clearance nobody put in the plan. A bias of -6pp says the planned discount
+# was not what most buyers took. Either way it is this material's own recent
+# history, and a forecast that ignores it is the plan repeated rather than a
+# forecast.
+#
+#   forecast ASP = the month's RRP ex GST x (1 - (its plan DC % + bias))
+#
+# Every term is a column in the sheet and the arithmetic is a formula, so the
+# bias can be overwritten on a row and the number moves. A material with no
+# history of its own borrows its category's median bias, and the row says so;
+# nothing is forecast from a plan line that carries no price at all.
+PRICE_ORDER = ('S.COM_Price', 'T2_Price', 'T3_Price', 'EDU_Price', 'T1_Price')
+
+
+def plan_rrp(lines) -> float | None:
+    """The RRP the lines live in a month agree on, or None if there are none.
+
+    No falling back to a neighbouring month here, unlike the actuals: an RRP
+    printed beside a month the plan does not cover reads as a plan for that
+    month, and the whole point of these columns is to show what is planned.
+    """
+    vals = [c['prices']['RRP'] for c in lines if c['prices'].get('RRP')]
+    if not vals:
+        return None
+    n = collections.Counter(vals)
+    top = max(n.values())
+    return max(v for v in n if n[v] == top)
+
+
+def plan_dc(lines, rrp) -> float | None:
+    """The discount the plan intends off RRP, over the lines live that month.
+
+    The median, not the deepest: a material with one clearance line and four
+    ordinary ones is not on clearance, and the deepest offer is the one a
+    forecast should be least confident in. Both sides of the bias use this same
+    definition, which is what makes subtracting them mean anything.
+    """
+    if not rrp:
+        return None
+    got = []
+    for c in lines:
+        for col in PRICE_ORDER:
+            if col in c['prices'] and c['prices'][col]:
+                got.append(1 - c['prices'][col] / rrp)
+                break
+    if not got:
+        return None
+    got.sort()
+    n = len(got)
+    return got[n // 2] if n % 2 else (got[n // 2 - 1] + got[n // 2]) / 2
+
+
+def plan_family(lines, order=None) -> str:
+    """One category for a material-month, by the same table the store uses.
+
+    No units exist yet to weight by, so there is no "mostly" to report - the
+    offer type and the offer detail of every live line go in together and the
+    precedence picks one, exactly as it does for a store rule carrying several
+    offers. The line count is printed beside it because one category standing
+    for six plan lines is worth knowing about.
+    """
+    if not lines:
+        return ''
+    text = ' '.join(f"{c.get('detail', '')} {c.get('type', '')}" for c in lines)
+    fam = PR.family_label('', text, order)
+    return fam if len(lines) == 1 else f'{fam} ({len(lines)} plan lines)'
+
+
+def write_forecast(path, rows, months, fore, qk, ak, prod, rrp, price, args):
+    """One sheet: the actual months as the basis, the planned months forecast."""
+    L = XL.col_letter
+    # Every material the plan has something priced to say about, which is not the
+    # same set as the materials that have sold. A product launching in November
+    # has no row in any profit export and is exactly what a forecast is for, so
+    # the plan's own codes are added to the ones with history.
+    extra = {}
+    for c, lines in (price.plan.by_code.items() if price.plan else {}.items()):
+        if any(l['sku'] for l in lines) and c not in {PM.code_norm(k)
+                                                     for k in rows}:
+            extra[next(l['sku'] for l in lines if l['sku'])] = lines
+    empty = {'qty': {}, 'amt': {}, 'on_qty': {}, 'on_amt': {}}
+    # Everything the plan says about the months asked for, and the bias from the
+    # months that closed.
+    body, seen_div = [], collections.Counter()
+    for sku, v in list(rows.items()) + [(k, empty) for k in extra]:
+        plan = {}
+        for m in fore:
+            lines = price.live(sku, m)
+            r = plan_rrp(lines)
+            plan[m] = {'rrp': r, 'dc': plan_dc(lines, r),
+                       'fam': plan_family(lines, args.order), 'n': len(lines)}
+        if not any(plan[m]['rrp'] and plan[m]['dc'] is not None for m in fore):
+            continue              # the plan says nothing priced about any of them
+        q = sum(v[qk].get(m, 0.0) for m in months)
+        a = sum(v[ak].get(m, 0.0) for m in months)
+        # The bias, over the closed months where both sides have a number, and
+        # weighted by units: a month that sold four hundred says more about this
+        # material's pricing than one that sold four.
+        num = den = 0.0
+        for m in months:
+            mq, ma = v[qk].get(m, 0.0), v[ak].get(m, 0.0)
+            mr = rrp.get((sku, m))
+            pd = plan_dc(price.live(sku, m), mr)
+            if mq > 0 and ma > 0 and mr and pd is not None:
+                num += mq * ((1 - (ma / mq) / (mr / args.gst)) - pd)
+                den += mq
+        p = dict(prod.get(key_norm(sku)) or {})
+        if not p.get('division'):
+            # The plan names the product too, and for a material that has never
+            # sold it is the only file that does.
+            got = price.live(sku, fore[0]) or price.live(sku, fore[-1])
+            for slot in ('desc', 'division', 'category', 'range'):
+                if not p.get(slot):
+                    p[slot] = next((c.get(slot) for c in got if c.get(slot)), '')
+        seen_div[p.get('division') or '(no division)'] += 1
+        body.append({'sku': sku, 'p': p, 'q': q, 'a': a, 'plan': plan,
+                     'bias': (num / den if den else None), 'own': den > 0,
+                     'sold': sku in rows})
+
+    if not body:
+        return None, seen_div, {}
+
+    # A material with no closed month of its own takes its category's median -
+    # named in the sheet, because a borrowed number and a measured one must not
+    # look alike.
+    by_cat: dict[str, list] = {}
+    for r in body:
+        if r['own']:
+            by_cat.setdefault(r['p'].get('category', ''), []).append(r['bias'])
+    allb = sorted(b for v in by_cat.values() for b in v)
+
+    def median(xs):
+        xs = sorted(xs)
+        n = len(xs)
+        return None if not n else (xs[n // 2] if n % 2
+                                   else (xs[n // 2 - 1] + xs[n // 2]) / 2)
+
+    cat_med = {c: median(v) for c, v in by_cat.items()}
+    all_med = median(allb)
+    for r in body:
+        if r['own']:
+            r['basis'] = f'own, {len(months)} closed month(s)'
+            continue
+        cat = r['p'].get('category', '')
+        why = '' if r['sold'] else ', no sales in the months read'
+        if cat_med.get(cat) is not None:
+            r['bias'], r['basis'] = cat_med[cat], f'median of {cat}{why}'
+        elif all_med is not None:
+            r['bias'], r['basis'] = all_med, f'median of every material{why}'
+        else:
+            r['bias'], r['basis'] = 0.0, 'nothing to measure a bias from'
+
+    body.sort(key=lambda r: -abs(r['a']))
+    span = f'{month_label(months[0])} - {month_label(months[-1])}'
+    head = ['Material code', 'Description', 'Division', 'Category', 'Range',
+            f'{span} qty', f'{span} net sales', f'ASP ({span})',
+            f'RRP ({span})', f'DC % ({span})', f'plan DC % ({span})', 'bias']
+    for m in fore:
+        t = short_month(m)
+        head += [f'{t} RRP', f'{t} promotion', f'{t} plan DC %',
+                 f'{t} ASP forecast']
+    head.append('bias from')
+
+    out, n_fore, odd = [head], 0, []
+    for i, r in enumerate(body, start=2):
+        q, a, w = r['q'], r['a'], 0.0
+        # The actual side, on the same definitions the forecast uses.
+        wn = wd = 0.0
+        pn = pd_ = 0.0
+        for m in months:
+            mq = (rows.get(r['sku']) or empty)[qk].get(m, 0.0)
+            mr = rrp.get((r['sku'], m))
+            p = plan_dc(price.live(r['sku'], m), mr)
+            if mq > 0 and mr:
+                wn += mq * mr
+                wd += mq
+                if p is not None:
+                    pn += mq * p
+                    pd_ += mq
+        w = round(wn / wd, 2) if wd else ''
+        pdc = round(pn / pd_, 4) if pd_ else ''
+        row = [r['sku'], r['p'].get('desc', ''), r['p'].get('division', ''),
+               r['p'].get('category', ''), r['p'].get('range', ''), q, a,
+               XL.Formula(f'IF(F{i}>0,G{i}/F{i},"")',
+                          round(a / q, 2) if q > 0 else ''),
+               w,
+               XL.Formula(f'IF(AND(I{i}>0,H{i}>0),1-H{i}/(I{i}{args.div}),"")',
+                          round(1 - (a / q) / (w / args.gst), 4)
+                          if q > 0 and a > 0 and w else ''),
+               pdc,
+               XL.Formula(f'IF(AND(J{i}<>"",K{i}<>""),J{i}-K{i},"")',
+                          round(r['bias'], 4) if r['bias'] is not None else '')
+               if r['own'] else (round(r['bias'], 4)
+                                 if r['bias'] is not None else '')]
+        for k, m in enumerate(fore):
+            c = 13 + 4 * k
+            pr, pdcol = L(c), L(c + 2)
+            row += [r['plan'][m]['rrp'] or '', r['plan'][m]['fam'],
+                    (round(r['plan'][m]['dc'], 4)
+                     if r['plan'][m]['dc'] is not None else ''),
+                    XL.Formula(f'IF(AND({pr}{i}>0,{pdcol}{i}<>"",$L{i}<>""),'
+                               f'({pr}{i}{args.div})*(1-({pdcol}{i}+$L{i})),"")',
+                               forecast_asp(r['plan'][m], r['bias'], args.gst))]
+            if r['plan'][m]['rrp'] and r['plan'][m]['dc'] is not None:
+                n_fore += 1
+                dc = r['plan'][m]['dc'] + (r['bias'] or 0.0)
+                if dc > 0.95 or dc < -0.1:
+                    odd.append((r['sku'], m, dc))
+        row.append(r['basis'])
+        out.append(row)
+
+    out.append([])
+    out.append([f'Forecast ASP = the month\'s RRP ex GST x (1 - (that month\'s '
+                f'plan DC % + bias)). The plan DC % is 1 - the planned price / '
+                f'the RRP, taken as the median over the plan lines live that '
+                f'month, and the first price each line carries of '
+                + ', '.join(PRICE_ORDER) + '.'])
+    out.append([f'bias is how far the price realised in {span} sat from what the '
+                'plan intended over the same months, on the same two '
+                'definitions, weighted by the units behind each month. It is '
+                'this material\'s own where it sold in those months; otherwise '
+                'its category\'s median, and the last column says which. A '
+                'positive bias means it has been selling cheaper than planned.'])
+    out.append(['Every figure here is a forecast and none of it is a booking: '
+                'the months have not happened, the plan can still change, and '
+                'a material with no plan line carrying a price is left out '
+                'rather than guessed at. The bias is a cell - overwrite it and '
+                'the forecast moves.'])
+
+    styles = ([XL.PLAIN] * 5 + [XL.INT, XL.INT, XL.MONEY, XL.MONEY, XL.PCT,
+                                XL.PCT, XL.PCT]
+              + [XL.MONEY, XL.PLAIN, XL.PCT, XL.MONEY] * len(fore) + [XL.PLAIN])
+    widths = ([16, 30, 12, 14, 14] + [11, 14, 12, 12, 10, 11, 9]
+              + [11, 34, 11, 13] * len(fore) + [26])
+    XL.write(path, 'Forecast', out, widths=widths, styles=styles, freeze='B2')
+    biases = sorted(r['bias'] for r in body if r['bias'] is not None)
+    return len(body), seen_div, {
+        'forecasts': n_fore, 'odd': odd, 'own': sum(1 for r in body if r['own']),
+        'new': sum(1 for r in body if not r['sold']),
+        'bias_mid': biases[len(biases) // 2] if biases else None,
+        'bias_wide': sum(1 for b in biases if abs(b) > 0.15)}
+
+
+def forecast_asp(plan, bias, gst):
+    """The cached value of the forecast formula, or blank where it has no terms.
+
+    No clamping. The formula in the cell does not clamp either, and a cached
+    value that quietly disagreed with the formula beside it would be the worst
+    of both. A forecast that comes out absurd is a bias that is too big for the
+    material, which the run counts and says out loud instead.
+    """
+    if not plan['rrp'] or plan['dc'] is None or bias is None:
+        return ''
+    return round(plan['rrp'] / gst * (1 - (plan['dc'] + bias)), 2)
 
 
 if __name__ == '__main__':

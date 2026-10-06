@@ -92,6 +92,66 @@ either way:
 A large share selling *above* its own RRP means the RRP is already ex GST, and
 the line says so.
 
+### The months that have not happened yet
+
+```powershell
+py tools\asp_xlsx.py --months 2607 2608 2609 --forecast 2611 2612 2701
+```
+
+writes a third file, `ASP forecast.xlsx`, and leaves the other two exactly as
+they were. What is known about a future month is what the plan says about it: an
+RRP, a planned price, an offer type and an offer detail. What is **not** known is
+how far the price actually realised will sit from the planned one - and that is
+measurable, because the same two numbers sit side by side in every month that
+has closed.
+
+| | |
+|---|---|
+| `plan DC %` | `1 - the planned price / the RRP`, as the plan writes it |
+| `DC %` | `1 - net sales over units / the RRP ex GST`, as it happened |
+| `bias` | the second minus the first, weighted by the units behind each month |
+
+```
+forecast ASP  =  the month's RRP ex GST  x  (1 - (its plan DC % + bias))
+```
+
+A bias of +4pp says this material has been selling four points cheaper than
+planned - EPP tiers taking more off than S.COM, a price sharpened mid-month, a
+clearance nobody put in the plan. A bias of -6pp says the planned discount was
+not what most buyers took. Either way it is this material's own recent history,
+and a forecast that leaves it out is the plan repeated rather than a forecast.
+Where the plan does not change, the forecast comes out at the realised ASP,
+which is the property that makes the arithmetic worth trusting at all.
+
+Every term is a column and the arithmetic is a formula, so **overwrite the bias
+on a row and the forecast moves**. The run prints the median bias and counts the
+materials beyond ±15pp - those are the rows to read before trusting - and says
+when a forecast came out above the RRP or below nothing, which is a bias too big
+for the material rather than a price.
+
+Three further decisions, all visible in the sheet:
+
+- `plan DC %` is the **median** over the plan lines live that month, from the
+  first price each line carries of `S.COM_Price`, `T2`, `T3`, `EDU`, `T1`. A
+  material with one clearance line and four ordinary ones is not on clearance,
+  and the deepest offer is the one a forecast should be least sure of. Both
+  sides of the bias use that same definition, which is what makes subtracting
+  them mean anything.
+- The **promotion** column is the plan's own offer type and detail put through
+  the same family table the store rules go through, with the live line count
+  beside it. There are no units yet, so there is no "mostly" to report - one
+  category standing for six plan lines is worth seeing as six.
+- A material the plan prices for November but which **has not sold** in the
+  months read is still in the sheet, with its category's median bias and a last
+  column that says so. A product launching in November has no row in any profit
+  export and is exactly what a forecast is for. Its description and division
+  come from the plan, which is the only file that has them.
+
+A month the plan says nothing priced about is **blank, not carried over** from a
+neighbouring month: an RRP printed beside a month the plan does not cover reads
+as a plan for that month. And a longer `--months` gives a steadier bias at the
+cost of a wider actuals sheet, because the same flag drives both.
+
 ### The promotion, and why it carries a share
 
 The promotion comes from the store's own orders (`26 DTC Jul`), where every line
