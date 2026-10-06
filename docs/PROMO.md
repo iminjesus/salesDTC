@@ -509,19 +509,34 @@ comma-separated; all of them are kept.
 Two questions instead of four. A DTC campaign named a set of products and a set
 of dates; an order for one of those products on one of those dates came in on
 it. **No price, no mechanic, no nationwide column** - only `DTC_Campaign1` and
-`DTC_Campaign2`, merged, against the plan line's window.
+`DTC_Campaign2` against the plan line's window.
+
+The two columns are **a hierarchy, not one merged value**. The first names the
+campaign; the second names what ran inside it. Merging them produced a row
+called `A + B`, which is neither campaign and which nothing can be done with.
+Kept apart, a Fold8 under `DTC Boost Week` with `Samsung Week` beside it counts
+once under Boost Week at the top and appears under Samsung Week one level in.
 
 ```
 py tools\promo_match.py --orders "26 DTC Aug" --dtc-only
 ```
 
 ```
-which DTC campaign the order came in on - product code and date only, no price
+DTC campaign 1 - the top level, and where the page opens
   campaign                period                  SKUs   lines   units    revenue   share
-  DTC Boost Week          16 Jul to 31 Aug 2026      3       3       3      5,454   50.0%
+  DTC Boost Week          16 Jul to 31 Aug 2026      3       4       4      7,099   66.7%
   (no DTC campaign covers it)                        -       2       2        679   33.3%
-  DTC Boost Week + Samsung Week                      -       1       1      1,645   16.7%
+
+DTC campaign 2 - what a campaign 1 bar opens into
+  campaign                period                  SKUs   lines   units    revenue   share
+  (no second DTC campaign)                           -       3       3      5,454   50.0%
+  (no DTC campaign covers it)                        -       2       2        679   33.3%
+  Samsung Week            16 Jul to 05 Aug 2026      1       1       1      1,645   16.7%
 ```
+
+`(no second DTC campaign)` is the plan saying there was no second one, which is
+a different statement from `(no DTC campaign covers it)` - that one is the
+residual.
 
 The price was the test that rejected lines the plan does cover - a trade-in, a
 stacked voucher or a bundle all move what was collected away from the price the
@@ -533,7 +548,7 @@ What that costs is printed, not hidden:
 
 | | |
 |---|---|
-| **a pair row** | an order inside two DTC campaigns at once. Left under `A + B`, never split - the price was what used to tell them apart, and the first five are listed by SKU and date |
+| **a pair row** | an order inside two *campaign 1* values at once. Left under `A + B`, never split - the price was what used to tell them apart, and the first five are listed by SKU and date |
 | **`(no DTC campaign covers it)`** | split three ways: the plan has no line for the product code at all, it has one under no DTC campaign, or the order date is outside every DTC window that product is in |
 | **planned and nothing arrived** | DTC campaigns with plan lines and no orders. A campaign that only ever turns up inside a pair is not listed here - it did get orders |
 
@@ -560,8 +575,11 @@ long match's** `promo_<yymm>.html`, because it is a different answer about the
 same month and must not overwrite it. The drill is shorter, since this mode
 infers no channel and reads no price:
 
-> Portal Group -> Portal -> **DTC Campaign** -> Also in -> Offer -> Mechanic ->
-> Product Category
+> Portal Group -> Portal -> **DTC Campaign 1** -> **DTC Campaign 2** -> Offer
+> -> Mechanic -> Product Category
+
+The page opens on campaign 1, and the template drills to the next level down,
+so clicking a bar opens it by campaign 2 with nothing in between.
 
 Two things the page needed before it could carry this. Its level list was a
 constant inside `write_page` and is now an argument. Its *source* list was a

@@ -1462,6 +1462,10 @@ def unnamed_discount_report(rows: list, say=print) -> None:
 # line that lands nowhere is outside every DTC campaign - which is not the same
 # statement as the long match's "outside every campaign".
 NO_DTC = '(no DTC campaign covers it)'
+# A plan line can name the first DTC campaign and leave the second blank. That
+# is the plan saying there was no second one, not a line that failed to match,
+# so it reads differently from the residual above.
+NO_SECOND = '(no second DTC campaign)'
 
 
 def dtc_only(plan, plan_rows, o_body, O, canon, args, cell, say=print):
@@ -1474,39 +1478,44 @@ def dtc_only(plan, plan_rows, o_body, O, canon, args, cell, say=print):
     and a set of dates; an order for one of those products on one of those dates
     came in on it. Nothing about the money is read.
 
-    The cost of that is stated rather than hidden: an order can sit inside two
-    DTC campaigns at once and the price was what used to tell them apart, so
-    those lines are counted and listed instead of being assigned.
+    The two DTC columns are kept apart rather than merged. They are a hierarchy
+    in the plan - the first names the campaign, the second what ran inside it -
+    so the page opens on the first and the second is what a bar opens into.
+    Merging them made a row called `A + B`, which is neither campaign.
     """
-    # Only the two DTC columns. camp is [nationwide, DTC_Campaign1,
-    # DTC_Campaign2] and the nationwide one is a different question.
     windows: dict[str, list] = {}
     for r in plan_rows:
-        for name in (r.get('camp') or ['', '', ''])[1:]:
-            if not name:
-                continue
-            windows.setdefault(r['code'], []).append(
-                (canon.get(name, name), r['start'], r['end'],
-                 # What the plan called the offer. This is where FF8 Pre-Order
-                 # is written, and it is the label the page is read for - a
-                 # campaign total with no offer under it answers nothing.
-                 r['detail'] or '(the plan names no offer)',
-                 r['type'] or '(the plan names no mechanic)'))
-    span: dict[str, list] = {}
-    skus: dict[str, set] = collections.defaultdict(set)
+        c1, c2 = [canon.get(v, v) for v in (r.get('camp') or ['', '', ''])[1:]]
+        if not c1 and not c2:
+            continue
+        windows.setdefault(r['code'], []).append(
+            (c1, c2, r['start'], r['end'],
+             # What the plan called the offer. This is where FF8 Pre-Order is
+             # written, and it is the label the page is read for - a campaign
+             # total with no offer under it answers nothing.
+             r['detail'] or '(the plan names no offer)',
+             r['type'] or '(the plan names no mechanic)'))
+    # Spans and SKU counts per level, so each table says what its own column
+    # planned rather than borrowing the other's.
+    span: dict[tuple, list] = {}
+    skus: dict[tuple, set] = collections.defaultdict(set)
     for code, hits in windows.items():
-        for name, lo, hi, _detail, _type in hits:
-            skus[name].add(code)
-            was = span.setdefault(name, [lo, hi])
-            if lo and (was[0] is None or lo < was[0]):
-                was[0] = lo
-            if hi and (was[1] is None or hi > was[1]):
-                was[1] = hi
+        for c1, c2, lo, hi, _d, _t in hits:
+            for lv, name in ((1, c1), (2, c2)):
+                if not name:
+                    continue
+                skus[(lv, name)].add(code)
+                was = span.setdefault((lv, name), [lo, hi])
+                if lo and (was[0] is None or lo < was[0]):
+                    was[0] = lo
+                if hi and (was[1] is None or hi > was[1]):
+                    was[1] = hi
 
-    units = collections.Counter()
-    amt = collections.Counter()
-    lines = collections.Counter()
-    two = []                      # inside more than one DTC campaign at once
+    agg = {1: [collections.Counter(), collections.Counter(),
+               collections.Counter()],
+           2: [collections.Counter(), collections.Counter(),
+               collections.Counter()]}
+    two = []                      # inside more than one campaign 1 at once
     undated = 0                   # a DTC line with no window - covers nothing
     out, page = [], []
     miss = {'code': 0, 'date': 0, 'no dtc': 0}
@@ -1520,69 +1529,77 @@ def dtc_only(plan, plan_rows, o_body, O, canon, args, cell, say=print):
         qty = parse_number(cell(r, O['qty'])) or 0.0
         amount = parse_number(cell(r, O['amount'])) or 0.0
         day = to_date(cell(r, O['date']))
-        cands, how = plan.candidates(code)
-        offers, mechanics = [], []
+        cands, _how = plan.candidates(code)
+        live = []
         if not cands:
             miss['code'] += 1
-            got = []
         else:
             mine = [w for c in cands for w in windows.get(c['code'], [])]
             if not mine:
                 miss['no dtc'] += 1
             live = [w for w in mine
                     if day is not None
-                    and (w[1] is None or day >= w[1])
-                    and (w[2] is None or day <= w[2])]
-            got = sorted({w[0] for w in live})
-            offers = sorted({w[3] for w in live})
-            mechanics = sorted({w[4] for w in live})
-            undated += sum(1 for w in mine if w[1] is None and w[2] is None)
-            if mine and not got:
+                    and (w[2] is None or day >= w[2])
+                    and (w[3] is None or day <= w[3])]
+            undated += sum(1 for w in mine if w[2] is None and w[3] is None)
+            if mine and not live:
                 miss['date'] += 1
-        name = got[0] if len(got) == 1 else (
-            ' + '.join(got) if got else NO_DTC)
-        if len(got) > 1:
-            two.append((cell(r, O['sku']), day, got))
-        units[name] += qty
-        amt[name] += amount
-        lines[name] += 1
+        c1s = sorted({w[0] for w in live if w[0]})
+        c2s = sorted({w[1] for w in live if w[1]})
+        offers = sorted({w[4] for w in live})
+        mechanics = sorted({w[5] for w in live})
+        name1 = ' + '.join(c1s) if c1s else (NO_SECOND if live else NO_DTC)
+        name2 = ' + '.join(c2s) if c2s else (NO_SECOND if live else NO_DTC)
+        if len(c1s) > 1:
+            two.append((cell(r, O['sku']), day, c1s))
+        for lv, name in ((1, name1), (2, name2)):
+            agg[lv][0][name] += qty
+            agg[lv][1][name] += amount
+            agg[lv][2][name] += 1
         out.append([cell(r, O['order']), cell(r, O['sku']),
                     day.isoformat() if day else '', qty, amount,
-                    name, len(got), ' + '.join(offers)])
-        page.append(('plan' if got else 'none',
+                    name1, name2, ' + '.join(offers)])
+        page.append(('plan' if live else 'none',
                      cell(r, O['group']) or '(blank)',
                      cell(r, O['portal']) or '(blank)',
-                     name,
-                     ' + '.join(got[1:]) or '(names only the one)',
+                     name1, name2,
                      ' + '.join(offers) or NO_DTC,
                      ' + '.join(mechanics) or NO_DTC,
                      cell(r, O['cat']) or '(blank)',
                      day.isoformat() if day else '', qty, amount))
 
-    tot = sum(units.values()) or 1.0
+    def table(lv, title):
+        units, amt, lines = agg[lv]
+        tot = sum(units.values()) or 1.0
+        say(f'\n{title}')
+        say(f'  {"campaign":<34}{"period":<25}{"SKUs":>6}{"lines":>9}'
+            f'{"units":>10}{"revenue":>14}{"share":>8}')
+        for n, q in units.most_common(15):
+            lo, hi = span.get((lv, n), [None, None])
+            when = (f'{lo.strftime("%d %b") if lo else "-"} to '
+                    f'{hi.strftime("%d %b %Y") if hi else "-"}') \
+                if (lv, n) in span else ''
+            # A residual is not a campaign and has no plan lines of its own, so
+            # it shows a dash rather than a zero that reads like "planned
+            # nothing".
+            own = (f'{len(skus[(lv, n)]):>6}' if (lv, n) in skus
+                   else f'{"-":>6}')
+            say(f'  {n[:34]:<34}{when[:25]:<25}{own}'
+                f'{lines[n]:>9,}{q:>10,.0f}{amt[n]:>14,.0f}'
+                f'{q / tot * 100:>7.1f}%')
+        quiet = [n for (l, n) in skus
+                 if l == lv and not units.get(n)
+                 and not any(n in got for _, _, got in two)]
+        if quiet:
+            say(f'  {len(quiet):,} have plan lines and no orders: '
+                + ', '.join(sorted(quiet)[:6]))
+
     say(f'\nwhich DTC campaign the order came in on - product code and date '
         f'only, no price')
-    say(f'  {"campaign":<34}{"period":<25}{"SKUs":>6}{"lines":>9}'
-        f'{"units":>10}{"revenue":>14}{"share":>8}')
-    def period(n):
-        lo, hi = span.get(n, [None, None])
-        return (f'{lo.strftime("%d %b") if lo else "-":>6} to '
-                f'{hi.strftime("%d %b %Y") if hi else "-"}') if n in span else ''
-    for n, q in units.most_common():
-        # A pair row is not a campaign and has no plan lines of its own, so it
-        # shows a dash rather than a zero that reads like "planned nothing".
-        own = f'{len(skus[n]):>6}' if n in skus else f'{"-":>6}'
-        say(f'  {n[:34]:<34}{period(n)[:25]:<25}{own}'
-            f'{lines[n]:>9,}{q:>10,.0f}{amt[n]:>14,.0f}{q / tot * 100:>7.1f}%')
-    # A campaign that only ever turns up inside a pair did get orders; it is
-    # the pair that could not be split, not the campaign that went unsold.
-    paired = {n for _, _, got in two for n in got}
-    quiet = [n for n in skus if not units.get(n) and n not in paired]
-    if quiet:
-        say(f'  {len(quiet):,} DTC campaign(s) have plan lines and no orders: '
-            + ', '.join(sorted(quiet)[:6]))
+    table(1, 'DTC campaign 1 - the top level, and where the page opens')
+    table(2, 'DTC campaign 2 - what a campaign 1 bar opens into')
     if two:
-        say(f'  {len(two):,} line(s) sit inside more than one DTC campaign at '
+        say(f'\n  {len(two):,} line(s) sit inside more than one campaign 1 at '
             f'once and are left under\n  the pair, not split between them - '
             f'the price was what used to tell them apart:')
         for sku, day, got in two[:5]:
@@ -2011,7 +2028,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         with path.open('w', newline='', encoding='utf-8-sig') as fh:
             w = csv.writer(fh)
             w.writerow(['order', 'sku', 'date', 'units', 'amount',
-                        'dtc campaign', 'campaigns covering it', 'offer'])
+                        'dtc campaign 1', 'dtc campaign 2', 'offer'])
             w.writerows(rows)
         print(f'\n-> {path}')
         if args.html is not None:
@@ -2023,11 +2040,15 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                   f'promo_dtc_{yymm or "nodate"}.html')
             write_page(hp, args, ' + '.join(f['path'].name for f in plans),
                        op, dtc_page, why, 0,
-                       levels=['Portal Group', 'Portal', 'DTC Campaign',
-                               'Also in', 'Offer', 'Mechanic',
+                       # Campaign 1 first and campaign 2 directly under it:
+                       # the page opens on campaign 1, and the template drills
+                       # to the next level down, so clicking a bar opens it by
+                       # campaign 2 with nothing in between.
+                       levels=['Portal Group', 'Portal', 'DTC Campaign 1',
+                               'DTC Campaign 2', 'Offer', 'Mechanic',
                                'Product Category'],
-                       cust_depth=2, start='DTC Campaign',
-                       campaign='DTC Campaign',
+                       cust_depth=2, start='DTC Campaign 1',
+                       campaign='DTC Campaign 1',
                        source_labels=[
                            ['plan', 'the plan: this product, on this date',
                             'On a DTC campaign'],
