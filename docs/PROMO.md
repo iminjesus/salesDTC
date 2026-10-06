@@ -49,6 +49,74 @@ The run prints, per level, how many distinct values there are and **what the
 eight biggest would cover** if a chart stacked by it - a level that gathers
 badly is one a chart cannot say much with.
 
+## One promotion, named once
+
+The rule and the plan were shown to be two descriptions of the same offer - 92%
+of the lines both answered for - so keying the summary on **which of them
+answered** printed that offer twice, once under its rule code and once under its
+plan label, as if they were two promotions. They are not.
+
+`promo_summary.csv` is now one row per promotion: the **campaign** it ran in and
+the **family** it was, with which source could name it as a column beside it.
+
+```
+                                                  Lines     Qty       Amount  named by
+  Black Friday    % off                               4      10       29,536  rule 4
+  EOFY            EPP surplus                         1       1        4,999  plan 1
+```
+
+The family is what makes that possible: both vocabularies land on one table, so
+a rule code and a plan line describing the same offer land on the same row. That
+table has therefore moved into `tools/promo_match.py`, beside `MECHANIC` and
+`EXECUTED_AS` - they are one vocabulary layer, and the cross-check needs it as
+much as `promo.py` does.
+
+## Did the customer pay the price their own channel is quoted?
+
+The plan prices a promotion five times over - `S.COM_Price`, `T1`, `T2`, `T3`,
+`EDU` - and the order says which portal it came through. Matching an order to
+the **nearest** of those five says only that the price is somewhere in the plan;
+it does not say the customer paid the price they were entitled to. So the two
+sides are put against each other:
+
+```
+the price paid against the channel it came through - 25 line(s) that landed on a named price
+  channel                  lines    S.COM      EDU       T2   as quoted
+  S.COM/Retail                22       22        0        0        100%
+  EPP/Partnership              2        1        0        1         50%
+  EPP/EDU                      1        0        1        0        100%
+```
+
+An EPP order settling on `S.COM_Price` is either a tier that was not applied or
+a portal group mapped wrongly, and both are worth seeing. A dash means the
+customer master would not settle that channel, which is **not** a mismatch and
+is counted apart from one. Lines that landed on the `RRP` are counted too: a
+promotion was live and the list price was paid.
+
+## Does the price belong to the promotion the rule names?
+
+The nearest-price match answers a weaker question than it looks like it answers.
+It finds whichever plan line the price fits best, and the rule plays no part in
+choosing it - so a line can "match the plan" at a price belonging to a different
+offer entirely. The rule says Secret Sale, the customer paid the Stunt Promotion
+price, and both are discounts, so the cross-check calls it a match.
+
+Both sides land on one family now, so the stronger question can be asked: of the
+plan lines live for this product, is there one of the family the **rule** names,
+and is what was paid **its** price?
+
+```
+does the price belong to the promotion the rule names? 18 line(s) with both
+         3   16.7%  the plan has a line of that family and the price is its price
+         0    0.0%  it has one, but what was paid is not within 3% of any of its prices
+        15   83.3%  it has no line of that family live for this product at all
+```
+
+The middle row is the one to read: the promotion was planned, and the customer
+did not pay its price. The bottom row comes with the pairs - what the rule ran
+against what the plan priced - which is where a missing plan line or a family
+the table still splits in two shows up.
+
 ## Campaign and mechanic are two axes, not two words for one thing
 
 A promotion's **mechanic** comes off the store's rule: the engine applied it, and

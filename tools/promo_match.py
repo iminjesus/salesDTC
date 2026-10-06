@@ -158,6 +158,147 @@ EXECUTED_AS = {
 }
 
 
+
+# What an offer *does*, which is the level a person can hold in their head.
+#
+# Read off the codes themselves rather than invented: `--tokens` counts the
+# pieces the offer strings are built from, and these are the ones that came
+# back on a large share of MX's units. The same offer is written several ways -
+# 50PCT, 50PCTOFF, 50OFF, 50 PCT - and a wave code (26F, B4F, FF8F, 26R) is
+# glued on each time it runs, which is what turned one offer into ten thousand.
+#
+# First match wins, so the order is the precedence: an accessories offer at 30%
+# is filed under Accessories rather than under percent-off. Edit the table, not
+# the code - that is the point of it being a table.
+#
+# These came off **MX's** codes. Another division writes its offers differently -
+# CE's run to cashback, redemption, a bonus gift, delivery and installation - so
+# on CE this table is a hypothesis, and the run says how much of it the table
+# fails to name along with the tokens those unnamed units are built from. Write
+# the new families from that list rather than from what sounds likely.
+FAMILIES = [
+    # ── what the offer was ──────────────────────────────────────────────────
+    # A specific offer, named. These answer "what did the customer get", and
+    # they come first because every row below describes something rather than
+    # naming it.
+    ('Trade-in / Trade-up',  r'TRADE'),
+    ('Accessories offer',    r'\bACC(ESSORIES)?\b'),
+    ('First 72 hours',       r'\d*HR\b|FIRST\d+'),
+    ('Price match',          r'PRICE\s?MATCH'),
+    ('Stunt promotion',      r'STUNT'),
+    ('EPP surplus',          r'SURPLUS'),
+    ('Aged clearance / EOL', r'CLEARANCE|AGED|\bEOL\b'),
+    ('Cart abandon',         r'ABANDON'),
+    ('Spend and save',       r'\bSPEND\b|\bBMSM\b'),
+    ('Secret sale',          r'SECRET'),
+    ('Live commerce',        r'LIVE\s?COMMERCE'),
+    ('Flash sale',           r'\bFLASH'),        # FLASHTV9 too
+    ('Staff / EDU offer',    r'\bSTAFF\b|\bEDU\b'),
+    ('Samsung Care+',        r'SAMSUNG\s?CARE|\bSC\b'),
+    ('Rewards points',       r'REWARD|\bPTS\b|POINTS'),
+    ('Buy one get one',      r'\bBOGO\b'),
+    ('Delivery / install',   r'DELIVERY|INSTALL|TABLETOP|SHIPPING'),
+    ('Bonus gift',           r'\bBONUS\b|\bGIFT\b|\bFREE\b|\bFOC\b|\bGWP\b'),
+    ('Bundle / PWP',         r'BUNDLE|PWP|PACKAGE'),
+    # ── why it ran ──────────────────────────────────────────────────────────
+    # A campaign, which beats a generic price word: the offer type level already
+    # answers "what mechanic", so this level is where "why" belongs. A
+    # "[Boost Week] EPP $100 Voucher" is filed under Boost Week, not under
+    # voucher.
+    ('Samsung / Boost Week', r'\bBOOST\b|SAMSUNG\s?WEEK|TECH\s?FEST'),
+    # ── the standing offer ──────────────────────────────────────────────────
+    # 5% off a first purchase, always on, and not a reason anything sold this
+    # month. First in this table it collected 21,935 of CE's promoted units and
+    # **none** were its alone - every one also ran under a real campaign, which
+    # is what "only this one 0%" in the overlap report means. Here, those units
+    # go to the campaign that drove them and the voucher keeps what it won by
+    # itself, while a rule that is only the welcome voucher is still named as
+    # one rather than as "% off".
+    ('EPP welcome voucher',  r'WELCOME'),
+    # ── how the price was written ───────────────────────────────────────────
+    # Descriptions, not offers: anything still here was not named above, and
+    # all these rows say is the shape of the discount.
+    ('% off RRP',            r'RRP'),
+    ('$ off',                r'\b\d{2,4}OFF\b'),
+    ('% off',                r'\d+\s?PCT|PCTOFF|\d+OFF|\d+\s?PERCENT'),
+    # The two rows above match 50PCT and 100OFF - the store writes a promotion
+    # as one token. CE's plan writes the same thing in prose, "20% off" and
+    # "$100 Discount", and punctuation is stripped before matching, so it
+    # arrives as "20 OFF" and matches neither.
+    ('Price off',            r'\d+\s?OFF\b|\d+\s?DISCOUNT\b|\bDEEPER\b'),
+    ('$ voucher',            r'VOUCHER|\bCREDIT\b'),
+    # ── last resorts ────────────────────────────────────────────────────────
+    # `\bEPP\b` is on a third of the lines and says only which tier could buy,
+    # so it names what nothing else could. Below it, the plan's Offer_Detail
+    # cell used as a comment field, named so those lines can be counted and set
+    # aside - last, because the words are ordinary English and a store rule that
+    # happens to use one is still a real offer. CVM and CRP are deliberately not
+    # in it: they read as a plan note in `[CVM/CRP]` and as a live rule in
+    # `B2C CRP CE 231103`, which is 9,843 of CE's promoted units.
+    # No comma in either name: --precedence is a comma-separated list, and a
+    # family nobody can name on the command line is one nobody can reorder.
+    ('EPP offer',            r'\bEPP\b'),
+    ('Plan note (not an offer)',
+     r'\bOVERRIDE\b|SHARPEN|\bEXTENDED\b|OFFER CHANGE|DATE CHANGE'
+     r'|RETAIL PROMO'),
+]
+
+
+OTHER = '(not one of the named families)'
+
+
+def families_in(offer: str) -> list:
+    """Every family an offer matches, in the table's order."""
+    up = re.sub(r'[^A-Z0-9]+', ' ', offer.upper())
+    return [name for name, pat in FAMILIES if re.search(pat, up)]
+
+
+def family_label(kind: str, offer: str, order=None) -> str:
+    """The family of a rule, read from its offer **and** its mechanic.
+
+    Pulling the mechanic out of the code is what makes the offer level readable,
+    and it is also what can empty it: `BOGO HW LS60D XY AUME 18596` leaves
+    `HW LS60D XY`, a bare model code that no family names, and `FREE SHIPPING`
+    leaves nothing at all. The mechanic is part of what the offer was, so it is
+    put back for this one question.
+    """
+    if kind and kind.startswith('('):          # '(mechanic not in the code)'
+        kind = ''
+    return family_of(f'{offer} {kind}'.strip(), order)
+
+
+def family_of(offer: str, order=None) -> str:
+    """The one family a unit is filed under - the first match in `order`.
+
+    This is a **choice**, not a reading. Most of MX's promoted units ran under
+    more than one rule, so most match more than one family, and something has
+    to decide which the unit counts as. First match wins, and the order is
+    therefore the whole of the decision - which is why it is a table at the top
+    of this file and a --precedence flag on the command line, rather than
+    something buried in the code.
+    """
+    hits = families_in(offer)
+    if not hits:
+        return OTHER
+    for name in (order or []):
+        if name in hits:
+            return name
+    return hits[0]
+
+
+def family_label(kind: str, offer: str, order=None) -> str:
+    """The family of a rule, read from its offer **and** its mechanic.
+
+    Pulling the mechanic out of the code is what makes the offer level readable,
+    and it is also what can empty it: `BOGO HW LS60D XY AUME 18596` leaves
+    `HW LS60D XY`, a bare model code that no family names, and `FREE SHIPPING`
+    leaves nothing at all. The mechanic is part of what the offer was, so it is
+    put back for this one question.
+    """
+    if kind and kind.startswith('('):          # '(mechanic not in the code)'
+        kind = ''
+    return family_of(f'{offer} {kind}'.strip(), order)
+
 def real(v) -> bool:
     """Does this cell say anything?
 
@@ -623,7 +764,7 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
     if not cands:
         return {'promo': '', 'how': how, 'gap': '', 'alts': 0, 'priced': '',
                 'type': '', 'detail': '', 'off_by': '', 'miss': 'code',
-                'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'camp_lost': False}
+                'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'cands': [], 'camp_lost': False}
 
     off_by = ''
     if order['date'] is not None:
@@ -645,7 +786,7 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
             if not live and not undated:
                 return {'promo': '', 'gap': '', 'alts': len(dated), 'priced': '',
                         'type': '', 'detail': '', 'off_by': best, 'miss': 'window',
-                        'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False,
+                        'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'cands': [],
                         'how': how + f', but the nearest window it fits misses '
                                f'the order date by {best:,} day(s)'}
             if live and best:
@@ -673,7 +814,7 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
                     return {'promo': '', 'gap': gap, 'alts': len(cands),
                             'priced': '', 'type': '', 'detail': '',
                             'off_by': off_by, 'miss': 'price',
-                            'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False,
+                            'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'cands': [],
                             'off_pct': round(off_pct, 1),
                             'how': how + f', but the price paid is {gap:+,.2f} '
                                    f'({off_pct:,.0f}%) from the nearest '
@@ -696,12 +837,147 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
             # fits does: those units are in the residual by the price rule, not
             # because no campaign covered them.
             'camp_lost': not (cands[0].get('camp') or [''])[0]
-            and any((c.get('camp') or [''])[0] for c in cands)}
+            and any((c.get('camp') or [''])[0] for c in cands),
+            'cands': cands}
 
 
 # ── describing a file ───────────────────────────────────────────────────────
 NO_CAMPAIGN = '(no nationwide campaign)'
 NO_PLAN = '(no plan line fits this order)'
+
+
+# Which price column a channel is supposed to pay. The plan quotes a price per
+# tier and the order says which portal it came through, so the two can be put
+# against each other - and that is a different question from "is the price in
+# the plan at all", which is all the nearest-price match answers.
+EXPECT = {
+    ('S.COM', ''):     {'S.COM_Price'},
+    ('EPP', 'EDU'):    {'EDU_Price'},
+    ('EPP', ''):       {'T1_Price', 'T2_Price', 'T3_Price'},
+}
+NO_DISCOUNT = 'RRP'
+
+
+def expected_tiers(typ: str, typ2: str) -> set:
+    """The price columns this channel should be paying, or an empty set.
+
+    Empty means the customer master would not settle the channel, which is not
+    the same as a mismatch and is counted apart from one.
+    """
+    t, t2 = (typ or '').upper(), (typ2 or '').upper()
+    if t.startswith('S.COM') or t.startswith('SCOM'):
+        return EXPECT[('S.COM', '')]
+    if t == 'EPP':
+        return EXPECT[('EPP', 'EDU')] if t2 == 'EDU' else EXPECT[('EPP', '')]
+    return set()
+
+
+def rule_price_report(rows: list, tol: float, say=print) -> None:
+    """Does the price paid belong to the promotion the rule names?
+
+    The nearest-price match answers a weaker question than it looks like it
+    answers: it finds whichever plan line the price fits best, and the rule
+    plays no part in choosing it. So a line can "match the plan" at a price that
+    belongs to a different offer entirely - the rule says Secret Sale and the
+    customer paid the Stunt Promotion price - and the cross-check above would
+    still call it a match, because both sides are discounts.
+
+    Both sides now land on one family, so the stronger question can be asked:
+    of the plan lines live for this product, is there one of the family the
+    *rule* names, and is what was paid that line's price? Three answers, and the
+    middle one is the interesting one.
+    """
+    got = [r for r in rows if r['rule_fam'] and r['cands']]
+    if not got:
+        return
+    same = other = none = 0
+    pairs = collections.Counter()
+    for r in got:
+        mine = [c for c in r['cands']
+                if family_label(c.get('type', ''), c.get('detail', ''))
+                == r['rule_fam']]
+        if not mine:
+            none += 1
+            pairs[(r['rule_fam'], r['plan_fam'] or '(the plan prices none)')] += 1
+            continue
+        paid = r['paid']
+        if paid is None:
+            continue
+        near = min((abs(paid - v) / v * 100 if v else 999.0
+                    for c in mine for v in c['prices'].values()), default=999.0)
+        if near <= tol:
+            same += 1
+        else:
+            other += 1
+    n = same + other + none
+    if not n:
+        return
+    say(f'\ndoes the price belong to the promotion the rule names? '
+        f'{n:,} line(s) with both')
+    say(f'  {same:>8,}  {same * 100 / n:>5.1f}%  the plan has a line of that '
+        f'family and the price is its price')
+    say(f'  {other:>8,}  {other * 100 / n:>5.1f}%  it has one, but what was '
+        f'paid is not within {tol:g}% of any of its prices')
+    say(f'  {none:>8,}  {none * 100 / n:>5.1f}%  it has no line of that family '
+        f'live for this product at all')
+    if pairs:
+        say('  where the plan prices a different family than the rule ran, '
+            'the commonest pairs:')
+        say(f'    {"the rule ran":<30}{"the plan prices":<30}{"lines":>8}')
+        for (a, b), k in pairs.most_common(8):
+            say(f'    {a[:30]:<30}{b[:30]:<30}{k:>8,}')
+    say('  the middle row is the one to read: the promotion was planned and the '
+        'customer did not\n  pay its price, which the nearest-price match '
+        'cannot see because it is looking for\n  any price rather than the '
+        'right one')
+
+
+def tier_report(rows: list, say=print) -> None:
+    """Did the customer pay the price their own channel is quoted?
+
+    The plan prices a promotion five times over - S.COM, T1, T2, T3, EDU - and
+    the order knows which portal it came through. Matching an order to the
+    *nearest* of those five says only that the price is somewhere in the plan;
+    it does not say the customer paid the price they were entitled to. An EPP
+    order settling on S.COM_Price is either a tier that was not applied or a
+    portal group this build has mapped wrongly, and both are worth seeing.
+
+    So this is the one table that puts the two sides together: the channel the
+    order came through, against the price column it actually landed on.
+    """
+    got = [r for r in rows if r['priced']]
+    if not got:
+        say('\nno line matched a named price column, so the tier cannot be '
+            'checked')
+        return
+    cols = sorted({r['priced'] for r in got},
+                  key=lambda c: (c != 'S.COM_Price', c))
+    chans = collections.Counter(r['chan'] for r in got)
+    say(f'\nthe price paid against the channel it came through - '
+        f'{len(got):,} line(s) that landed on a named price')
+    head = ''.join(f'{c.replace("_Price", ""):>9}' for c in cols)
+    say(f'  {"channel":<22}{"lines":>8}{head}{"as quoted":>12}')
+    ok_all = n_all = 0
+    for chan, _ in chans.most_common(10):
+        mine = [r for r in got if r['chan'] == chan]
+        by = collections.Counter(r['priced'] for r in mine)
+        want = mine[0]['want']
+        ok = sum(n for c, n in by.items() if c in want) if want else 0
+        if want:
+            ok_all += ok
+            n_all += len(mine)
+        say(f'  {chan[:22]:<22}{len(mine):>8,}'
+            + ''.join(f'{by.get(c, 0):>9,}' for c in cols)
+            + (f'{ok * 100 / len(mine):>11.0f}%' if want else f'{"-":>12}'))
+    if n_all:
+        say(f'  {ok_all * 100 / n_all:.0f}% of the {n_all:,} line(s) whose '
+            f'channel the master settles paid a price quoted to\n  that '
+            f'channel. A dash means the master would not settle it, which is '
+            f'not a mismatch.')
+    rrp = sum(1 for r in got if r['priced'] == NO_DISCOUNT)
+    if rrp:
+        say(f'  {rrp:,} line(s) landed on the RRP - a promotion was live and '
+            f'the list price was paid')
 
 
 def campaign_fit(rows: list) -> dict:
@@ -909,6 +1185,10 @@ def main() -> int:
     ap.add_argument('--amount-is', choices=('line', 'unit'), default='line',
                     help='whether the order amount is the whole line or one '
                          'unit (default line, so it is divided by quantity)')
+    ap.add_argument('--precedence', metavar='LIST',
+                    help='which family a line counts as where it matches '
+                         'several, highest first, comma separated. The default '
+                         'is the order of the FAMILIES table in this file')
     ap.add_argument('--keep-cancelled', action='store_true',
                     help='keep cancelled orders and unapproved plan lines')
     for flag, what in (('promo-sku', 'product code in the plan'),
@@ -1078,7 +1358,13 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     near_code = 0
     slack_used = 0
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
-    camp_rows = []
+    camp_rows, tier_rows = [], []
+    order_of = [x.strip() for x in (args.precedence or '').split(',') if x.strip()]
+    bad = [x for x in order_of if x not in {n for n, _ in FAMILIES}]
+    if bad:
+        print(f'--precedence names no such family: {", ".join(bad)}',
+              file=sys.stderr)
+        return 2
     # A voucher attribution of zero is either "no order used one" or "the join is
     # broken", and those need telling apart. Counted on the way past.
     vouch = {'carried': 0, 'known': 0}
@@ -1168,11 +1454,6 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             how, promo = 'none', ''
         source[how] += 1
 
-        key = (how, promo or '(no promotion found)')
-        agg = by_promo.setdefault(key, [0.0, 0.0, 0.0])
-        agg[0] += 1
-        agg[1] += qty
-        agg[2] += amount or 0.0
         # The offer, on one pair of levels whichever source answered.
         if how == 'rule':
             o_type, o_detail = mechanic_of(rules)
@@ -1184,6 +1465,23 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             o_detail = guess['detail'] or guess['promo']
         else:
             o_type = o_detail = '(nothing fits)'
+        # One promotion, named once. The rule and the plan were shown to be two
+        # descriptions of the same offer - 92% of the lines both answered for -
+        # so keying the summary on which of them answered printed that offer
+        # twice, once under its rule code and once under its plan label, as if
+        # they were two promotions. They are not. The identity is the campaign
+        # it ran in and the family it was; which source could name it is an
+        # attribute of the row, not part of what the row is.
+        fam = family_label(o_type, o_detail, order_of)
+        camp0 = (guess.get('camp') or [''])[0]
+        key = (camp0 or (NO_CAMPAIGN if guess['promo'] else NO_PLAN), fam)
+        agg = by_promo.setdefault(key, [0.0, 0.0, 0.0, collections.Counter(),
+                                        collections.Counter()])
+        agg[0] += 1
+        agg[1] += qty
+        agg[2] += amount or 0.0
+        agg[3][how] += 1
+        agg[4][(promo or o_detail)[:60]] += 1
         group = cell(r, O['group']) or '(blank)'
         c = portals.get(group.upper()) or portals.get(code_norm(group)) or {}
         portal_seen[group] = portal_seen.get(group, 0) + 1
@@ -1219,6 +1517,16 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         # The campaign is the plan's answer whoever won the attribution: the
         # rule says what was done to the price and the plan says which campaign
         # it belonged to, and reading one off the other would lose half of it.
+        tier_rows.append({
+            'priced': guess['priced'],
+            'chan': ((c.get('type') or '?')
+                     + ('/' + c['type2'] if c.get('type2') else '')),
+            'want': expected_tiers(c.get('type', ''), c.get('type2', '')),
+            'rule_fam': family_label(*mechanic_of(rules), order_of)
+                        if rules else '',
+            'plan_fam': (family_label(guess['type'], guess['detail'], order_of)
+                         if guess['promo'] else ''),
+            'cands': guess.get('cands') or [], 'paid': paid})
         camp_rows.append({
             'camp': guess.get('camp') or ['', '', ''],
             'camp_alts': guess.get('camp_alts', 0),
@@ -1330,6 +1638,9 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             print('  a median far from zero means the two quote prices on '
                   'different bases - try --gst or --amount-is')
 
+    if tier_rows:
+        tier_report(tier_rows)
+        rule_price_report(tier_rows, args.price_tolerance)
     if camp_rows:
         campaign_report(camp_rows)
 
@@ -1349,18 +1660,26 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     table = sorted(by_promo.items(), key=lambda kv: -kv[1][2])
     with summary.open('w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f)
-        w.writerow(['Source', 'Promotion', 'Order lines', 'Qty', 'Amount'])
-        w.writerows([how, name, int(v[0]), v[1], round(v[2], 2)]
-                    for (how, name), v in table)
+        w.writerow(['Campaign', 'Promotion', 'Order lines', 'Qty', 'Amount',
+                    'Named by', 'Most often written as'])
+        w.writerows([camp, name, int(v[0]), v[1], round(v[2], 2),
+                     ', '.join(f'{k} {n:,}' for k, n in v[3].most_common()),
+                     v[4].most_common(1)[0][0] if v[4] else '']
+                    for (camp, name), v in table)
     print(f'\n-> {lines}\n-> {summary}')
 
-    wide = min(52, max((len(nm) for (_, nm), _ in table[:15]), default=10))
-    print(f'\n  {"":<9}{"":<{wide}} {"Lines":>8} {"Qty":>9} {"Amount":>15}')
-    for (how, name), v in table[:15]:
-        print(f'  {how:<9}{name[:52]:<{wide}} {v[0]:>8,.0f} {v[1]:>9,.0f} '
-              f'{v[2]:>15,.0f}')
+    wide = min(34, max((len(nm) for (_, nm), _ in table[:15]), default=10))
+    print(f'\n  {"":<26}{"":<{wide}} {"Lines":>8} {"Qty":>9} {"Amount":>14}'
+          f'  named by')
+    for (camp, name), v in table[:15]:
+        print(f'  {camp[:24]:<26}{name[:34]:<{wide}} {v[0]:>8,.0f} '
+              f'{v[1]:>9,.0f} {v[2]:>14,.0f}  '
+              + ', '.join(f'{k} {n:,}' for k, n in v[3].most_common(2)))
     if len(table) > 15:
         print(f'  ... and {len(table) - 15:,} more in {summary.name}')
+    print('  one row per promotion, not per source: the rule and the plan are '
+          'two descriptions of\n  the same offer, so "named by" says which of '
+          'them could name it rather than\n  splitting the offer in two')
 
     reasons: dict[str, int] = {}
     for row in out:
