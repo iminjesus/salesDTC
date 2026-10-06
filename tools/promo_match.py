@@ -1914,6 +1914,12 @@ def run(args, plans, op, o_head, o_body, O) -> int:
           'them could name it rather than\n  splitting the offer in two')
 
     reasons: dict[str, int] = {}
+    # Three real rows per kind, kept as they were written. A tally says how big
+    # a problem is and an example says what it is, and the two are not
+    # substitutes: "the price paid is N% from the nearest" is a shape, while
+    # "SM-S938BZKEXSA, 12 Sep, paid 1,799 against a plan line at 2,399" is
+    # something a person can go and look up.
+    examples: dict[str, list] = {}
     for row in out:
         if row[7] == 'none':
             why = row[12] or 'no plan line'
@@ -1922,6 +1928,8 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             why = re.sub(r'\(.*?\)', '(...)', why)
             why = re.sub(r'[-+]?\d[\d,.]*', 'N', why)
             reasons[why] = reasons.get(why, 0) + 1
+            if len(examples.setdefault(why, [])) < 3:
+                examples[why].append(row)
     if slack_used:
         print(f'  {slack_used:,} of the plan matches only fit because of '
               f'--window-slack {args.window_slack}; their row says by how many days')
@@ -1951,6 +1959,16 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         print('\nwhy nothing fit:')
         for why, count in ranked[:8]:
             print(f'  {count:>8,}  {why}')
+            for row in examples.get(why, []):
+                # order, product, date, units, what a unit came to, and the
+                # rule the store itself applied - enough to find the order.
+                print(f'            {str(row[1])[:22]:<22} {str(row[3]):<11}'
+                      f'{row[4]:>5} unit(s) at {row[6] or "?":>10}'
+                      f'   order {str(row[0])[:18]}')
+                if row[9]:
+                    print(f'            {"":<22} rule  {str(row[9])[:92]}')
+                if row[12]:
+                    print(f'            {"":<22} plan  {str(row[12])[:92]}')
 
     if args.html is not None:
         yymm, _ = months_in(d for _, d in sorted(
