@@ -228,7 +228,8 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <label class="f" id="stackBox"><span>Stack by</span><span class="seg">
         <button class="btn" id="stkCust">Customer</button
         ><button class="btn" id="stkProd">Product</button
-        ><button class="btn" id="stkOrd" title="when the order behind the revenue was placed - this month's own, or the month before's">When ordered</button></span></label>
+        ><button class="btn" id="stkOrd" title="when the order behind the revenue was placed - this month's own, or the month before's">When ordered</button
+        ><button class="btn" id="stkPromo" title="what brought the order in: the promotion the plan had live for that product on that date">Promo</button></span></label>
       <label class="f" id="figBox"><span>Figure</span>
         <span class="vals" id="stkFig"></span></label>
       <button class="btn apart" id="pnlBtn" title="the whole statement for whatever is picked above: what came in beside what it went out on">P&amp;L</button>
@@ -1130,6 +1131,16 @@ function draw() {
 
    The profit line is on both, each point carrying its own figure, so
    switching never loses it. */
+// The promotion bands, in the order they stack. Same shape as ORIGINS: a cut of
+// the same revenue rather than a level of the key, so the bar still comes to
+// the month's own total and can be read against the other splits. Out here
+// because whether the split is available at all is decided at the top of
+// drawStack, before any of its own constants have run.
+const PROMOS = [['pboth', 'DTC + Nation-wide'],
+                ['pdtc',  'DTC promotion'],
+                ['pnat',  'Nation-wide only'],
+                ['pnone', 'No promotion'],
+                [null,    'No order matched']];
 let stkChart = null;
 function drawStack() {
   // "When ordered" is not a level of the key: it cuts the same revenue by the
@@ -1137,18 +1148,25 @@ function drawStack() {
   // month before's, or there is nothing to call carried in. Decided first,
   // because what the bars are split by depends on it.
   const canOrd = hasOrders() && DATA.carryIn;
+  // The promotion split needs the band series on the cells; a build run
+  // without a plan has none, and the button stays off rather than drawing an
+  // empty stack.
+  const canPromo = PROMOS.some(([k]) => k && has[k] !== undefined);
   if (state.stack === 'orders' && !canOrd) state.stack = 'customer';
+  if (state.stack === 'promo' && !canPromo) state.stack = 'customer';
   const ordMode = state.stack === 'orders';
+  const promoMode = state.stack === 'promo';
   // The level that splits each bar. P&L has no split, so it ignores this.
   const chain = CHAINS[state.stack] || [];
-  const sl = ordMode ? undefined : (splitLevel() ?? undefined);
+  const sl = (ordMode || promoMode) ? undefined : (splitLevel() ?? undefined);
   const slNext = sl === undefined ? null
     : (chain[chain.indexOf(sl) + 1] ?? null);
   [['stkCust', 'customer'], ['stkProd', 'product'],
-   ['stkOrd', 'orders']].forEach(([id, v]) => {
+   ['stkOrd', 'orders'], ['stkPromo', 'promo']].forEach(([id, v]) => {
     const b = document.getElementById(id);
     b.classList.toggle('active', state.stack === v);
-    b.disabled = v === 'orders' ? !canOrd : !CHAINS[v].length;
+    b.disabled = v === 'orders' ? !canOrd
+               : v === 'promo' ? !canPromo : !CHAINS[v].length;
   });
 
   // Where the month's revenue came from. The first two are the orders; the
@@ -1297,6 +1315,30 @@ function drawStack() {
       });
       continue;
     }
+    if (promoMode) {
+      // The same revenue, cut by what the plan had live for that product on
+      // the day it was ordered. The bands are units, so they are a set of
+      // shares; what no order could be banded at all keeps its own band, which
+      // is what makes the bar come to the month's own total.
+      const v = fig === undefined ? 0 : c.v[fig] * flip;
+      let banded = 0;
+      for (const [k] of PROMOS) if (k && has[k] !== undefined) banded += c.v[has[k]];
+      PROMOS.forEach(([k, name]) => {
+        const share = k === null
+          ? (banded ? 0 : 1)
+          : (has[k] === undefined || !banded ? 0 : c.v[has[k]] / banded);
+        if (!share) return;
+        const b = slotFor(name)[ci];
+        for (const kk of ['profit', 'net', 'gross']) {
+          if (has[kk] !== undefined) b[kk] += c.v[has[kk]] * share;
+        }
+        const row = xs[ci].row;
+        row.set(name, (row.get(name) || 0) + v * share);
+        xs[ci].total += v * share;
+        stackTotal.set(name, (stackTotal.get(name) || 0) + v * share);
+      });
+      continue;
+    }
     if (pnlMode || sl === undefined) continue;
     const g = DATA.levels[sl].values[c.k[sl]];
     const b = slotFor(g)[ci];
@@ -1335,7 +1377,9 @@ function drawStack() {
   // Eight slots, in a fixed order by size across the whole span - so a member
   // keeps its colour from month to month, which is the only way a stacked bar
   // can be read along a time axis at all. A ninth folds into Other.
-  const members = ordMode
+  const members = promoMode
+    ? PROMOS.map(o => o[1]).filter(n => stackTotal.has(n))
+    : ordMode
     ? ORIGINS.map(o => o[1]).filter(n => stackTotal.has(n))
     : [...stackTotal.entries()]
         .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
@@ -1354,6 +1398,8 @@ function drawStack() {
   // pair of colours rather than taking whichever slot they sorted into.
   // The unmatched band takes the palette's neutral slot, which is what it is.
   const bandColour = i => (ordMode ? [C.stack[0], C.stack[4], C.stack[8]][i]
+                        : promoMode ? [C.stack[0], C.stack[2], C.stack[4],
+                                       C.stack[6], C.stack[8]][i]
                                    : C.stack[i]);
   const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
@@ -1555,6 +1601,12 @@ function drawStack() {
       : pnlMode
       ? `${label('gross')} beside what it went out on, by ${PER}. Costs are `
         + 'drawn as amounts.'
+      : promoMode
+      ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}, `
+        + 'split by what the plan had live for that product on the day it was '
+        + 'ordered. The bands are the shipped units\u2019 own, so the bar still '
+        + 'comes to the month\u2019s total; what no order could be banded at all '
+        + 'keeps its own band rather than being shared out.'
       : sl === undefined
         ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}. `
           + `Every ${state.stack} level is narrowed to one value, so there is `
@@ -1668,7 +1720,8 @@ document.getElementById('resetBtn').onclick = () => {
   state.stack = 'customer';
   render();
 };
-[['stkCust', 'customer'], ['stkProd', 'product'], ['stkOrd', 'orders']]
+[['stkCust', 'customer'], ['stkProd', 'product'], ['stkOrd', 'orders'],
+ ['stkPromo', 'promo']]
   .forEach(([id, v]) => {
     document.getElementById(id).onclick = () => {
       // Asking for a split is asking to see one, so it leaves the P&L, which

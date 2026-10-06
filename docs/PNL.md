@@ -583,3 +583,46 @@ by adding the column's name to `LEVELS` in `tools/customer.py`.
 - `N total(s) read straight off the layout, M column(s) left to place` - a large
   M means the export is not printed as totals-then-lines, and most of the work
   fell to the wider search.
+
+## Stack by Promo
+
+A fourth button beside Customer, Product and When ordered. It splits the same
+revenue by **what the plan had live for that product on the day it was
+ordered**:
+
+| | |
+|---|---|
+| DTC + Nation-wide | a plan line covering that product on that date names both |
+| DTC promotion | it names a DTC campaign only |
+| Nation-wide only | it names the nationwide campaign only |
+| No promotion | a plan line covers it and names neither, or none covers it |
+| No order matched | no order could be banded at all - it keeps its own band |
+
+Read the way "When ordered" is read, and for the same reason: **a cut of the
+same revenue, not a level of the key.** The bands are the shipped units' own, so
+each one is a share and the bar still comes to the month's own total - a month
+that read smaller under one split than another would be a chart arguing with
+itself. What no order could be banded keeps its own band rather than being
+shared out, which is what holds that total.
+
+The band is read from the product code and the date, **never from the price** -
+the price rejects plan lines the plan does cover, because a trade-in or a
+stacked voucher moves what was collected away from what the plan quotes. The
+same test `promo_match --dtc-only` and `promo_profit` use, so the three cannot
+disagree about one order.
+
+The units are banded in the order loader, on the profit file's own key, and
+spread onto the sales by the same routine the order side already used - an order
+that cannot settle a level lands on the combinations it is consistent with, in
+proportion to what each one sold. That is an allocation; it says where an order
+could have gone, in the proportions the month itself gives.
+
+```
+py dashboard\build_pnl.py                 # -> dashboard/pnl_promo_<yymm>.html
+py dashboard\build_pnl.py --no-promo      # -> dashboard/pnl_<yymm>.html, as before
+```
+
+**A different file on purpose.** The promotion split is new and the page being
+read today is not replaced by it. The button disables itself when the build had
+no plan to read, rather than drawing an empty stack; `--plan` names the plan
+files (default `MX_product ce_product`).

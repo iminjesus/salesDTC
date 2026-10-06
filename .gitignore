@@ -22,4 +22,11 @@ __pycache__/
 # The pages the promotion tools write hold real order lines. The digit
 # keeps the pattern off promo_template.html, which is source.
 /dashboard/promo_[0-9]*.html
-/dashboard/promo_profit.html
+/dashboard/promo_dtc*.html
+# Named for its month since the August-whatever-month-it-is bug, so the
+# pattern has to allow the suffix - promo_profit.html alone let
+# promo_profit_2608.html through and it was committed.
+/dashboard/promo_profit*.html
+# Python's caches, which every run rewrites.
+__pycache__/
+*.pyc

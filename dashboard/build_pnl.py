@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
 import analyze_structure as A                                  # noqa: E402
 import customer as CUST                                        # noqa: E402
 import orders as ORD                                           # noqa: E402
+import promo_match as PM                                       # noqa: E402
 import sap as SAP                                              # noqa: E402
 from rawdata import (MASTER_RAW as RAW, find, key_norm, master,  # noqa: E402
                      month_before, month_name, month_of, parse_number,
@@ -90,6 +91,59 @@ ORDER_SERIES = [
     ('xamt', 'Carried out'),
 ]
 N_ORDER = len(ORDER_SERIES)
+
+# What brought the order in, as bands of one stack. Read from the promotion
+# plan: the lines for that product whose window covers that date, and which
+# campaign columns they name. Not from the price - the price rejects lines the
+# plan does cover, because a trade-in or a stacked voucher moves what was
+# collected away from what the plan quotes.
+PROMO_SERIES = [
+    ('pdtc',  'DTC promotion'),
+    ('pboth', 'DTC + Nation-wide'),
+    ('pnat',  'Nation-wide only'),
+    ('pnone', 'No promotion'),
+]
+PROMO_BANDS = tuple(k for k, _ in PROMO_SERIES)
+N_PROMO = len(PROMO_SERIES)
+
+
+def promo_bander(folder, stems, say=print):
+    """(sku, date) -> which promotion band, or None when there is no plan.
+
+    One cache per product and month, because an export asks the same question
+    tens of thousands of times and the answer only changes with the window.
+    """
+    try:
+        plan, meta = PM.load_plans(Path(folder), list(stems))
+    except Exception:
+        return None
+    if not meta or not plan.rows:
+        say(f'  no plan file matching {", ".join(stems)}, so the page cannot '
+            f'split by promotion')
+        return None
+    say(f'  promotion plan: {len(plan.rows):,} live line(s) over '
+        f'{len(plan.by_code):,} product code(s)')
+    cache: dict = {}
+
+    def band(sku, day):
+        if day is None:
+            return 'pnone'
+        k = (PM.code_norm(sku), day.year, day.month, day.day)
+        hit = cache.get(k)
+        if hit is not None:
+            return hit
+        cands, _ = plan.candidates(k[0])
+        live = [c for c in cands
+                if (not c['start'] or day >= c['start'])
+                and (not c['end'] or day <= c['end'])]
+        nat = any((c.get('camp') or [''])[0] for c in live)
+        dtc = any(any((c.get('camp') or ['', '', ''])[1:]) for c in live)
+        hit = ('pboth' if (dtc and nat) else 'pdtc' if dtc
+               else 'pnat' if nat else 'pnone')
+        cache[k] = hit
+        return hit
+
+    return band
 
 MONTHS_LONG = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
                'August', 'September', 'October', 'November', 'December')
@@ -170,6 +224,12 @@ def main() -> int:
                     help='product-code prefixes to leave out of the order side, '
                          'e.g. SMC-AU- for service plans that are ordered but '
                          'never reach the profit file')
+    ap.add_argument('--no-promo', action='store_true',
+                    help='leave out the promotion split')
+    ap.add_argument('--plan', nargs='+', metavar='STEM',
+                    default=['MX_product', 'ce_product'],
+                    help='the promotion plan(s) the promotion split is read '
+                         'from (default: MX_product ce_product)')
     ap.add_argument('--no-orders', action='store_true',
                     help='draw sales only, even when an order export is there')
     ap.add_argument('--shipped', metavar='LIST',
@@ -235,9 +295,13 @@ def main() -> int:
             return 1
         months.append(got)
 
+    # A different file from pnl_*.html, deliberately: the promotion split is
+    # new and the page it is on should not replace the one being read today.
+    # --no-promo gives the plain page back under its own name.
+    tag = '' if args.no_promo else '_promo'
     out = Path(args.out) if args.out else HERE / (
-        f'pnl_{str(months[-1]["ym"])[-4:]}.html' if months[-1].get('ym')
-        else 'pnl.html')
+        f'pnl{tag}_{str(months[-1]["ym"])[-4:]}.html' if months[-1].get('ym')
+        else f'pnl{tag}.html')
     template = (HERE / 'pnl_template.html').read_text(encoding='utf-8')
     html = template.replace('/*__DATA__*/null',
                             json.dumps({'months': months}, ensure_ascii=False,
@@ -652,7 +716,7 @@ def build_month(folder, target, args):
     n_measures = len(keys)
     carry_in_known = False
 
-    def merge_orders(by_key, drop=()):
+    def merge_orders(by_key, drop=(), add_series=None):
         """Add an order side onto the combinations, spreading only what has to be.
 
         A SAP key is already at full depth - it came from the payer and the
@@ -662,6 +726,13 @@ def build_month(folder, target, args):
         sales they are consistent with, in proportion to what each one sold.
         """
         nonlocal keys, series
+        # Which series this merge appends, and so how many slots each key
+        # carries. The order side and the promotion side are the same shape of
+        # problem - a per-key vector that has to be spread over the sales it is
+        # consistent with - so they share the one routine rather than growing a
+        # second copy of the spreading.
+        add_series = ORDER_SERIES if add_series is None else add_series
+        n_add = len(add_series)
         wanted = set(by_key)
         if drop:
             sku_at = len(FILTERS) - 1
@@ -669,8 +740,9 @@ def build_month(folder, target, args):
                       if not str(k[sku_at]).upper().startswith(drop)}
         sold_keys = list(combos)
         qi = keys.index('qty') if 'qty' in keys else None
+        width = len(keys)
         for vals in combos.values():
-            vals.extend([0.0] * N_ORDER)
+            vals.extend([0.0] * n_add)
 
         # One index per distinct set of levels a key asserts. There are only a
         # handful, and building them once beats walking every combination.
@@ -679,7 +751,8 @@ def build_month(folder, target, args):
         orphans = 0
         for ok in wanted:
             v = list(by_key[ok])
-            units = v[0] + v[2] + v[4]
+            units = sum(v[i] for i in range(0, len(v), 2)) \
+                if n_add == N_ORDER else sum(v)
             known = tuple(j for j, x in enumerate(ok) if x != CUST.BLANK)
             idx = index.get(known)
             if idx is None:
@@ -692,7 +765,7 @@ def build_month(folder, target, args):
             if not hits:
                 orphans += 1
                 orphan_u += units
-                combos[ok] = [0.0] * n_measures + v
+                combos[ok] = [0.0] * width + v
                 counts.setdefault(ok, 0)
                 continue
             spread_u += units if len(hits) > 1 else 0
@@ -705,11 +778,11 @@ def build_month(folder, target, args):
             for ck, w in zip(hits, weight):
                 share = w / total
                 row = combos[ck]
-                for m in range(N_ORDER):
-                    row[n_measures + m] += v[m] * share
+                for m in range(n_add):
+                    row[width + m] += v[m] * share
 
-        keys = keys + [k for k, _ in ORDER_SERIES]
-        series = series + [{'key': k, 'label': lbl} for k, lbl in ORDER_SERIES]
+        keys = keys + [k for k, _ in add_series]
+        series = series + [{'key': k, 'label': lbl} for k, lbl in add_series]
         print(f'\n  onto the sales: {exact:,.0f} unit(s) landed on one '
               f'combination exactly, {spread_u:,.0f} had to be\n  spread over '
               'the combinations they were consistent with')
@@ -797,6 +870,11 @@ def build_month(folder, target, args):
                                    for t in args.negative.split(',') if t.strip()),
                     booked=({t.strip().upper() for t in args.booked.split(',')
                              if t.strip()} if args.booked else None))
+        # What brought each order in, on the same key as everything else.
+        bander = (None if args.no_promo
+                  else promo_bander(folder, args.plan))
+        if bander is not None:
+            load = dict(load, band_of=bander, bands=PROMO_BANDS)
         this = ORD.load(op, **load)
         before = ORD.load(bp, **load) if bp is not None else None
         if bp is None:
@@ -837,9 +915,24 @@ def build_month(folder, target, args):
                         else [0.0] * 4)
                 by_key_store[key] = [own[0], own[1], came[2], came[3],
                                      own[2], own[3]]
-            merge_orders(by_key_store,
-                         tuple(t.strip().upper()
-                               for t in args.skip_sku.split(',') if t.strip()))
+            skip = tuple(t.strip().upper()
+                         for t in args.skip_sku.split(',') if t.strip())
+            merge_orders(by_key_store, skip)
+            # The promotion split rides the same spreading, so it lands on the
+            # same combinations in the same proportions as the orders it is a
+            # property of. Both months, because a bar is the month as sold and
+            # what carried in is part of it.
+            if bander is not None and this.by_band:
+                by_band = {}
+                for side in (this, before):
+                    for k, v in (side.by_band.items() if side else ()):
+                        row = by_band.setdefault(k, [0.0] * N_PROMO)
+                        for i in range(N_PROMO):
+                            row[i] += v[i]
+                merge_orders(by_band, skip, add_series=PROMO_SERIES)
+                got = sum(sum(v) for v in by_band.values())
+                print(f'  promotion bands: {got:,.0f} shipped unit(s) banded '
+                      f'by what the plan says was live for them')
             # The month as the orders model it, beside the month as sold. A
             # wide gap between them means the booking rule does not describe
             # this export, and py tools\cohort.py is where to find out why.

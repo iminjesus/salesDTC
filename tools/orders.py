@@ -68,6 +68,12 @@ class Orders:
         self.back = 0.0            # units taken back by a return this month
         self.amount_col = None
         self.dates: list = []
+        # Units per promotion band, on the same key, filled only when the
+        # caller passes a `band_of`. Kept beside by_key rather than inside it
+        # because it is a different question about the same line: by_key says
+        # whether the order shipped, this says what brought it in.
+        self.by_band: dict[tuple, list[float]] = {}
+        self.bands: tuple = ()
 
     def month(self):
         """The month this export covers, as YYYYMM, or None if it spans more.
@@ -91,6 +97,14 @@ class Orders:
         v[which * 2] += qty
         v[which * 2 + 1] += amt
 
+    def add_band(self, key: tuple, band: str, qty: float) -> None:
+        if band not in self.bands:
+            return
+        v = self.by_band.get(key)
+        if v is None:
+            v = self.by_band[key] = [0.0] * len(self.bands)
+        v[self.bands.index(band)] += qty
+
     def totals(self) -> list[float]:
         out = [0.0, 0.0, 0.0, 0.0]
         for v in self.by_key.values():
@@ -103,12 +117,17 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
          products: dict, shipped: set | None = None, booked: set | None = None,
          positive: tuple = POSITIVE, negative: tuple = NEGATIVE,
          signed: bool = True, currency: str | None = None,
-         agree: float = 80.0, say=print) -> Orders | None:
+         agree: float = 80.0, band_of=None, bands: tuple = (),
+         say=print) -> Orders | None:
     """Read the order export and total it onto the profit file's key.
 
     `cust_levels` and `prod_levels` are the level lists in the order the key is
     built in; `products` is the product master keyed by SKU. Returns None when
     the file cannot be read as orders, having said why.
+
+    `band_of(sku, date)` and `bands`, where given, also total the units by
+    promotion band on the same key - so the page can split a month by what
+    brought the orders in, on exactly the key everything else is on.
     """
     rows, info = read_any(path)
     if not rows:
@@ -151,6 +170,7 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
             'the order side')
 
     out = Orders(path)
+    out.bands = tuple(bands)
     out.amount_col = head[amt_i] if amt_i is not None else None
 
     def cell(r, i):
@@ -233,6 +253,11 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
         out.kept += verdict == 'shipped'
         out.open += verdict != 'shipped'
         out.add(tuple(key), qty, amt, which)
+        # Banded on the units that shipped, which are the ones the profit file
+        # is about. An order still in flight has earned nothing to split.
+        if band_of is not None and which == DONE:
+            out.add_band(tuple(key), band_of(sku, to_date(cell(r, col['date']))),
+                         qty)
 
     return out
 
