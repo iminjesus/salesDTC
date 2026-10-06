@@ -74,6 +74,13 @@ NAMES = {
     # Finer than the portal group and carried by the order itself, so it needs
     # no inference at all: commbank_yello_au, samsung_benefits_au, au.
     'portal': ('Portal', 'Portal Name', 'Store Portal'),
+    # The order export states its own list price and its own discount. Where it
+    # does, the discount needs no plan at all - which is the only way to see one
+    # on a product the plan has no line for, and accessories are most of those.
+    'rrp':     ('RRP', 'List Price', 'Original Price', 'Retail Price',
+                'Gross Price', 'Standard Price'),
+    'disc':    ('Discount Rate', 'Discount %', 'discount_rate', 'Discount',
+                'Promotion Discount'),
     # The plan names the product as well as the offer, which is the only
     # description a material that has not sold yet has anywhere.
     'category': ('Category', 'Product Category'),
@@ -1158,6 +1165,93 @@ def planned_vs_arrived(plan_rows, orders, lo, hi, canon, say=print) -> None:
         'reason for the left two columns')
 
 
+def own_discount(disc, rrp, amount, qty, basis=1.0):
+    """The discount the order line states about itself, or None.
+
+    A rate column is a rate - 0.3 is thirty percent, 30 is thirty percent - and
+    where there is none, the list price divided into what was paid says the
+    same thing. Both come off the order export, so this is the one discount
+    that exists for a product the plan has never heard of.
+    """
+    d = parse_number(disc)
+    if d is not None and 0 < d < 1:
+        return d
+    if d is not None and 1 <= d <= 99:
+        return d / 100
+    r, a = parse_number(rrp), amount
+    if r and a is not None and qty:
+        # The basis is a property of the file, not of a row - the export quotes
+        # the line ex GST and the list price with it, or both the same way - so
+        # it is settled once, by gst_basis below, and passed in. Deciding it per
+        # row picks whichever reading happens to look plausible and gets a
+        # different answer on the next row.
+        got = 1 - (a / qty * basis) / r
+        if -0.05 <= got <= 0.95:
+            return got
+    return None
+
+
+def gst_basis(rows, say=print) -> float:
+    """Whether the export's list price and its amount are on one basis.
+
+    Settled against the export's own discount rate where it has one: the basis
+    that reproduces the stated rate is the right basis, and that is a fact about
+    the file rather than a guess. With no rate column there is nothing to settle
+    it against, so the two are taken as written and that is said out loud.
+    """
+    err = {1.0: [], 1.1: []}
+    for d, r, a, q in rows:
+        rate = parse_number(d)
+        rate = rate / 100 if rate is not None and 1 <= rate <= 99 else rate
+        rr, amt = parse_number(r), a
+        if rate is None or not (0 < rate < 1) or not rr or amt is None or not q:
+            continue
+        for b in err:
+            err[b].append(abs((1 - (amt / q * b) / rr) - rate))
+    if not err[1.0]:
+        say('  the export states no discount rate, so its list price and its '
+            'amount are taken\n  as written - if one includes GST and the '
+            'other does not, every discount below is\n  out by a ninth')
+        return 1.0
+    mids = {b: sorted(v)[len(v) // 2] for b, v in err.items()}
+    best = min(mids, key=mids.get)
+    say(f'  list price against amount: {len(err[1.0]):,} row(s) state a rate '
+        f'as well, and the two agree\n  within {mids[best] * 100:.1f}pp when '
+        f'the amount is multiplied by {best:g}'
+        + (f' (and {mids[1.1 if best == 1.0 else 1.0] * 100:.0f}pp when it is '
+           f'not), so that is the basis' if len(mids) > 1 else ''))
+    return best
+
+
+def own_discount_report(rows: list, say=print) -> None:
+    """What came off, by promotion, without asking the plan anything.
+
+    The plan cannot price what it does not list, and what it does not list is
+    mostly accessories - which is where a launch's promotion often sits. A
+    Fold8 bought at its list price with a case at 30% off is a promoted sale,
+    and every discount in it is on the case's line: a different product code, a
+    different category, and no plan row at all.
+    """
+    got = [r for r in rows if r.get('own_dc') is not None]
+    if not got:
+        return
+    tot = sum(r['qty'] for r in rows) or 1.0
+    mine = sum(r['qty'] for r in got)
+    say(f'\nwhat came off, as the order export states it - no plan involved')
+    say(f'  {mine:,.0f} of {tot:,.0f} unit(s) ({mine / tot * 100:.0f}%) carry '
+        f'enough to work out their own discount')
+    by_n = collections.Counter()
+    by_d = collections.Counter()
+    for r in got:
+        by_n[r['fam']] += r['qty'] * r['own_dc']
+        by_d[r['fam']] += r['qty']
+    say(f'  {"promotion":<34}{"units":>10}{"discount":>10}')
+    for fam, q in by_d.most_common(14):
+        say(f'  {fam[:34]:<34}{q:>10,.0f}{by_n[fam] / q * 100:>9.0f}%')
+    nil = sum(r['qty'] for r in got if r['own_dc'] < 0.005)
+    say(f'  {nil:,.0f} unit(s) ({nil / mine * 100:.0f}%) came off at nothing - '
+        f'the list price was paid.')
+
 def campaign_fit(rows: list) -> dict:
     """The numbers that say whether a campaign stack is a measurement.
 
@@ -1454,6 +1548,8 @@ def main() -> int:
         'division': choose(o_head, o_body, 'division', None),
         'portal': choose(o_head, o_body, 'portal', None),
         'cancel': choose(o_head, o_body, 'cancel', None),
+        'rrp': choose(o_head, o_body, 'rrp', None),
+        'disc': choose(o_head, o_body, 'disc', None),
     }
 
     print('\ncolumns chosen  (--flags override any of these):')
@@ -1476,7 +1572,9 @@ def main() -> int:
                  (op.name, 'promotion rule', O['rule'], o_head, '--order-rule'),
                  (op.name, 'voucher', O['voucher'], o_head, '--order-voucher'),
                  (op.name, 'portal group', O['group'], o_head, ''),
-                 (op.name, 'portal', O['portal'], o_head, '')]
+                 (op.name, 'portal', O['portal'], o_head, ''),
+                 (op.name, 'list price', O['rrp'], o_head, ''),
+                 (op.name, 'discount', O['disc'], o_head, '')]
     width = max(len(n[:18]) for n, *_ in rows_out)
     for side, what, i, head, flag in rows_out:
         print(f'  {side[:18]:<{width}} {what:<16} '
@@ -1555,6 +1653,15 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
     camp_rows, tier_rows = [], []
     only = code_norm(args.only) if args.only else ''
+    # One pass over the export to settle how its own prices are quoted, before
+    # a single discount is read off them.
+    basis = 1.0
+    if O['rrp'] is not None:
+        print('\nthe order export prices itself:')
+        basis = gst_basis([(cell(r, O['disc']), cell(r, O['rrp']),
+                            parse_number(cell(r, O['amount'])),
+                            parse_number(cell(r, O['qty'])) or 0.0)
+                           for r in o_body])
     only_orders: set = set()
     order_of = [x.strip() for x in (args.precedence or '').split(',') if x.strip()]
     bad = [x for x in order_of if x not in {n for n, _ in FAMILIES}]
@@ -1751,7 +1858,12 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             # same campaign are not two answers.
             'camp_alts': len({one_campaign(x.get('camp'), canon)
                               for x in (guess.get('cands') or [])}),
-            'camp_lost': rescued,
+            'camp_lost': rescued, 'fam': fam,
+            # What the export itself says came off, before any plan is
+            # consulted. A rate is taken as a rate; otherwise the list price and
+            # what was paid are divided.
+            'own_dc': own_discount(cell(r, O['disc']), cell(r, O['rrp']),
+                                   amount, qty, basis),
             'div': cell(r, O['division']) or '(blank)',
             'fitted': bool(guess['promo']), 'type': o_type,
             'group': group, 'sku': cell(r, O['sku']),
@@ -1933,6 +2045,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         tier_report(tier_rows)
         rule_price_report(tier_rows, args.price_tolerance)
     if camp_rows:
+        own_discount_report(camp_rows)
         days = [d for d in (o['day'] for o in camp_rows) if d]
         if days:
             lo = date(int(min(days)[:4]), int(min(days)[5:7]), 1)
