@@ -49,6 +49,57 @@ The run prints, per level, how many distinct values there are and **what the
 eight biggest would cover** if a chart stacked by it - a level that gathers
 badly is one a chart cannot say much with.
 
+## Campaign and mechanic are two axes, not two words for one thing
+
+A promotion's **mechanic** comes off the store's rule: the engine applied it, and
+an order can carry several at once. A promotion's **campaign** comes off the
+plan, and the plan puts a product in one nationwide campaign at a time. One of
+those can divide revenue and the other cannot, and they answer different
+questions - *why did this sell* and *what was done to the price*. So the
+campaign is read from the plan for **every** line, whichever source won the
+attribution, and `promo_orders.csv` carries all three campaign columns beside
+the rule.
+
+Every `promo_match` run now reports the stack that would make, in the order the
+decisions have to be taken:
+
+```
+campaign, from the plan - the one level that can divide revenue
+  6 of 42 unit(s) (14.3%) sit on an order whose fitting plan lines give more than one answer for the
+  nationwide campaign - counting "none" as an answer - so that much of the split below is
+  a precedence rather than a reading
+
+  by nationwide campaign  (units, share, amount)
+    (no nationwide campaign)                              24  57.1%        16,778
+    Black Friday                                          12  28.6%        35,444
+    EOFY                                                   6  14.3%        29,995
+
+  inside (no nationwide campaign) - 24 unit(s), 57% of everything:
+  by DTC_Campaign1 ... by DTC_Campaign2 ... by what was done to the price
+```
+
+1. **Is it one campaign per order?** Measured, not assumed: the units whose
+   fitting plan lines give more than one answer, with *none* counted as an
+   answer - one line saying Black Friday and another saying nothing is as much
+   of a choice as two naming different campaigns. The run also says how many
+   units sit in the residual only because the line that best fits the **price**
+   names no campaign while another that fits does: those are a tie-break away
+   from being attributed.
+2. **The stack**, with its two residuals kept apart. An order in no nationwide
+   campaign is not the same as an order no plan line fits, and merging them
+   would hide which problem you have.
+3. **What the biggest residual is made of** - its DTC campaigns, then the
+   mechanics underneath. Those two cannot be stacked, because an order can be in
+   several at once, but they say what the band is a *mixture* of, which is what
+   a legend entry called "none" owes the reader.
+4. **Whether a profit row can carry a campaign**, on the same measure the other
+   levels get: the share of rows whose units sit on one, and what the biggest
+   holds on average.
+
+The shape of the answer, then: stack by nationwide campaign, which is a real
+partition; put DTC_Campaign1 and the mechanic underneath as a **composition**
+of whichever band is selected, not as bands of their own.
+
 ## Can the profit page stack by promotion?
 
 That is a different question, and the last block of `promo.py` answers it with a

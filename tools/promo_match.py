@@ -482,6 +482,11 @@ def plan_lines(body, P, price_cols, keep_cancelled: bool = False,
             # is: for a material that has never sold, this is the only place
             # either comes from.
             'sku': cell(r, P['sku']),
+            # Kept apart, not joined into the label: the nationwide campaign is
+            # the one level a chart can stack by, and that only works if it can
+            # be read on its own.
+            'camp': [cell(r, P[k]) if real(cell(r, P[k])) else ''
+                     for k in ('promo', 'promo3', 'promo2')],
             'desc': cell(r, P['pname']),
             'division': cell(r, P['division']),
             'category': cell(r, P['category']),
@@ -617,7 +622,8 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
     cands, how = plan.candidates(order['code'])
     if not cands:
         return {'promo': '', 'how': how, 'gap': '', 'alts': 0, 'priced': '',
-                'type': '', 'detail': '', 'off_by': '', 'miss': 'code'}
+                'type': '', 'detail': '', 'off_by': '', 'miss': 'code',
+                'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False, 'camp_lost': False}
 
     off_by = ''
     if order['date'] is not None:
@@ -639,6 +645,7 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
             if not live and not undated:
                 return {'promo': '', 'gap': '', 'alts': len(dated), 'priced': '',
                         'type': '', 'detail': '', 'off_by': best, 'miss': 'window',
+                        'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False,
                         'how': how + f', but the nearest window it fits misses '
                                f'the order date by {best:,} day(s)'}
             if live and best:
@@ -666,6 +673,7 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
                     return {'promo': '', 'gap': gap, 'alts': len(cands),
                             'priced': '', 'type': '', 'detail': '',
                             'off_by': off_by, 'miss': 'price',
+                            'camp': ['', '', ''], 'camp_alts': 0, 'camp_lost': False,
                             'off_pct': round(off_pct, 1),
                             'how': how + f', but the price paid is {gap:+,.2f} '
                                    f'({off_pct:,.0f}%) from the nearest '
@@ -676,10 +684,126 @@ def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
     return {'promo': cands[0]['promo'], 'how': how, 'gap': gap,
             'type': cands[0]['type'], 'detail': cands[0]['detail'],
             'priced': priced_as, 'alts': len(cands) - 1, 'off_by': off_by,
-            'miss': ''}
+            'miss': '', 'camp': cands[0].get('camp', ['', '', '']),
+            # How many different answers the lines that fit this order give for
+            # the nationwide campaign, counting "none" as one of them: one line
+            # saying Black Friday and another saying nothing is as much of a
+            # choice as two naming different campaigns. One answer is a fact;
+            # more than one is a precedence, and a stack built on a precedence
+            # has to say so.
+            'camp_alts': len({(c.get('camp') or [''])[0] for c in cands}),
+            # And whether the line that won names no campaign while another that
+            # fits does: those units are in the residual by the price rule, not
+            # because no campaign covered them.
+            'camp_lost': not (cands[0].get('camp') or [''])[0]
+            and any((c.get('camp') or [''])[0] for c in cands)}
 
 
 # ── describing a file ───────────────────────────────────────────────────────
+NO_CAMPAIGN = '(no nationwide campaign)'
+NO_PLAN = '(no plan line fits this order)'
+
+
+def campaign_report(rows: list, say=print) -> None:
+    """Can a chart stack by campaign, and what is the rest of it made of?
+
+    The campaign and the mechanic are not two ways of saying one thing, and that
+    is what makes this worth a block of its own. A promotion's **mechanic** comes
+    off the store's rule - the engine applied it, and an order can have several
+    at once, which is why a mechanic cannot divide revenue. A promotion's
+    **campaign** comes off the plan, and the plan gives a product one nationwide
+    campaign at a time. One axis is a partition and the other is not, and they
+    answer different questions: "why did this sell" and "what was done to the
+    price".
+
+    So this reports three things, in the order they have to be decided:
+
+      1. whether the nationwide campaign really is one per order - measured, by
+         counting the orders whose fitting plan lines name more than one
+      2. the stack it would make, with its two residuals kept apart: an order in
+         no nationwide campaign is not the same as an order no plan line fits
+      3. what the biggest residual is **made of** - its DTC campaigns, and then
+         the mechanics underneath - because a band holding half the revenue and
+         called "none" is not an answer, it is a place to look
+    """
+    tot_q = sum(r['qty'] for r in rows) or 1.0
+    say(f'\ncampaign, from the plan - the one level that can divide revenue')
+    split = sum(r['qty'] for r in rows if r['camp_alts'] > 1)
+    say(f'  {split:,.0f} of {tot_q:,.0f} unit(s) ({split / tot_q * 100:.1f}%) sit '
+        f'on an order whose fitting plan lines give more than one answer for '
+        f'the\n  nationwide campaign - counting "none" as an answer - so that '
+        f'much of the split below is\n  a precedence rather than a reading')
+    lost = sum(r['qty'] for r in rows if r['camp_lost'])
+    if lost:
+        say(f'  {lost:,.0f} of those unit(s) are in the residual only because '
+            f'the plan line that best fits\n  the price names no campaign while '
+            f'another that fits does - a tie-break away from\n  being '
+            f'attributed')
+
+    def table(key, title, pool, note=''):
+        t = collections.Counter()
+        amt = collections.Counter()
+        for r in pool:
+            t[key(r)] += r['qty']
+            amt[key(r)] += r['amt']
+        n = sum(t.values()) or 1.0
+        say(f'\n  {title}')
+        for k, v in t.most_common(14):
+            say(f'    {k[:46]:<46}{v:>10,.0f}{v / n * 100:>6.1f}%'
+                f'{amt[k]:>14,.0f}')
+        if len(t) > 14:
+            rest = n - sum(v for _, v in t.most_common(14))
+            say(f'    {f"and {len(t) - 14:,} more":<46}{rest:>10,.0f}'
+                f'{rest / n * 100:>6.1f}%')
+        if note:
+            say(f'  {note}')
+        return t
+
+    def nat(r):
+        if r['camp'][0]:
+            return r['camp'][0]
+        return NO_CAMPAIGN if r['fitted'] else NO_PLAN
+
+    table(nat, 'by nationwide campaign  (units, share, amount)', rows)
+
+    # The residual, opened up. This is the "what is it a mixture of" question,
+    # and it is asked of the band that holds the most, not of all of them.
+    rest = [r for r in rows if not r['camp'][0] and r['fitted']]
+    if rest:
+        rq = sum(r['qty'] for r in rest)
+        say(f'\n  inside {NO_CAMPAIGN} - {rq:,.0f} unit(s), '
+            f'{rq / tot_q * 100:.0f}% of everything:')
+        table(lambda r: r['camp'][1] or '(no DTC campaign 1)',
+              'by DTC_Campaign1', rest)
+        table(lambda r: r['camp'][2] or '(no DTC campaign 2)',
+              'by DTC_Campaign2', rest)
+        table(lambda r: r['type'], 'by what was done to the price', rest,
+              note='these last two cannot be stacked - an order can be in '
+                   'several at once - but they\n  say what the band is a '
+                   'mixture of, which is what a legend entry called "none" '
+                   'owes\n  the reader')
+
+    # And the same concentration test the levels get, for the campaign: a profit
+    # row can only carry a campaign by being shared out over its orders'.
+    per = collections.defaultdict(collections.Counter)
+    for r in rows:
+        per[(r['group'], code_norm(r['sku']))][nat(r)] += r['qty']
+    pure = n = 0
+    share = 0.0
+    for c in per.values():
+        t = sum(c.values())
+        if t <= 0:
+            continue
+        n += 1
+        share += max(c.values()) / t
+        pure += 1 if len(c) == 1 else 0
+    if n:
+        say(f'\n  whether a profit row can carry a campaign: {n:,} row(s), '
+            f'{pure / n * 100:.0f}% sit on one,\n  the biggest holds '
+            f'{share / n * 100:.0f}% on average. A row is one portal group and '
+            f'one product code.')
+
+
 def profile(name: str, head: list[str], rows: list[list[str]]) -> None:
     print(f'\n{name}: {len(rows):,} rows, {len(head)} columns')
     live = [(i, h) for i, h in enumerate(head)
@@ -921,6 +1045,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     near_code = 0
     slack_used = 0
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
+    camp_rows = []
     # A voucher attribution of zero is either "no order used one" or "the join is
     # broken", and those need telling apart. Counted on the way past.
     vouch = {'carried': 0, 'known': 0}
@@ -1051,6 +1176,16 @@ def run(args, plans, op, o_head, o_body, O) -> int:
                      cell(r, O['cat']) or '(blank)',
                      order['date'].isoformat() if order['date'] else '',
                      qty, amount or 0.0))
+        # The campaign is the plan's answer whoever won the attribution: the
+        # rule says what was done to the price and the plan says which campaign
+        # it belonged to, and reading one off the other would lose half of it.
+        camp_rows.append({
+            'camp': guess.get('camp') or ['', '', ''],
+            'camp_alts': guess.get('camp_alts', 0),
+            'camp_lost': guess.get('camp_lost', False),
+            'fitted': bool(guess['promo']), 'type': o_type,
+            'group': group, 'sku': cell(r, O['sku']),
+            'qty': qty, 'amt': amount or 0.0})
         out.append([
             cell(r, O['order']), cell(r, O['sku']), cell(r, O['group']),
             order['date'].isoformat() if order['date'] else '',
@@ -1061,6 +1196,8 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             '; '.join(vouchers),
             guess['promo'], guess['how'], guess['priced'], guess['gap'],
             guess['off_by'], guess['alts'] or '',
+            (guess.get('camp') or [''])[0], *(guess.get('camp') or ['', '', ''])[1:],
+            guess.get('camp_alts', 0) or '',
         ])
 
     if portal_seen:
@@ -1153,6 +1290,9 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             print('  a median far from zero means the two quote prices on '
                   'different bases - try --gst or --amount-is')
 
+    if camp_rows:
+        campaign_report(camp_rows)
+
     outdir = Path(args.out)
     outdir.mkdir(parents=True, exist_ok=True)
     lines = outdir / 'promo_orders.csv'
@@ -1161,7 +1301,9 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         w.writerow(['Order', 'Product', 'Portal group', 'Date', 'Qty', 'Paid',
                     'Unit price compared', 'Source', 'Promotion', 'Rule raw',
                     'Voucher', 'Plan says', 'Plan matched by', 'Plan price used',
-                    'Price gap', 'Days outside window', 'Other plan lines fit'])
+                    'Price gap', 'Days outside window', 'Other plan lines fit',
+                    'Nationwide campaign', 'DTC campaign 1', 'DTC campaign 2',
+                    'Campaigns that fit'])
         w.writerows(out)
     summary = outdir / 'promo_summary.csv'
     table = sorted(by_promo.items(), key=lambda kv: -kv[1][2])
