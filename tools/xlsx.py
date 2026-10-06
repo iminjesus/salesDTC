@@ -8,10 +8,10 @@ not a report.
 
 What it supports is what the reports need and no more - one sheet, a styled
 header, numbers, text, formulas, column widths, a frozen top row and a filter.
-Formulas are written without a cached value, so Excel computes them on open;
-anything reading the file without opening it sees an empty cell, which is why
-the totals are also passed in and checked by the caller rather than trusted
-from here.
+Formulas carry the value they come to as well as the formula itself, which is
+how Excel stores one: the sheet recalculates when its inputs change, and a
+reader that does not recalculate - a previewer, a script - still sees the
+number instead of a blank.
 """
 from __future__ import annotations
 
@@ -55,13 +55,14 @@ class Formula(str):
 
 
 # style ids the sheet refers to by index into cellXfs, below
-PLAIN, HEADER, INT, MONEY, NOTE = 0, 1, 2, 3, 4
+PLAIN, HEADER, INT, MONEY, NOTE, PCT = 0, 1, 2, 3, 4, 5
 
 STYLES = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<numFmts count="2">
+<numFmts count="3">
   <numFmt numFmtId="164" formatCode="#,##0;(#,##0);-"/>
   <numFmt numFmtId="165" formatCode="#,##0.00;(#,##0.00);-"/>
+  <numFmt numFmtId="166" formatCode="0.0%;(0.0%);-"/>
 </numFmts>
 <fonts count="4">
   <font><sz val="11"/><name val="Arial"/></font>
@@ -77,7 +78,7 @@ STYLES = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </fills>
 <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="5">
+<cellXfs count="6">
   <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
   <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1"
       applyFill="1" applyAlignment="1">
@@ -85,6 +86,7 @@ STYLES = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
   <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
   <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+  <xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>'''

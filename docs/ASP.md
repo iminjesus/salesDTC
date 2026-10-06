@@ -13,12 +13,101 @@ Writes exactly two files, keyed on **material code**:
 | `Material.xlsx` | every material code, all channels |
 | `Online ASP.xlsx` | every material code, the online channel only |
 
-Each row carries the quantity and net sales for **each month**, then the span's
-totals and the ASP. The span columns are **formulas** - `=F2+H2+J2`, not a
-number worked out here - so the sheet still adds up when a month's column is
-edited. Each formula also carries the value it comes to, which is how Excel
-stores one itself: the sheet recalculates on open, and anything reading the file
-without opening it still sees the number rather than a blank.
+Each row carries five columns **per month**, then the same five over the span,
+then the promotion each month ran under:
+
+| per month | |
+|---|---|
+| `Jul 26 qty`, `Jul 26 net sales` | the profit export's own figures |
+| `Jul 26 ASP` | `=IF(F2>0,G2/F2,"")` - what those two come to |
+| `Jul 26 RRP` | the list price the plan had on it that month |
+| `Jul 26 DC %` | how far under the RRP the price landed |
+| `Jul 2026 - Sep 2026 qty`, `... net sales`, `ASP (...)` | the span, weighted |
+| `RRP (...)`, `DC % (...)` | the months' own, weighted by the units each sold |
+| `Jul 26 promotion` | what most of that month's units ran under |
+
+The span and the computed columns are **formulas** - `=F2+K2+P2`, not a number
+worked out here - so the sheet still adds up when a month's column is edited.
+Each formula also carries the value it comes to, which is how Excel stores one
+itself: the sheet recalculates on open, and anything reading the file without
+opening it still sees the number rather than a blank.
+
+### The totals are the profit export's
+
+Units and net sales come from the profit exports and from nothing else. The plan
+and the store's own orders are read only to **label** what the profit export
+already counted - an RRP, a discount, a promotion name - and neither can add a
+unit, move a dollar, or drop a material from the sheet. The run proves it rather
+than claiming it:
+
+```
+against the profit exports: <units> net unit(s), <amount> net sales
+  Material.xlsx: <units> and <amount> - they match
+  Online ASP.xlsx: <units> and <amount>, the E-STORE share of it (<pct>% of net sales)
+```
+
+The console blocks quoted here show the **shape** of the output; the figures in
+them are placeholders, not a reading of any month.
+
+An export row with no material code cannot go in a workbook keyed on the
+material, so it is named with its units and its value; anything left over after
+that goes to stderr, because it would be a fault here and not in the export.
+
+### RRP, and the GST underneath it
+
+The plan (`MX_product`) is asked first - it is kept month by month and carries
+the windows, so it knows a price that changed in the middle of August - and the
+product master answers where the plan has nothing. Which one answered is
+counted, not blended:
+
+```
+RRP, for <n> material code(s):
+      <n>  plan, in month
+      <n>  plan, another month
+      <n>  product master
+      <n>  nothing says
+```
+
+Where several plan lines are live in the month, the commonest RRP wins, and the
+highest among equals: a list price, not one of the offers sat under it.
+Cancelled and unapproved plan lines never count.
+
+**DC % = 1 - realised price ÷ (RRP ÷ 1.1).** A plan RRP is what a customer sees
+on a shelf, so it includes GST; net sales does not, and comparing the two
+straight overstates every discount by a flat ninth. The divisor is written into
+the cell - `=IF(AND(I2>0,H2>0),1-H2/(I2/1.1),"")` - so the assumption is visible
+to whoever opens the sheet and can be edited there instead of argued about. Run
+with `--gst 1` if the RRP you load is already ex GST. The run prints the check
+either way:
+
+```
+    median realised / RRP: <x> as the plan writes it, <y> with GST taken off at 1.1
+    <n> (<pct>%) sold above the RRP as written
+```
+
+A large share selling *above* its own RRP means the RRP is already ex GST, and
+the line says so.
+
+### The promotion, and why it carries a share
+
+The promotion comes from the store's own orders (`26 DTC Jul`), where every line
+carries the rule the engine applied. Most promoted units ran under more than one
+rule, so a material-month usually has no single promotion - the cell names the
+one most of its units ran under **and its share**:
+
+```
+% off RRP (68% of units, 2 others)
+EPP welcome voucher
+```
+
+A share below 100% means the rest ran under something else, not that the label
+is uncertain. `--detail` names the offer itself instead of the family it belongs
+to, and `--precedence` decides which family a unit counts as where it matches
+several - the same table and flag as `tools/promo.py`, because it is the same
+question. Cancelled orders are left out. The store's orders are its own channel:
+in `Material.xlsx` a material sold mainly elsewhere shows the promotion its
+store units ran under and nothing about the rest, which the foot of the sheet
+says.
 
 ### The three-month figure is weighted
 

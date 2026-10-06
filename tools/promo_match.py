@@ -347,6 +347,77 @@ class Plan:
         return [], 'the plan has no line for this product'
 
 
+def plan_columns(head: list[str]) -> dict:
+    """Where the plan keeps the pieces a promotion is made of."""
+    P = {k: find(head, *NAMES[k]) for k in
+         ('sku', 'promo', 'promo2', 'type', 'start', 'end', 'status', 'site',
+          'voucher')}
+    P['promo2b'] = find(head, 'Offer_Detail', 'Offer Detail')
+    return P
+
+
+def plan_price_columns(head: list[str]) -> list:
+    """The price columns the plan actually has, in PRICE_COLS order."""
+    return [(c, i) for c in PRICE_COLS if (i := find(head, c)) is not None]
+
+
+def plan_lines(body, P, price_cols, keep_cancelled: bool = False) -> tuple:
+    """The plan as rows `Plan` can index, and how many were never live."""
+    def cell(r, i):
+        return (r[i].strip() if i is not None and i < len(r) else '')
+
+    rows, dropped = [], 0
+    for r in body:
+        code = code_norm(cell(r, P['sku']))
+        if not code:
+            continue
+        if not keep_cancelled and cell(r, P['status']).lower() in DEAD:
+            dropped += 1
+            continue
+        label = ' / '.join(x for x in (cell(r, P['promo']), cell(r, P['promo2']),
+                                       cell(r, P['type']))
+                           if x and x != '-') or '(unnamed plan line)'
+        rows.append({
+            'code': code, 'promo': label, 'type': cell(r, P['type']),
+            'detail': cell(r, P['promo2b']) or cell(r, P['promo2']),
+            'start': to_date(cell(r, P['start'])),
+            'end': to_date(cell(r, P['end'])),
+            'site': cell(r, P['site']),
+            'vouchers': [code_norm(v) for v in split_rules(cell(r, P['voucher']))],
+            'prices': {c: p for c, i in price_cols
+                       if (p := parse_number(cell(r, i))) is not None},
+        })
+    return rows, dropped
+
+
+def load_plan(path: Path, *, keep_cancelled: bool = False, stem: int = 0,
+              say=print) -> tuple:
+    """The plan file, read and indexed.
+
+    Pulled out of the cross-check so another report can ask the plan what a
+    product's list price and offer were in a given month without repeating the
+    dozen small decisions - which status was never live, which columns hold a
+    price, how a window is read, how a product code is normalised - that are
+    exactly what makes two answers to that question disagree.
+    """
+    rows, info = read_any(path)
+    if not rows:
+        raise ValueError(f'{path.name} is empty')
+    head = [h.strip() for h in rows[0]]
+    P = plan_columns(head)
+    if P['sku'] is None:
+        raise ValueError(f'{path.name} has no product code column')
+    price_cols = plan_price_columns(head)
+    lines, dropped = plan_lines(rows[1:], P, price_cols, keep_cancelled)
+    dated = sum(1 for r in lines if r['start'] or r['end'])
+    say(f'  {path.name}: {info["format"]}, {len(lines):,} live line(s), '
+        f'{dated:,} with a window'
+        + (f', {dropped:,} cancelled or unapproved left out' if dropped else ''))
+    say('    prices: ' + (', '.join(c for c, _ in price_cols) or 'none'))
+    return Plan(lines, stem), {'prices': [c for c, _ in price_cols],
+                               'dropped': dropped, 'lines': len(lines)}
+
+
 def from_plan(order: dict, plan: Plan, tol: float, slack: int = 0) -> dict:
     """The plan line this order best fits, and what had to be assumed."""
     cands, how = plan.candidates(order['code'])
@@ -588,28 +659,7 @@ def run(args, pp, op, p_head, p_body, o_head, o_body, P, O, price_cols) -> int:
         return (r[i].strip() if i is not None and i < len(r) else '')
 
     # ── the plan ────────────────────────────────────────────────────────────
-    plan_rows, dropped = [], 0
-    for r in p_body:
-        code = code_norm(cell(r, P['sku']))
-        if not code:
-            continue
-        status = cell(r, P['status']).lower()
-        if not args.keep_cancelled and status in DEAD:
-            dropped += 1
-            continue
-        label = ' / '.join(x for x in (cell(r, P['promo']), cell(r, P['promo2']),
-                                       cell(r, P['type']))
-                           if x and x != '-') or '(unnamed plan line)'
-        plan_rows.append({
-            'code': code, 'promo': label, 'type': cell(r, P['type']),
-            'detail': cell(r, P['promo2b']) or cell(r, P['promo2']),
-            'start': to_date(cell(r, P['start'])),
-            'end': to_date(cell(r, P['end'])),
-            'site': cell(r, P['site']),
-            'vouchers': [code_norm(v) for v in split_rules(cell(r, P['voucher']))],
-            'prices': {c: p for c, i in price_cols
-                       if (p := parse_number(cell(r, i))) is not None},
-        })
+    plan_rows, dropped = plan_lines(p_body, P, price_cols, args.keep_cancelled)
     plan = Plan(plan_rows, args.stem)
     portals = {}
     cp = pick_latest(Path(args.dir), 'customer')
