@@ -1555,6 +1555,7 @@ def run(args, plans, op, o_head, o_body, O) -> int:
     source = {'rule': 0, 'voucher': 0, 'plan': 0, 'none': 0}
     camp_rows, tier_rows = [], []
     only = code_norm(args.only) if args.only else ''
+    only_orders: set = set()
     order_of = [x.strip() for x in (args.precedence or '').split(',') if x.strip()]
     bad = [x for x in order_of if x not in {n for n, _ in FAMILIES}]
     if bad:
@@ -1581,6 +1582,8 @@ def run(args, plans, op, o_head, o_body, O) -> int:
             paid = per * (1 + args.gst / 100) if per is not None else None
         if only and only not in code_norm(cell(r, O['sku'])):
             continue
+        if only:
+            only_orders.add(cell(r, O['order']))
         order = {'code': code_norm(cell(r, O['sku'])),
                  'date': to_date(cell(r, O['date'])), 'price': paid}
 
@@ -1870,6 +1873,41 @@ def run(args, plans, op, o_head, o_body, O) -> int:
         if abs(mid) > 1:
             print('  a median far from zero means the two quote prices on '
                   'different bases - try --gst or --amount-is')
+
+    if only and only_orders:
+        # Everything else that came on the same orders. A promotion that does
+        # not move the line price often arrives as a line of its own - the gift,
+        # the trade-in credit, the bundled watch at a dollar - and a matcher
+        # looking only at the product's own line cannot see it at all.
+        beside = collections.Counter()
+        b_units = collections.Counter()
+        b_amt = collections.Counter()
+        free = 0.0
+        for r in o_body:
+            if cell(r, O['order']) not in only_orders:
+                continue
+            sku = cell(r, O['sku'])
+            if only in code_norm(sku):
+                continue
+            q = parse_number(cell(r, O['qty'])) or 0.0
+            a = parse_number(cell(r, O['amount']))
+            beside[sku] += 1
+            b_units[sku] += q
+            b_amt[sku] += a or 0.0
+            if a is not None and abs(a) < 0.01:
+                free += q
+        if beside:
+            print(f'\nwhat else came on the same {len(only_orders):,} order(s)'
+                  f' - {sum(beside.values()):,} line(s)')
+            for sku, n in beside.most_common(12):
+                print(f'  {sku[:24]:<24}{n:>7,} line(s){b_units[sku]:>9,.0f} '
+                      f'unit(s){b_amt[sku]:>14,.0f}'
+                      + ('   at nothing' if abs(b_amt[sku]) < 0.01 else ''))
+            if free:
+                print(f'  {free:,.0f} of those unit(s) came at no charge - a '
+                      f'promotion given as a line of its own\n  rather than as '
+                      f'a discount, which no price comparison on the product\'s '
+                      f'own line\n  can see')
 
     if only:
         mine = [r for r in plan_rows if only in r['code']]
