@@ -612,9 +612,14 @@ Bottom to top, always the same order, and each band wider than the one below:
 
 | | drawn |
 |---|---|
-| **DTC promotion** | narrowest, at the bottom - the innermost |
-| **DTC + Nation-wide** | wider, wrapping it - the nationwide campaign ran over the DTC one |
+| **DTC promotion** | **narrower**, at the bottom - the band being wrapped |
+| **DTC + Nation-wide** | full width, wrapping it - the nationwide campaign ran over the DTC one |
 | **No promotion** | full width, on top |
+
+**Only the inner band is inset.** Narrowing the nationwide band as well gave
+three widths, which reads as three sizes rather than as one band wrapping
+another - the wrap is only visible when what does the wrapping is the same width
+as everything else and the wrapped band is the one that is narrower.
 
 The order is fixed rather than sorted by size: a band that moves between months
 cannot be read along a time axis at all.

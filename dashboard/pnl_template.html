@@ -1407,7 +1407,11 @@ function drawStack() {
   // brought in sits full width on top. A share rather than a pixel cap because
   // maxBarThickness only caps: once nine months had made the bars narrower
   // than the cap, every band came out the same width and nothing was nested.
-  const NEST = { 'DTC promotion': 0.52, 'DTC + Nation-wide': 0.76 };
+  // Only the inner band is inset. Narrowing the nationwide band too gave three
+  // widths, which reads as three sizes rather than as one band wrapping
+  // another: the wrap is only visible when what does the wrapping is the same
+  // width as everything else and the wrapped band is the one that is narrower.
+  const NEST = { 'DTC promotion': 0.52 };
   const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
     backgroundColor: bandColour(i, g), borderRadius: 3, borderSkipped: false,
