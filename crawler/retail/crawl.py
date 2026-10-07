@@ -82,14 +82,18 @@ SITES = {
     # considered and the price-bearing card around it decides, the same posture
     # harveynorman needed.
     #
-    # `categories` is deliberately empty: a shortcut whose path is wrong is
-    # worse than no shortcut, because it fails as an empty page rather than as
-    # an error. Point it at the listing you want with --url until a run has
-    # confirmed the paths, then add them here.
+    # Every listing publishes a schema.org ItemList of its products, so that is
+    # read as well as the cards and the payloads - see from_ld_json.
+    #
+    # The categories below were read off the site itself: every /au/x/all-x/
+    # path it links to. A product page is /au/<group>/<kind>/<model-slug>/, so
+    # the listings are the ones whose second segment starts with `all-`.
     'samsung': {
         'base':          'https://www.samsung.com/au',
         'search':        '/',
         'own_brand':     True,
+        'ld_json':       True,
+        'needs_code':    True,
         'query_param':   'searchvalue',
         'brand_param':   'brand',
         'brand_value':   lambda b: b.title(),
@@ -97,9 +101,31 @@ SITES = {
         'link_selector': 'a[href]',
         'wait_selector': '[class*="price" i], [data-price], [itemprop="price"]',
         'product_href':  r'',
-        'category_href': r'/au/([a-z0-9\-]+/[a-z0-9\-]+)/?$',
+        'category_href': r'/au/([a-z0-9\-]+/all-[a-z0-9\-]+)/?$',
         'category_path': '/{slug}',
-        'categories': {},
+        'categories': {
+            'phones':       '/smartphones/all-smartphones/',
+            'tablets':      '/tablets/all-tablets/',
+            'watches':      '/watches/all-watches/',
+            'rings':        '/rings/all-rings/',
+            'tvs':          '/tvs/all-tvs/',
+            'monitors':     '/monitors/all-monitors/',
+            'projectors':   '/projectors/all-projectors/',
+            'audio':        '/audio-devices/all-audio-devices/',
+            'audiosound':   '/audio-sound/all-audio-sound/',
+            'fridges':      '/refrigerators/all-refrigerators/',
+            'laundry':      '/washers-and-dryers/all-washers-and-dryers/',
+            'dishwashers':  '/dishwashers/all-dishwashers/',
+            'microwaves':   '/microwave-ovens/all-microwave-ovens/',
+            'aircon':       '/air-conditioners/all-air-conditioners/',
+            'vacuums':      '/vacuum-cleaners/all-vacuum-cleaners/',
+            'memory':       '/memory-storage/all-memory-storage/',
+            'packages':     '/appliance-packages/all-appliance-packages/',
+            'mobileacc':    '/mobile-accessories/all-mobile-accessories/',
+            'audioacc':     '/audio-accessories/all-audio-accessories/',
+            'tvacc':        '/tv-accessories/all-tv-accessories/',
+            'homeacc':      '/home-appliance-accessories/all-home-appliance-accessories/',
+        },
     },
     'harveynorman': {
         'base':          'https://www.harveynorman.com.au',
@@ -326,6 +352,112 @@ def from_record(rec: dict) -> dict | None:
         'discount_pct': discount(was, sale),
         'source': 'network',
     }
+
+
+# ── extractor 3: the page's own structured data ─────────────────────────────
+# schema.org JSON-LD, which samsung.com/au publishes on every listing as an
+# ItemList of Products. It is the site telling search engines what is on the
+# page, so it is steadier than either the cards or the XHR payloads: name,
+# price, currency, availability and the product url, and on the mobile
+# categories the url carries ?modelCode=SM-F971BZGDATS - the same code the
+# sales data is keyed on.
+#
+# It carries ONE price, with no was/now pair, so a discount cannot be read from
+# it. The other two extractors still run and merge in whatever the cards show,
+# which is where a sale price comes from when there is one.
+# The model code, off the product url. Mobile listings put it in a query -
+# ?modelCode=SM-F971BZGDATS - and everywhere else it is the tail of the slug:
+# .../s90f-55-inch-oled-4k-vision-ai-smart-tv-qa55s90fawxxy/ is QA55S90FAWXXY.
+# Checked against every product on the phones, TV, fridge and laundry listings:
+# 97 of 97 give a code.
+CAPACITY = re.compile(r'^\d+(gb|tb|mb|kg|l|w|cm|mm|inch)$')
+# The two-letter heads Samsung actually hyphenates. Joining any two-letter token
+# would read `...-smart-tv-qa55s90fawxxy` as TV-QA55S90FAWXXY, which is a word
+# from the name stuck onto the code.
+CODE_HEAD = {'sm', 'hw', 'ef', 'ej', 'et', 'gp'}
+CODE_REGION = {'sa', 'xy', 'xsa', 'au'}
+
+
+def code_from_url(url: str) -> str:
+    m = re.search(r'[?&]modelCode=([A-Za-z0-9_-]+)', url or '')
+    if m:
+        return m.group(1).upper()
+    path = (url or '').split('?')[0].rstrip('/')
+    slug = [p for p in path.split('/') if p]
+    if not slug:
+        return ''
+    parts = slug[-1].split('-')
+    region = ''
+    if len(parts) >= 2 and parts[-1] in CODE_REGION:
+        region, parts = '/' + parts[-1].upper(), parts[:-1]
+    if not parts:
+        return ''
+    last = parts[-1]
+    # A code has letters and digits and is not a capacity: `...-128gb` is the
+    # size, not the model.
+    if not (len(last) >= 8 and re.search(r'\d', last) and re.search(r'[a-z]', last)
+            and not CAPACITY.match(last)):
+        return ''
+    if len(parts) >= 2 and parts[-2] in CODE_HEAD:
+        return (parts[-2] + '-' + last).upper() + region
+    return last.upper() + region
+
+
+LD_RE = re.compile(
+    r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+    re.S | re.I)
+
+
+def from_ld_json(html: str) -> list[dict]:
+    """Every Product in the page's JSON-LD, as rows."""
+    rows = []
+    for block in LD_RE.findall(html or ''):
+        try:
+            data = json.loads(block)
+        except Exception:
+            continue                       # a malformed block is not a reason to stop
+        # Not walk(): that collects dicts with a price beside a name, and a
+        # schema.org Product keeps its price one level down in `offers`, so it
+        # never matches. These are found by their own @type instead.
+        found: list = []
+
+        def hunt(node):
+            if isinstance(node, dict):
+                t = node.get('@type')
+                if t == 'Product' or (isinstance(t, list) and 'Product' in t):
+                    found.append(node)
+                for v in node.values():
+                    hunt(v)
+            elif isinstance(node, list):
+                for v in node:
+                    hunt(v)
+
+        hunt(data)
+        for rec in found:
+            offers = rec.get('offers') or {}
+            if isinstance(offers, list):
+                offers = offers[0] if offers else {}
+            price = to_money(offers.get('price'))
+            name = rec.get('name')
+            if not price or not name:
+                continue
+            url = abs_url(rec.get('url') or rec.get('@id'))
+            code = code_from_url(url)
+            rows.append({
+                'brand': '',
+                'product_name': str(name).strip(),
+                'product_url': url,
+                'sku': code,
+                'sku_field': 'product url' if code else '',
+                'model': code,
+                'site_category': '',
+                'on_sale': False,
+                'original_price': price,
+                'sale_price': price,
+                'discount_pct': None,
+                'source': 'ld+json',
+            })
+    return rows
 
 
 # ── extractor 2: the rendered cards ─────────────────────────────────────────
@@ -602,6 +734,21 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
         row = from_dom(card)
         if row:
             rows.append(row)
+    if SITE.get('ld_json'):
+        found = from_ld_json(page.content())
+        print(f'    {len(found)} product(s) in the page\'s structured data')
+        rows += found
+    if SITE.get('needs_code'):
+        # Every link on the page is a candidate here, and the card reader finds
+        # a price near enough to the cookie banner, the cart and the nav to call
+        # them products - 36 rows of "Accept" and "Cart" on four listings, every
+        # one of them flagged as on sale. A product url carries a model code;
+        # none of those do, so that is the test.
+        keep = [r for r in rows if code_from_url(r.get('product_url') or '')]
+        if len(keep) != len(rows):
+            print(f'    {len(rows) - len(keep)} row(s) dropped: no model code in '
+                  f'the url, so not a product')
+        rows = keep
 
     if not rows and dump is None:
         dump = Path('dump')               # nothing found: keep the evidence anyway
@@ -704,6 +851,15 @@ def merge(rows: list[dict]) -> list[dict]:
         ids = identities(r)
         key = next((alias[i] for i in ids if i in alias), ids[0])
         cur = best.get(key)
+        # Two rows that each name a sku, and name different ones, are different
+        # products however alike the rest reads. Samsung lists a fridge in three
+        # colours under one name, so the name fallback - there for the rows that
+        # carry no sku at all - was folding real skus into each other and losing
+        # them. Where that happens the sku is the identity and the name is not.
+        if cur is not None and cur['sku'] and r['sku'] and cur['sku'] != r['sku']:
+            key = 'sku:' + r['sku']
+            cur = best.get(key)
+            ids = [i for i in ids if not i.startswith('name:')]
         best[key] = r if cur is None else combine(cur, r)
         for i in ids:
             alias[i] = key

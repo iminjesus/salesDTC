@@ -30,9 +30,9 @@ python crawl.py
 python crawl.py --site harveynorman --profile .profile
 
 # Samsung's own store. Every product on it is Samsung, so no brand facet is
-# added and nothing is filtered out afterwards. Point it at the listing you
-# want - see "A single-brand store" below.
-python crawl.py --site samsung --url "https://www.samsung.com/au/smartphones/all-smartphones/"
+# added and nothing is filtered out afterwards.
+python crawl.py --site samsung
+python crawl.py --site samsung --category phones tvs fridges laundry
 
 # just the search page, no category pass
 python crawl.py --no-discover
@@ -129,17 +129,33 @@ because the whole store is one brand. Two things follow, both automatic:
   brand would throw away the rows whose brand field the page happens not to
   carry, and keep nothing extra.
 
-**Its `categories` table is empty on purpose, so `--category` has nothing to
-offer yet.** A category shortcut whose path is wrong does not fail as an error -
-it fails as an empty page, which reads like the site changed. So pass the
-listing you want with `--url` until a run has confirmed the paths, then add them
-to the `categories` dict in `crawl.py` and they become names.
+Its 21 categories were read off the site: every `/au/<group>/all-<group>/` path
+it links to - `phones`, `tablets`, `watches`, `rings`, `tvs`, `monitors`,
+`projectors`, `audio`, `audiosound`, `fridges`, `laundry`, `dishwashers`,
+`microwaves`, `aircon`, `vacuums`, `memory`, `packages`, and four accessory
+listings.
 
-Product URLs there are not a shape worth pinning either, so every link is
-considered and the price-bearing card around it decides - the same posture
-Harvey Norman needed. The field names behind the prices are unconfirmed: if the
-first run comes back empty, see **If it comes back empty** below, and the dump
-is what pins them.
+**The page's own structured data is the primary source here.** Every listing
+publishes a schema.org `ItemList` of its products - the site telling search
+engines what is on the page - which is steadier than either the cards or the XHR
+payloads. It gives the name, the price, the currency and the product URL.
+
+It carries **one price**, with no was/now pair, so a discount cannot be read from
+it; the card reader still runs and merges in a sale price where a card shows one.
+
+**The model code comes off the product URL.** Mobile listings put it in a query
+(`?modelCode=SM-F971BZGDATS`); everywhere else it is the tail of the slug, so
+`.../oled-4k-vision-ai-smart-tv-qa55s90fawxxy/` is `QA55S90FAWXXY` and
+`.../648l-cotta-white-rf59cb67001-sa/` is `RF59CB67001/SA`. Checked against every
+product on the phones, TV, fridge and laundry listings: 97 of 97 give a code.
+That is the column the sales data is keyed on, so no `--with-model` pass is
+needed.
+
+**A row whose URL has no model code is dropped.** Every link on the page is a
+candidate here, and the card reader finds a price near enough to the cookie
+banner, the cart and the nav to call them products - 36 rows of "Accept" and
+"Cart" across four listings, every one of them flagged as on sale. A product URL
+carries a code; none of those do.
 
 ## Stopping part way
 
