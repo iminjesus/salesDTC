@@ -606,6 +606,11 @@ Clicking **DTC promotion** opens it by **DTC campaign** - the campaigns inside
 that band, folded to one spelling each, so `DTC Boost week` and `DTC Boost Week`
 are one bar.
 
+The **DTC band is drawn narrower, inside the nationwide one**: a sale on a DTC
+campaign sits under the nationwide campaign that ran over it, and the inset says
+so. It is a drawing and nothing else - every band is still its own units and the
+column still comes to the month's own total.
+
 `--promo-bands all` keeps five apart instead of three. The two that fold are
 real and different, and the distinction is kept in the data rather than thrown
 away:

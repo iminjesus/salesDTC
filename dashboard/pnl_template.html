@@ -1380,10 +1380,18 @@ function drawStack() {
   // The unmatched band takes the palette's neutral slot, which is what it is.
   const bandColour = i => (ordMode ? [C.stack[0], C.stack[4], C.stack[8]][i]
                                    : C.stack[i]);
+  // The promotion bands nest rather than merely sit on each other: a sale on a
+  // DTC campaign is inside the nationwide one that ran over it, and drawing the
+  // inner band narrower says so without changing a number. Only the drawing
+  // differs - every band is still its own units and the column still comes to
+  // the month's own total.
+  const NEST = { 'DTC + Nation-wide': 54, 'DTC promotion': 34 };
+  const onBands = sl !== undefined && DATA.promoAt != null && sl === DATA.promoAt;
+  const width = g => (onBands && NEST[g] !== undefined ? NEST[g] : 54);
   const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
     backgroundColor: bandColour(i), borderRadius: 3, borderSkipped: false,
-    borderWidth: 1, borderColor: C.surface, maxBarThickness: 54,
+    borderWidth: 1, borderColor: C.surface, maxBarThickness: width(g),
   }));
   if (folded && !pnlMode) {
     const rest = xs.map(r => named.reduce((a, g) => a - (r.row.get(g) || 0),
@@ -1586,6 +1594,10 @@ function drawStack() {
           + 'nothing left to split by - step one back to bring a split back.'
         : `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}, `
           + `each split by ${DATA.levels[sl].name}`
+          + (sl === DATA.promoAt
+             ? '. The DTC band is drawn narrower, inside the nationwide one it '
+               + 'ran under - a drawing, not a different number'
+             : '')
           + (pctMode ? `, every ${PER} normalised to its own total - the mix, `
                        + 'not the size. The tooltip keeps the amount behind '
                        + 'each share'
