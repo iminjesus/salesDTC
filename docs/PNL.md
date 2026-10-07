@@ -598,17 +598,34 @@ Three bands, which is what the page is read for:
 
 | | |
 |---|---|
-| DTC + Nation-wide | a plan line covering that product on that date names both |
-| DTC promotion | it names a DTC campaign only |
-| No promotion | nothing above |
+| DTC promotion | a plan line covering that product on that date names a DTC campaign only |
+| DTC + Nation-wide | it names both |
+| No promotion | nothing above, **and** what no order could be banded at all - no DTC promotion brought it in either way |
 
 Clicking **DTC promotion** opens it by **DTC campaign** - the campaigns inside
 that band, folded to one spelling each, so `DTC Boost week` and `DTC Boost Week`
 are one bar.
 
-The **DTC band is drawn narrower, inside the nationwide one**: a sale on a DTC
-campaign sits under the nationwide campaign that ran over it, and the inset says
-so. It is a drawing and nothing else - every band is still its own units and the
+### The shape
+
+Bottom to top, always the same order, and each band wider than the one below:
+
+| | drawn |
+|---|---|
+| **DTC promotion** | narrowest, at the bottom - the innermost |
+| **DTC + Nation-wide** | wider, wrapping it - the nationwide campaign ran over the DTC one |
+| **No promotion** | full width, on top |
+
+The order is fixed rather than sorted by size: a band that moves between months
+cannot be read along a time axis at all.
+
+The widths are **a share of the slot and a pixel cap together**. Each alone is
+wrong - the share alone leaves every band on the cap on a one-month chart, where
+the slot is wide enough that all of them reach it, and the cap alone does
+nothing on a nine-month chart, where none of them do. That is why the first
+attempt drew three bands of identical width.
+
+It is a drawing and nothing else: every band is still its own units and the
 column still comes to the month's own total.
 
 `--promo-bands all` keeps five apart instead of three. The two that fold are

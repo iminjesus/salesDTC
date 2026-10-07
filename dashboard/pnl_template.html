@@ -1360,8 +1360,20 @@ function drawStack() {
   // Eight slots, in a fixed order by size across the whole span - so a member
   // keeps its colour from month to month, which is the only way a stacked bar
   // can be read along a time axis at all. A ninth folds into Other.
+  // On the promotion band level the order is the drawing's, not the data's: a
+  // band sorted by size moves between months, and a bar whose parts change
+  // places month to month cannot be read along a time axis at all.
+  const BAND_ORDER = ['DTC promotion', 'DTC + Nation-wide', 'Nation-wide only',
+                      '(no order matched)', 'Not in the plan', 'No promotion'];
+  const onBands = sl !== undefined && DATA.promoAt != null
+                  && sl === DATA.promoAt;
   const members = ordMode
     ? ORIGINS.map(o => o[1]).filter(n => stackTotal.has(n))
+    : onBands
+    ? [...stackTotal.keys()].sort((a, b) => {
+        const i = BAND_ORDER.indexOf(a), j = BAND_ORDER.indexOf(b);
+        return (i < 0 ? 99 : i) - (j < 0 ? 99 : j);
+      })
     : [...stackTotal.entries()]
         .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
   const named = members.slice(0, 8);
@@ -1378,20 +1390,36 @@ function drawStack() {
   // In orders mode the two bands mean something fixed, so they keep a fixed
   // pair of colours rather than taking whichever slot they sorted into.
   // The unmatched band takes the palette's neutral slot, which is what it is.
-  const bandColour = i => (ordMode ? [C.stack[0], C.stack[4], C.stack[8]][i]
-                                   : C.stack[i]);
+  const BAND_COLOUR = { 'DTC promotion': 0, 'DTC + Nation-wide': 2,
+                        'Nation-wide only': 4, 'Not in the plan': 7,
+                        '(no order matched)': 7, 'No promotion': 8 };
+  const bandColour = (i, g) => (
+    ordMode ? [C.stack[0], C.stack[4], C.stack[8]][i]
+    : onBands && BAND_COLOUR[g] !== undefined ? C.stack[BAND_COLOUR[g]]
+    : C.stack[i]);
   // The promotion bands nest rather than merely sit on each other: a sale on a
   // DTC campaign is inside the nationwide one that ran over it, and drawing the
   // inner band narrower says so without changing a number. Only the drawing
   // differs - every band is still its own units and the column still comes to
   // the month's own total.
-  const NEST = { 'DTC + Nation-wide': 54, 'DTC promotion': 34 };
-  const onBands = sl !== undefined && DATA.promoAt != null && sl === DATA.promoAt;
-  const width = g => (onBands && NEST[g] !== undefined ? NEST[g] : 54);
+  // How wide each band is drawn, as a share of the slot it sits in - the
+  // nationwide band wraps the DTC one it ran over, and what no promotion
+  // brought in sits full width on top. A share rather than a pixel cap because
+  // maxBarThickness only caps: once nine months had made the bars narrower
+  // than the cap, every band came out the same width and nothing was nested.
+  const NEST = { 'DTC promotion': 0.52, 'DTC + Nation-wide': 0.76 };
   const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
-    backgroundColor: bandColour(i), borderRadius: 3, borderSkipped: false,
-    borderWidth: 1, borderColor: C.surface, maxBarThickness: width(g),
+    backgroundColor: bandColour(i, g), borderRadius: 3, borderSkipped: false,
+    borderWidth: 1, borderColor: C.surface,
+    // Both the share and the pixel cap, in step. Setting the share alone left
+    // every band on the cap on a one-month chart, where the slot is wide
+    // enough that all of them hit it - and the cap alone did nothing on a
+    // nine-month chart, where none of them reach it.
+    barPercentage: (onBands && NEST[g] !== undefined) ? NEST[g] : 0.9,
+    maxBarThickness: 54 * ((onBands && NEST[g] !== undefined
+                            ? NEST[g] : 0.9) / 0.9),
+    categoryPercentage: 0.8,
   }));
   if (folded && !pnlMode) {
     const rest = xs.map(r => named.reduce((a, g) => a - (r.row.get(g) || 0),
@@ -1459,8 +1487,8 @@ function drawStack() {
         series.push({
           type: 'line', label: `${g} margin`, yAxisID: 'y1',
           data: xs.map(r => marginOf(a[r.mi])),
-          borderColor: fade(bandColour(i), .75),
-          backgroundColor: fade(bandColour(i), .75),
+          borderColor: fade(bandColour(i, g), .75),
+          backgroundColor: fade(bandColour(i, g), .75),
           borderWidth: 1.4, borderDash: [4, 3],
           pointRadius: 0, pointHoverRadius: 5, tension: .25, fill: false,
           spanGaps: true, order: -1, bandLine: true,

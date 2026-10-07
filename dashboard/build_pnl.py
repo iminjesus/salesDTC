@@ -122,7 +122,11 @@ PROMO_ORDER = ('pboth', 'pdtc', 'pnat', 'pnone', 'pgap')
 # product chains, and driven by the same code.
 PROMO_LEVELS = [('Promotion', 'promoband', ()),
                 ('DTC campaign', 'promocamp', ())]
-NO_ORDER = '(no order matched)'
+# What the orders could not band is not a fourth thing to look at: no DTC
+# promotion brought it in, which is what the third band says. It reads as
+# "No promotion" and only --promo-bands all keeps it apart.
+NO_ORDER = 'No promotion'
+NO_ORDER_ALL = '(no order matched)'
 NO_CAMPAIGN = '(no campaign)'
 
 
@@ -905,7 +909,8 @@ def build_month(folder, target, args):
             n = counts.pop(key, 0)
             head = vals[:at]
             if not total:
-                kept.append(((key + (NO_ORDER, NO_ORDER)), head, n))
+                lbl = NO_ORDER if args.promo_bands != 'all' else NO_ORDER_ALL
+                kept.append(((key + (lbl, NO_CAMPAIGN)), head, n))
                 continue
             per: dict = {}
             for t, u in zip(tokens, share):
