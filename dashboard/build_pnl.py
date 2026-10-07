@@ -914,6 +914,7 @@ def build_month(folder, target, args):
         # comes to its own total.
         fold = {} if args.promo_bands == 'all' else PROMO_FOLD
         kept = []
+        bands_at: dict = {}
         for key, vals in list(combos.items()):
             share = vals[at:]
             total = sum(share)
@@ -925,6 +926,7 @@ def build_month(folder, target, args):
                 kept.append(((key + (lbl, NO_CAMPAIGN, NO_CAMPAIGN)), head, n))
                 continue
             per: dict = {}
+            bands_at[key] = sum(1 for u in share if u)
             for t, u in zip(tokens, share):
                 if not u:
                     continue
@@ -950,6 +952,26 @@ def build_month(folder, target, args):
               f'{len({k[-3] for k in combos}):,} band(s), '
               f'{len({k[-2] for k in combos}):,} campaign 1 value(s) and '
               f'{len({k[-1] for k in combos}):,} campaign 2 value(s)')
+        # How much of the money had to be divided at all. A combination whose
+        # orders are all on one band is not divided - its share is 1.0 and the
+        # figure is the profit file's own. Only a combination carrying two
+        # bands at once has to be split, and there the split goes by units,
+        # which assumes a promoted unit earns what an unpromoted one does.
+        # That is worth a number rather than a warning.
+        ni = keys.index('net') if 'net' in keys else None
+        if ni is not None:
+            whole = mixed = 0.0
+            for key, vals in combos.items():
+                amt = abs(vals[ni])
+                whole += amt
+                if bands_at.get(key[:-3], 0) > 1:
+                    mixed += amt
+            if whole:
+                print(f'  of that, {mixed / whole * 100:.1f}% of net sales sits '
+                      f'on a combination whose orders came\n  in on more than '
+                      f'one band and so had to be divided between them, by '
+                      f'units.\n  The other {100 - mixed / whole * 100:.1f}% is '
+                      f'the profit file\'s own figure, undivided.')
 
     def skip_sku_arg():
         return tuple(t.strip().upper()

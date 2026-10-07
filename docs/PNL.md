@@ -688,9 +688,22 @@ settle a level lands on the combinations it is consistent with, in the shape
 those rows already have. What no order could band keeps a row of its own, so the
 month still comes to its own total.
 
-That is an allocation. It assumes every unit of a product earns the same margin
-whichever promotion brought it in, which is the one thing a discount does not
-do. It ranks promotions; it does not price one.
+**Most of it is not divided at all.** A combination whose orders all came in on
+one band keeps the profit file's own figure - its share is 1.0 and there is
+nothing to assume. Only a combination carrying two bands at once has to be
+split, and the run says how much of net sales that is:
+
+```
+  of that, 0.0% of net sales sits on a combination whose orders came
+  in on more than one band and so had to be divided between them, by units.
+  The other 100.0% is the profit file's own figure, undivided.
+```
+
+Where it *is* divided, the split goes by units, which assumes a promoted unit
+earns what an unpromoted one does - the one thing a discount does not do. Read
+the percentage before reading the margins: it says how much of the page that
+assumption touches. The order line carries its own amount, so that share could
+be split by money rather than by units; it is not today.
 
 ### Either order source, not just one
 
