@@ -29,6 +29,11 @@ python crawl.py
 # window opens automatically; --profile keeps the cookies between runs.
 python crawl.py --site harveynorman --profile .profile
 
+# Samsung's own store. Every product on it is Samsung, so no brand facet is
+# added and nothing is filtered out afterwards. Point it at the listing you
+# want - see "A single-brand store" below.
+python crawl.py --site samsung --url "https://www.samsung.com/au/smartphones/all-smartphones/"
+
 # just the search page, no category pass
 python crawl.py --no-discover
 
@@ -111,6 +116,30 @@ prints it on the product page instead (`MODEL: SM-A376BZAAATS_11901362224  SKU: 
 so `--with-model` visits each product page that still has no model and reads it there.
 That is one extra page load per product, so a full run takes considerably longer; the
 crawler prints an estimate before starting and Ctrl+C keeps what it has filled.
+
+## A single-brand store
+
+`--site samsung` crawls `samsung.com/au`, where there is no brand to narrow to
+because the whole store is one brand. Two things follow, both automatic:
+
+- **No brand facet and no search term** are appended to a listing URL. On the
+  other sites those are how the brand is isolated; here they would only be
+  noise on a category page.
+- **No brand filter** on the way out. Filtering a single-brand store by its own
+  brand would throw away the rows whose brand field the page happens not to
+  carry, and keep nothing extra.
+
+**Its `categories` table is empty on purpose, so `--category` has nothing to
+offer yet.** A category shortcut whose path is wrong does not fail as an error -
+it fails as an empty page, which reads like the site changed. So pass the
+listing you want with `--url` until a run has confirmed the paths, then add them
+to the `categories` dict in `crawl.py` and they become names.
+
+Product URLs there are not a shape worth pinning either, so every link is
+considered and the price-bearing card around it decides - the same posture
+Harvey Norman needed. The field names behind the prices are unconfirmed: if the
+first run comes back empty, see **If it comes back empty** below, and the dump
+is what pins them.
 
 ## Stopping part way
 

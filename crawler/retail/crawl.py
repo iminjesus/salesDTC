@@ -76,6 +76,31 @@ SITES = {
             'monitors':   '/collections/computer-monitors',
         },
     },
+    # Samsung's own store. Every product on it is Samsung, so there is no brand
+    # facet to add and nothing to filter out afterwards - `own_brand` turns both
+    # off. Product urls here are not a shape worth pinning, so every link is
+    # considered and the price-bearing card around it decides, the same posture
+    # harveynorman needed.
+    #
+    # `categories` is deliberately empty: a shortcut whose path is wrong is
+    # worse than no shortcut, because it fails as an empty page rather than as
+    # an error. Point it at the listing you want with --url until a run has
+    # confirmed the paths, then add them here.
+    'samsung': {
+        'base':          'https://www.samsung.com/au',
+        'search':        '/',
+        'own_brand':     True,
+        'query_param':   'searchvalue',
+        'brand_param':   'brand',
+        'brand_value':   lambda b: b.title(),
+        'query_value':   lambda b: b.lower(),
+        'link_selector': 'a[href]',
+        'wait_selector': '[class*="price" i], [data-price], [itemprop="price"]',
+        'product_href':  r'',
+        'category_href': r'/au/([a-z0-9\-]+/[a-z0-9\-]+)/?$',
+        'category_path': '/{slug}',
+        'categories': {},
+    },
     'harveynorman': {
         'base':          'https://www.harveynorman.com.au',
         'search':        '/catalogsearch/result/',
@@ -154,6 +179,11 @@ def listing_url(url: str, brand: str) -> str:
         /collections/tvs?query=x     -> /collections/tvs?query=x&Brand=SAMSUNG
     """
     parts = urlsplit(url if url.startswith('http') else BASE + url)
+    # A single-brand store needs neither: there is no facet to narrow to the
+    # brand, and a search term appended to a category listing is at best noise
+    # and at worst a page that answers nothing.
+    if SITE.get('own_brand'):
+        return urlunsplit(parts)
     params = dict(parse_qsl(parts.query, keep_blank_values=True))
     params.setdefault(SITE['query_param'], SITE['query_value'](brand))
     params.setdefault(SITE['brand_param'], SITE['brand_value'](brand))
@@ -835,6 +865,12 @@ def main() -> int:
                     help='keep every product, not just the brand')
     args = ap.parse_args()
     use_site(args.site)
+    if SITE.get('own_brand') and not args.no_brand_filter:
+        # Filtering a single-brand store by its own brand only throws away the
+        # rows whose brand field the page happens not to carry.
+        args.no_brand_filter = True
+        print(f'{args.site} sells only {args.brand.title()}, so no brand filter '
+              f'is applied.\n')
     if SITE.get('needs_headed') and not args.headed and not args.headless:
         args.headed = True
         print(f'{args.site} does not serve a headless browser, so a window is used.')
