@@ -91,9 +91,10 @@ SITES = {
     'samsung': {
         'base':          'https://www.samsung.com/au',
         'search':        '/',
-        'own_brand':     True,
-        'ld_json':       True,
-        'needs_code':    True,
+        'own_brand':      True,
+        'ld_json':        True,
+        'needs_code':     True,
+        'all_categories': True,
         'query_param':   'searchvalue',
         'brand_param':   'brand',
         'brand_value':   lambda b: b.title(),
@@ -291,6 +292,15 @@ def abs_url(u) -> str:
         return u
     if not u.startswith('/'):
         u = '/' + u                       # bare slug / handle
+    # A base can carry a path of its own - samsung.com/au - and a root-relative
+    # href on that site already starts with it. Gluing the whole base on then
+    # gives /au/au/..., which the site answers 404 and the run reports as "no
+    # product links appeared (blocked, or the layout changed)": a wrong url
+    # wearing the costume of a changed page.
+    root = urlsplit(BASE)
+    prefix = root.path.rstrip('/')
+    if prefix and (u == prefix or u.startswith(prefix + '/')):
+        return urlunsplit((root.scheme, root.netloc, u, '', ''))
     return BASE + u
 
 
@@ -623,7 +633,14 @@ CAT_LINKS_JS = r"""
   const out = [];
   for (const a of document.querySelectorAll('a[href]')) {
     const href = a.getAttribute('href') || '';
-    const text = (a.innerText || a.getAttribute('aria-label') || '').trim();
+    // innerText is empty for anything not on screen, and a site's categories
+    // usually live in a mega-menu that is closed - so a link the page plainly
+    // carries was being passed over for having no visible words. The title,
+    // the label and finally the slug stand in for them.
+    const text = (a.innerText || a.getAttribute('aria-label')
+                  || a.getAttribute('title') || a.textContent || '').trim()
+      || (href.split('?')[0].replace(/\/+$/, '').split('/').pop() || '')
+           .replace(/-/g, ' ');
     if (href && text && text.length < 60) out.push({ href, text });
   }
   return out;
@@ -1059,6 +1076,13 @@ def main() -> int:
             print(f'unknown category: {", ".join(unknown)}', file=sys.stderr)
         targets = [(c, listing_url(CATEGORIES[c], args.brand))
                    for c in args.category if c in CATEGORIES]
+    elif SITE.get('all_categories'):
+        # The site's front page is a shop window: it links to the listings and
+        # sells nothing itself - 0 products in its structured data. Searching it
+        # for a brand means nothing either, because the whole store is that
+        # brand. So with nothing named, every category is the run.
+        targets = [(c, listing_url(path, args.brand))
+                   for c, path in CATEGORIES.items() if c != 'search']
     else:
         targets = [('search', listing_url(CATEGORIES['search'], args.brand))]
     if not targets:
@@ -1146,8 +1170,14 @@ def main() -> int:
 
             # After the first (seed) page, ask the site which categories it has
             # for this brand and queue them up one by one.
+            # A site whose categories are listed here has already queued every
+            # one of them, and discovery would only add the same pages back
+            # under the words a promo tile happened to use - "Monitors &
+            # Storage", "Bespoke AI Laundry" - which is how one run came out
+            # labelled by banners instead of by categories.
             if discovered_from is None and not args.no_discover and not args.url \
-                    and not args.category and not args.from_html:
+                    and not args.category and not args.from_html \
+                    and not SITE.get('all_categories'):
                 discovered_from = url
                 found = discover_categories(page, payloads, args.brand,
                                             args.max_categories)
