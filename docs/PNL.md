@@ -647,6 +647,21 @@ nothing about that line either way. Folded into *No promotion* it reads as "this
 much sold unpromoted", which it does not support - so the fold is a display
 choice the data can be asked to undo, not a loss.
 
+### Taking a band out, or keeping only it
+
+A legend entry is a switch. **Click** takes that band out of every bar - and its
+dotted margin line with it, or the chart keeps a line for a band it is no longer
+drawing. **Double-click** keeps only that band, and double-clicking the band
+that is already alone puts the rest back, so the gesture is its own undo. Reset
+clears both: a band switched off is as much a narrowing as a filter is.
+
+**Back steps back inside the stack you are on**, and is disabled at that stack's
+first level. Measured against the whole page instead, it stayed alive at the top
+of a chain and widened a narrowing belonging to a different one - which is how
+Back out of Customer landed on Product, and Back out of Promotion landed on
+Division. A SKU picked earlier is still a narrowing; it is just not the one Back
+was pressed for.
+
 ### How a profit row gets a promotion on it
 
 The profit file has no promotion. Each combination is split across the

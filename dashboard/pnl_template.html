@@ -833,17 +833,19 @@ function mark(value, query) {
 /* Narrowing to a value moves the bars down to the next level; widening back to
    All brings them up again. A click on a bar and a change of a select are the
    same act, so they go through here. */
+/* Which chain a level belongs to. Three of them now, so "not customer" is no
+   longer the same as "product" - reading it that way sent a click on a
+   promotion band back into the product chain and split the next bar by
+   Division, and Back out of a promotion band did the same thing. One
+   definition, because two of them is how the second one came to be wrong. */
+const chainOf = j => (j < DATA.custDepth ? 'customer'
+                      : (DATA.promoAt != null && j >= DATA.promoAt) ? 'promo'
+                      : 'product');
+
 function setFilter(i, v) {
   state.filter[i] = v;
   // Narrowing to one value leaves nothing to split by at that level, so the
   // split steps on to the next open one in the same chain; widening steps back.
-  // Which chain this level belongs to. Three now, so "not customer" is no
-  // longer the same as "product" - reading it that way sent a click on a
-  // promotion band back into the product chain and split the next bar by
-  // Division.
-  const chainOf = j => (j < DATA.custDepth ? 'customer'
-                        : (DATA.promoAt != null && j >= DATA.promoAt) ? 'promo'
-                        : 'product');
   const chain = CHAINS[chainOf(i)] || [];
   if (v >= 0) {
     state.stack = chainOf(i);
@@ -983,7 +985,11 @@ function render() {
   step(state.stack === 'orders' ? `by ${per}${run}, split by when ordered`
        : sl === null ? `by ${per}${run}`
        : `by ${per}${run}, split by ${DATA.levels[sl].name}`, null);
-  const atTop = !state.filter.some(v => v >= 0);
+  // Back steps back inside the stack you are on, so it is dead at that
+  // stack's first level. Measured against the whole page it stayed alive at
+  // the top of a chain and undid a narrowing from a different one - which is
+  // how Back out of Customer came to land on Product.
+  const atTop = backLevel() < 0;
   document.getElementById('backBtn').disabled = atTop;
   document.getElementById('stkBack').disabled = atTop;
   const zb = document.getElementById('stkZoom');
@@ -1588,13 +1594,33 @@ function drawStack() {
   document.getElementById('stkLegend').innerHTML = legendOrder
     .filter(d => !d.bandLine)        // the band's own colour already names it
     .map(d => `<span class="pick${state.hidden.has(d.label) ? ' off' : ''}" `
-      + `data-label="${esc(d.label)}" title="click to take it out of the bars">`
+      + `data-label="${esc(d.label)}" `
+      + `title="click to take it out of the bars, double-click to keep only it">`
       + `<i style="background:${d.type === 'line' ? d.borderColor
       : d.backgroundColor}"></i>${d.label}</span>`).join('');
+  // Two things to want from a legend and both of them are wanted: take one
+  // band out, or keep only that one. A single click removes, a double click
+  // isolates - and a double click on the band that is already alone puts the
+  // rest back, so the same gesture is its own undo.
+  const all = legendOrder.filter(d => !d.bandLine && d.type !== 'line')
+    .map(d => d.label);
+  let pending = null;
   document.getElementById('stkLegend').querySelectorAll('.pick').forEach(el => {
+    const g = el.dataset.label;
     el.onclick = () => {
-      const g = el.dataset.label;
-      if (state.hidden.has(g)) state.hidden.delete(g); else state.hidden.add(g);
+      // Held briefly, because a double click fires its clicks first: acting on
+      // them at once would hide the band on the way to isolating it.
+      clearTimeout(pending);
+      pending = setTimeout(() => {
+        if (state.hidden.has(g)) state.hidden.delete(g); else state.hidden.add(g);
+        render();
+      }, 220);
+    };
+    el.ondblclick = () => {
+      clearTimeout(pending);
+      const alone = all.every(x => x === g ? !state.hidden.has(x)
+                                           : state.hidden.has(x));
+      state.hidden = new Set(alone ? [] : all.filter(x => x !== g));
       render();
     };
   });
@@ -1752,7 +1778,10 @@ function drawStack() {
     + (canDrill ? ` Click a band to keep only that ${DATA.levels[sl].name}`
                   + (slNext === null ? '.'
                      : `; the split then steps down to ${DATA.levels[slNext].name}.`)
-                : '');
+                : '')
+    // Two gestures on the legend, and neither is guessable, so both are said.
+    + ' A legend entry takes its band out of the bars; double-click one to keep'
+    + ' only that band.';
 }
 
 /* The two counts side by side, one pair per member of the level the bars are
@@ -1807,13 +1836,23 @@ function renderTable(rows, dimName, ofTotal) {
 /* Back widens the deepest narrowing, whichever chain it was in, and puts the
    split back on that level. With time on the x axis there is no level to step
    up from - the narrowing is the whole of where you are. */
-document.getElementById('backBtn').onclick = () => {
+/* The narrowing Back would widen: the deepest one in the chain being looked
+   at, not the deepest one on the page. Those are different the moment a
+   narrowing is left behind in another chain - a SKU picked earlier is still a
+   narrowing, and Back from the Customer stack used to widen that and move the
+   page to Product, which is not where Back was pressed. */
+function backLevel() {
+  const chain = CHAINS[state.stack] || [];
   let last = -1;
-  state.filter.forEach((v, i) => { if (v >= 0) last = i; });
+  chain.forEach(i => { if (state.filter[i] >= 0) last = i; });
+  return last;
+}
+
+document.getElementById('backBtn').onclick = () => {
+  const last = backLevel();
   if (last < 0) return;
   state.filter[last] = -1;
   state.dim = last;
-  state.stack = last < DATA.custDepth ? 'customer' : 'product';
   render();
 };
 document.getElementById('numbersBtn').onclick = () => {
