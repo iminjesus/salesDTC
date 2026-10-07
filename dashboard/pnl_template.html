@@ -259,6 +259,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <div class="legend" id="stkLegend"></div>
       <div class="tools">
         <button class="ctl" id="stkBack" title="Widen the deepest narrowing">&larr; Back</button>
+        <button class="ctl" id="stkLineVals" title="the figure on every point of every line, not only the solid one">Line values</button>
         <button class="ctl" id="stkZoom" title="Show only this chart, with every value labelled">&#x2921; Expand</button>
       </div>
     </div>
@@ -442,6 +443,9 @@ const state = {
   // go together: hiding "DTC promotion" hides "DTC promotion margin" with it,
   // or the chart keeps a line for a band that is no longer drawn.
   hidden: new Set(),
+  // The figures on the dotted lines. On once the chart has the window, where
+  // there is room for them; the switch beside it takes them away again.
+  lineVals: true,
   // The whole statement, which the page opens on. Not a figure - it has no
   // split, so neither Stack by nor Figure applies while it is on.
   pnl: true,
@@ -984,6 +988,13 @@ function render() {
   document.getElementById('stkBack').disabled = atTop;
   const zb = document.getElementById('stkZoom');
   zb.innerHTML = state.zoom ? '&#x2715; Close' : '&#x2921; Expand';
+  // Only expanded does the chart have room for them, so the switch is only
+  // live there - a dead button is less confusing than one that does nothing.
+  const lv = document.getElementById('stkLineVals');
+  if (lv) {
+    lv.classList.toggle('active', state.zoom === 'stk' && state.lineVals);
+    lv.disabled = state.zoom !== 'stk';
+  }
   zb.title = state.zoom ? 'Back to the whole page'
                         : 'Show only this chart, with every value labelled';
 
@@ -1076,7 +1087,8 @@ const barValues = {
       const meta = c.getDatasetMeta(i);
       if (meta.hidden) return;
       meta.data.forEach((el, j) => {
-        const v = d.data[j];
+        // A span is drawn as [bottom, top]; its figure is on `amounts`.
+        const v = Array.isArray(d.data[j]) ? (d.amounts || [])[j] : d.data[j];
         if (v == null || !v) return;
         const h = Math.abs((el.base ?? el.y) - el.y);
         if (h < 15) return;                 // no room: a number here would lie
@@ -1084,7 +1096,10 @@ const barValues = {
         const w = ctx.measureText(text).width;
         // A little overhang is fine - the plate sits over the bar either way.
         // Twice the bar's width is not: that would read as the neighbour's.
-        if (w > (el.width || 0) + 12) return;
+        // An inset band is drawn over a wider one and has that one's room to
+        // write in, which is why it carries its own figure: measured against
+        // its own 31px it lost its number the moment it was narrowed.
+        if (w > (d.labelWidth || el.width || 0) + 12) return;
         const y = (el.y + (el.base ?? el.y)) / 2;
         ctx.globalAlpha = .88;
         ctx.fillStyle = C.surface;
@@ -1108,26 +1123,38 @@ const pointLabels = {
     // Only the line that asks for it. The split draws one dotted line per
     // member as well, and labelling all of them would bury the chart it is
     // drawn over.
-    const i = c.data.datasets.findIndex(d => d.type === 'line' && d.labelPoints);
-    if (i < 0) return;
+    // The solid line always; the dotted band lines when the page asks for them.
+    // Labelling all of them by default would bury the chart they are drawn
+    // over, which is why this is a switch and not the way it is built.
+    const o = c.options.plugins.pointLabels || {};
+    const want = c.data.datasets
+      .map((d, n) => [d, n])
+      .filter(([d]) => d.type === 'line' && (d.labelPoints || (o.all && d.bandLine)));
+    if (!want.length) return;
     const { ctx } = c;
     ctx.save();
     ctx.font = '600 11px -apple-system, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    c.getDatasetMeta(i).data.forEach((pt, j) => {
-      const v = c.data.datasets[i].data[j];
-      if (v == null) return;
-      const text = v.toFixed(1) + '%';
-      const w = ctx.measureText(text).width;
-      ctx.globalAlpha = 0.85;
-      ctx.fillStyle = C.surface;
-      ctx.beginPath();
-      ctx.roundRect(pt.x - w / 2 - 4, pt.y - 24, w + 8, 15, 3);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = C.profit;
-      ctx.fillText(text, pt.x, pt.y - 9);
+    want.forEach(([d, i]) => {
+      ctx.font = (d.labelPoints ? '600 11px ' : '600 10px ')
+        + '-apple-system, "Segoe UI", Roboto, sans-serif';
+      c.getDatasetMeta(i).data.forEach((pt, j) => {
+        const v = d.data[j];
+        if (v == null) return;
+        const text = v.toFixed(1) + '%';
+        const w = ctx.measureText(text).width;
+        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = C.surface;
+        ctx.beginPath();
+        ctx.roundRect(pt.x - w / 2 - 4, pt.y - 24, w + 8, 15, 3);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        // Each in its own line's colour, or three sets of numbers in one
+        // colour would say nothing about which line they belong to.
+        ctx.fillStyle = d.labelPoints ? C.profit : d.borderColor;
+        ctx.fillText(text, pt.x, pt.y - 9);
+      });
     });
     ctx.restore();
   }
@@ -1427,19 +1454,51 @@ function drawStack() {
   // another: the wrap is only visible when what does the wrapping is the same
   // width as everything else and the wrapped band is the one that is narrower.
   const NEST = { 'DTC promotion': 0.52 };
-  const series = pnlMode ? [] : named.map((g, i) => ({
-    label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
+  // Which band is drawn from zero rather than from the top of the one below.
+  // That is the whole of the wrap: the nationwide band's rectangle runs the
+  // full height of the DTC band it ran over, so it shows past it on both
+  // sides, and the narrower DTC band sits inside it. Every top edge is where a
+  // plain stack would put it, so the totals and the axis do not move - only
+  // the hidden bottom edge of the one band changes.
+  const WRAP = new Set(['DTC + Nation-wide']);
+  // Both the share and the pixel cap, in step. Setting the share alone left
+  // every band on the cap on a one-month chart, where the slot is wide enough
+  // that all of them hit it - and the cap alone did nothing on a nine-month
+  // chart, where none of them reach it.
+  const slotOf = g => (onBands && NEST[g] !== undefined ? NEST[g] : 0.9);
+  // Running tops, in the drawn order, so a band can be given its own span.
+  const tops = [];
+  let run = xs.map(() => 0);
+  named.forEach(g => {
+    run = run.map((v, j) => v + (scale(raw(g))[j] || 0));
+    tops.push([...run]);
+  });
+  const span = (g, i) => scale(raw(g)).map((v, j) =>
+    [WRAP.has(g) ? 0 : (i ? tops[i - 1][j] : 0), tops[i][j]]);
+  const band = (g, i) => ({
+    label: g,
+    // One stack for all of them, always: datasets on different stacks are laid
+    // out side by side in the slot rather than over each other, which is the
+    // opposite of wrapping. The spans are kept literal by turning the y axis's
+    // own stacking off for this one view instead.
+    stack: 'a',
+    data: onBands ? span(g, i) : scale(raw(g)),
+    amounts: raw(g),
     backgroundColor: bandColour(i, g), borderRadius: 3, borderSkipped: false,
     borderWidth: 1, borderColor: C.surface,
-    // Both the share and the pixel cap, in step. Setting the share alone left
-    // every band on the cap on a one-month chart, where the slot is wide
-    // enough that all of them hit it - and the cap alone did nothing on a
-    // nine-month chart, where none of them reach it.
-    barPercentage: (onBands && NEST[g] !== undefined) ? NEST[g] : 0.9,
-    maxBarThickness: 54 * ((onBands && NEST[g] !== undefined
-                            ? NEST[g] : 0.9) / 0.9),
+    barPercentage: slotOf(g),
+    maxBarThickness: 54 * (slotOf(g) / 0.9),
     categoryPercentage: 0.8,
-  }));
+    // The room a number may use: the slot, not the band's own narrowed width.
+    labelWidth: onBands ? 54 : undefined,
+  });
+  // The wrapper goes last in the array, because Chart.js draws the datasets
+  // back to front - dataset 0 ends up on top - so last is behind. The legend
+  // is built from the logical order further down and is unaffected.
+  const drawOrder = onBands
+    ? named.map((g, i) => [g, i]).sort((a, b) => WRAP.has(a[0]) - WRAP.has(b[0]))
+    : named.map((g, i) => [g, i]);
+  const series = pnlMode ? [] : drawOrder.map(([g, i]) => band(g, i));
   if (folded && !pnlMode) {
     const rest = xs.map(r => named.reduce((a, g) => a - (r.row.get(g) || 0),
                                           r.total));
@@ -1524,7 +1583,9 @@ function drawStack() {
   // a band keeps its state while the months and the figure change underneath
   // it, and dropped when it is no longer on the chart at all.
   const shownSeries = series.filter(d => !state.hidden.has(stripMargin(d.label)));
-  document.getElementById('stkLegend').innerHTML = series
+  const legendOrder = series.slice().sort((a, b) =>
+    named.indexOf(a.label) - named.indexOf(b.label));
+  document.getElementById('stkLegend').innerHTML = legendOrder
     .filter(d => !d.bandLine)        // the band's own colour already names it
     .map(d => `<span class="pick${state.hidden.has(d.label) ? ' off' : ''}" `
       + `data-label="${esc(d.label)}" title="click to take it out of the bars">`
@@ -1580,7 +1641,10 @@ function drawStack() {
         x: { stacked: true, offset: true, grid: { display: false },
              border: { display: false },
              ticks: { color: C.ink2, autoSkip: false, maxRotation: 0 } },
-        y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
+        // Not stacked while the bands are spans: each one already carries the
+        // bottom and top it is to be drawn between, and stacking would add the
+        // one below to it all over again.
+        y: { stacked: !onBands, beginAtZero: true, grid: { color: C.grid },
              border: { display: false },
              max: pctMode ? 100 : undefined,
              // Not a hard max: a bar bigger than the slice's own figure - the
@@ -1604,9 +1668,16 @@ function drawStack() {
       plugins: {
         legend: { display: false },
         barValues: { on: state.zoom === 'stk', pct: pctMode },
+      // Expanded, there is room for every line's figures and that is what the
+      // room is for; the switch beside the chart takes them away again.
+      pointLabels: { all: state.zoom === 'stk' && state.lineVals },
         tooltip: { backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
-          filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
+          // A span's parsed.y is its top edge, not its size, so what the band
+          // is worth comes off `amounts` wherever it has one.
+          filter: c => (c.dataset.amounts ? c.dataset.amounts[c.dataIndex]
+                                          : c.parsed.y) !== 0
+                       && c.parsed.y !== null,
           callbacks: {
             label: c => c.dataset.yAxisID === 'y1'
               ? `${c.dataset.label}: ` + (c.parsed.y == null ? 'no net sales'
@@ -1614,7 +1685,8 @@ function drawStack() {
               : pctMode
                 ? `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%  (${
                     fmt(c.dataset.amounts[c.dataIndex])})`
-                : `${c.dataset.label}: ${fmt(c.parsed.y)}`,
+                : `${c.dataset.label}: ${fmt(Array.isArray(c.raw)
+                    ? c.dataset.amounts[c.dataIndex] : c.parsed.y)}`,
             footer: items => {
               const r = xs[items[0].dataIndex];
               const f = fin[r.mi];
@@ -1764,6 +1836,9 @@ document.getElementById('stkBack').onclick = () =>
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && state.zoom) setZoom(state.zoom);
 });
+document.getElementById('stkLineVals').onclick = () => {
+  state.lineVals = !state.lineVals; render();
+};
 document.getElementById('resetBtn').onclick = () => {
   startHere();
   state.stack = 'customer';
@@ -1771,6 +1846,7 @@ document.getElementById('resetBtn').onclick = () => {
   // and Reset that leaves one off is a page still hiding something after being
   // told to show everything.
   state.hidden.clear();
+  state.lineVals = true;
   render();
 };
 [['stkCust', 'customer'], ['stkProd', 'product'], ['stkOrd', 'orders'],
