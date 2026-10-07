@@ -387,9 +387,9 @@ CAPACITY = re.compile(r'^\d+(gb|tb|mb|kg|l|w|cm|mm|inch)$')
 # Heads Samsung hyphenates. Joining any short token would read
 # `...-smart-tv-qa55s90fawxxy` as TV-QA55S90FAWXXY, a word from the name stuck
 # onto the code, so this is a list rather than a shape.
-CODE_HEAD = {'sm', 'hw', 'ef', 'ej', 'et', 'gp', 'mu', 'skk', 'vca', 'bn',
-             'da97', 'da29', 'db', 'ue', 'ls', 'aa'}
-CODE_REGION = {'sa', 'xy', 'xsa', 'au', 'ww', 'zs', 'xsg', 'xxy'}
+CODE_HEAD = {'sm', 'hw', 'ef', 'ej', 'et', 'gp', 'mu', 'muf', 'skk', 'vca',
+             'bn', 'da97', 'da29', 'db', 'ue', 'ls', 'aa'}
+CODE_REGION = {'sa', 'xy', 'xsa', 'au', 'ww', 'zs', 'xsg', 'xxy', 'apc'}
 
 
 def code_from_url(url: str) -> str:
@@ -884,13 +884,19 @@ def merge(rows: list[dict]) -> list[dict]:
         ids = identities(r)
         key = next((alias[i] for i in ids if i in alias), ids[0])
         cur = best.get(key)
-        # Two rows that each name a sku, and name different ones, are different
-        # products however alike the rest reads. Samsung lists a fridge in three
-        # colours under one name, so the name fallback - there for the rows that
-        # carry no sku at all - was folding real skus into each other and losing
-        # them. Where that happens the sku is the identity and the name is not.
-        if cur is not None and cur['sku'] and r['sku'] and cur['sku'] != r['sku']:
-            key = 'sku:' + r['sku']
+        # Two rows that both assert the same field and disagree on it are
+        # different products, however alike the rest reads. The name fallback
+        # is there for rows that assert neither - a card with no sku meeting a
+        # payload with no url - and it was folding real products together:
+        # Samsung lists a fridge in three colours under one name, and two USB
+        # drives under one name at two urls. Where a field disagrees, that
+        # field is the identity and the name is not.
+        clash = next((f for f in ('sku', 'product_url')
+                      if cur is not None and cur[f] and r[f] and cur[f] != r[f]),
+                     None)
+        if clash:
+            key = ('sku:' + r['sku'] if clash == 'sku'
+                   else 'url:' + r['product_url'].rstrip('/').lower())
             cur = best.get(key)
             ids = [i for i in ids if not i.startswith('name:')]
         best[key] = r if cur is None else combine(cur, r)
