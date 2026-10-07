@@ -718,13 +718,21 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
     Returns (rows, stopped). Ctrl+C during the scroll does not throw the page
     away: scrolling stops and whatever has loaded so far is still extracted.
     """
-    print(f'  open {url}', flush=True)
-    payloads.clear()
-    page.goto(url, wait_until='domcontentloaded', timeout=args.timeout * 1000)
-    try:
-        page.wait_for_selector(WAIT_SELECTOR, timeout=args.timeout * 1000)
-    except Exception:
-        print('    no product links appeared (blocked, or the layout changed)')
+    # An already-open tab is read where it stands. Navigating it would throw
+    # away the very thing it is being read for - a page a person loaded, past
+    # whatever check stood in front of it.
+    if getattr(args, 'open_tabs', False):
+        print(f'  read {page.url}', flush=True)
+    else:
+        print(f'  open {url}', flush=True)
+        payloads.clear()
+        page.goto(url, wait_until='domcontentloaded',
+                  timeout=args.timeout * 1000)
+        try:
+            page.wait_for_selector(WAIT_SELECTOR, timeout=args.timeout * 1000)
+        except Exception:
+            print('    no product links appeared (blocked, or the layout '
+                  'changed)')
 
     # Scroll until the list stops growing - the listing pages load as you go.
     last, stable, stopped = 0, 0, False
@@ -1045,6 +1053,16 @@ def main() -> int:
                     help='when a page comes back with no products, wait at the console '
                          'so you can deal with it in the browser yourself, then retry '
                          'that page. Use with --headed.')
+    ap.add_argument('--attach', nargs='?', const='http://localhost:9222',
+                    metavar='URL',
+                    help='read a browser that is already running instead of '
+                         'starting one, over its debugging port (default '
+                         'http://localhost:9222). Start Chrome with '
+                         '--remote-debugging-port=9222, clear any check by '
+                         'hand, and the crawl uses that window and its session')
+    ap.add_argument('--open-tabs', action='store_true',
+                    help='with --attach, read the tabs that are already open '
+                         'and navigate nowhere - crawl what is on the screen')
     ap.add_argument('--browser-path', default=os.environ.get('CHROMIUM_PATH'),
                     help='Chromium executable to use, when Playwright cannot find its own '
                          '(also read from CHROMIUM_PATH)')
@@ -1077,7 +1095,12 @@ def main() -> int:
         return 2
 
     def label(u: str) -> str:
-        m = re.search(r'/([^/?]+)(?:\?|$)', u)
+        # The last path segment. A url ending in a slash - which every listing
+        # on samsung.com does - matched nothing and fell through to the whole
+        # url, so every row was filed under a category called
+        # https://www.samsung.com/au/tvs/all-tvs/.
+        path = u.split('?')[0].split('#')[0].rstrip('/')
+        m = re.search(r'/([^/]+)$', path)
         return m.group(1) if m else u
 
     if args.from_html:
@@ -1098,6 +1121,8 @@ def main() -> int:
             print(f'unknown category: {", ".join(unknown)}', file=sys.stderr)
         targets = [(c, listing_url(CATEGORIES[c], args.brand))
                    for c in args.category if c in CATEGORIES]
+    elif args.open_tabs:
+        targets = []                      # filled from the browser once attached
     elif SITE.get('all_categories'):
         # The site's front page is a shop window: it links to the listings and
         # sells nothing itself - 0 products in its structured data. Searching it
@@ -1107,8 +1132,12 @@ def main() -> int:
                    for c, path in CATEGORIES.items() if c != 'search']
     else:
         targets = [('search', listing_url(CATEGORIES['search'], args.brand))]
-    if not targets:
+    if not targets and not args.open_tabs:
         print('nothing to crawl', file=sys.stderr)
+        return 2
+    if args.open_tabs and not args.attach:
+        print('--open-tabs needs --attach: there is no open browser to read '
+              'otherwise', file=sys.stderr)
         return 2
 
     dump = Path(args.dump_dir) if args.dump_dir else None
@@ -1126,7 +1155,34 @@ def main() -> int:
             launch['executable_path'] = args.browser_path
         common = {'user_agent': UA, 'locale': 'en-AU',
                   'viewport': {'width': 1440, 'height': 1000}}
-        if args.profile:
+        if args.attach:
+            # Read the browser already open instead of starting one. A site
+            # that refuses automated browsers is not refused back: this is the
+            # window a person opened, with the session they established, and
+            # the pages they are already looking at. Nothing about the browser
+            # is faked - it simply is the browser.
+            #
+            # Start Chrome once with a debugging port and leave it open:
+            #   chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\hn
+            browser = pw.chromium.connect_over_cdp(args.attach)
+            if not browser.contexts:
+                print(f'nothing is open in the browser at {args.attach}',
+                      file=sys.stderr)
+                return 2
+            ctx = browser.contexts[0]
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            print(f'attached to the browser at {args.attach}: '
+                  f'{len(ctx.pages)} tab(s) open')
+            if args.open_tabs:
+                tabs = [t for t in ctx.pages if t.url.startswith('http')]
+                targets = [(label(t.url), t.url) for t in tabs]
+                open_pages = {t.url: t for t in tabs}
+                for t in tabs:
+                    print(f'    - {t.url[:96]}')
+                if not targets:
+                    print('no http tab is open to read', file=sys.stderr)
+                    return 2
+        elif args.profile:
             # A persistent profile keeps cookies, so a check passed by hand once is
             # not asked again on the next category or the next run.
             browser = None
@@ -1153,8 +1209,11 @@ def main() -> int:
         done = set()
         interrupted = False
 
+        open_pages = locals().get('open_pages') or {}
         while queue:
             name, url = queue.pop(0)
+            if args.open_tabs:
+                page = open_pages.get(url, page)
             if url in done:
                 continue
             done.add(url)

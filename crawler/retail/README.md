@@ -157,6 +157,41 @@ banner, the cart and the nav to call them products - 36 rows of "Accept" and
 "Cart" across four listings, every one of them flagged as on sale. A product URL
 carries a code; none of those do.
 
+## Reading a browser you already have open
+
+Some sites refuse an automated browser however it is dressed - Harvey Norman
+answers one with a 1.2 KB Imperva page whether it is headless or not, and from
+a home connection as readily as from a datacentre. The answer is not to dress
+it better. It is to stop starting one.
+
+Start Chrome once with a debugging port and leave it open:
+
+```sh
+chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\hn-profile
+```
+
+Browse to the page you want, clear any check by hand, then:
+
+```sh
+# read the tabs that are open, navigating nowhere - crawl what is on screen
+python crawl.py --site samsung --attach --open-tabs
+
+# or navigate inside that same window, keeping its session
+python crawl.py --site samsung --attach --url "https://www.samsung.com/au/monitors/all-monitors/"
+```
+
+`--attach` defaults to `http://localhost:9222`. Nothing about the browser is
+faked - it **is** the browser, with the session a person established in it, so
+there is no fingerprint to get wrong. `--open-tabs` reads each open tab where it
+stands; navigating it would throw away the very thing it is being read for.
+
+Note what this does and does not settle. It respects a site's wish not to be
+crawled no more and no less than a person browsing it does - so read the terms
+and `robots.txt` first, and leave alone what they ask you to leave alone.
+Harvey Norman's `robots.txt` disallows `/catalogsearch/` and `/search/`, which
+is the path this tool's `harveynorman` entry was built on, so that entry wants
+rethinking rather than reconnecting.
+
 ## Stopping part way
 
 The CSV is rewritten after every page, and written atomically, so whatever has been
