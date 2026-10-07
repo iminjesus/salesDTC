@@ -120,14 +120,22 @@ PROMO_ORDER = ('pboth', 'pdtc', 'pnat', 'pnone', 'pgap')
 # The levels the promotion adds to the key. Two, so the first splits the bar
 # and the second is what a bar opens into - the same shape as the customer and
 # product chains, and driven by the same code.
+# Three levels, not two. The plan's two DTC columns are a hierarchy - the first
+# names the campaign, the second what ran inside it - so they are two levels and
+# a bar on one opens by the other. Joined into a single "A + B" value they were
+# neither campaign, and there was nothing to open.
 PROMO_LEVELS = [('Promotion', 'promoband', ()),
-                ('DTC campaign', 'promocamp', ())]
+                ('DTC campaign 1', 'promocamp1', ()),
+                ('DTC campaign 2', 'promocamp2', ())]
 # What the orders could not band is not a fourth thing to look at: no DTC
 # promotion brought it in, which is what the third band says. It reads as
 # "No promotion" and only --promo-bands all keeps it apart.
 NO_ORDER = 'No promotion'
 NO_ORDER_ALL = '(no order matched)'
 NO_CAMPAIGN = '(no campaign)'
+# A blank second column is the plan saying there was no second campaign, which
+# is a different statement from the first one being blank as well.
+NO_SECOND = '(no second campaign)'
 
 
 # How many campaign names the drill carries. Bounded on purpose: one series per
@@ -162,7 +170,7 @@ def promo_bander(folder, stems, say=print):
         if day is None:
             # No date, so no window can be tested - an absence of information
             # about this line, not a finding about it.
-            return ('pgap', '')
+            return ('pgap', NO_CAMPAIGN, NO_CAMPAIGN)
         k = (PM.code_norm(sku), day.year, day.month, day.day)
         hit = cache.get(k)
         if hit is not None:
@@ -180,12 +188,16 @@ def promo_bander(folder, stems, say=print):
                # A live line that names no campaign says there was none. No
                # live line at all says nothing either way.
                else 'pnone' if live else 'pgap')
-        # And which DTC campaign, for the drill. The first non-empty of the two
-        # DTC columns over the live lines, spelled one way; a line in two at
-        # once keeps both, because picking one would be inventing a precedence.
-        names = sorted({canon.get(n, n) for c in live
-                        for n in (c.get('camp') or ['', '', ''])[1:] if n})
-        cache[k] = hit = (hit, ' + '.join(names))
+        # And which DTC campaign, for the drill - each column on its own, so
+        # one opens into the other. Spelled one way; a product in two campaigns
+        # at once on the same date keeps both, because picking one would be
+        # inventing a precedence the plan does not state.
+        def named(at):
+            return sorted({canon.get(n, n) for c in live
+                           if (n := (c.get('camp') or ['', '', ''])[at])})
+        one, two = named(1), named(2)
+        cache[k] = hit = (hit, ' + '.join(one) or NO_CAMPAIGN,
+                          ' + '.join(two) or (NO_SECOND if one else NO_CAMPAIGN))
         return hit
 
     return band
@@ -910,15 +922,16 @@ def build_month(folder, target, args):
             head = vals[:at]
             if not total:
                 lbl = NO_ORDER if args.promo_bands != 'all' else NO_ORDER_ALL
-                kept.append(((key + (lbl, NO_CAMPAIGN)), head, n))
+                kept.append(((key + (lbl, NO_CAMPAIGN, NO_CAMPAIGN)), head, n))
                 continue
             per: dict = {}
             for t, u in zip(tokens, share):
                 if not u:
                     continue
-                band, camp = t if isinstance(t, tuple) else (t, '')
+                band, c1, c2 = (t if isinstance(t, tuple) and len(t) == 3
+                                else (t, NO_CAMPAIGN, NO_CAMPAIGN))
                 band = fold.get(band, band)
-                lv = (PROMO_LABEL.get(band, band), camp or NO_CAMPAIGN)
+                lv = (PROMO_LABEL.get(band, band), c1, c2)
                 per[lv] = per.get(lv, 0.0) + u
             for lv, u in per.items():
                 kept.append((key + lv, [x * u / total for x in head], n))
@@ -934,8 +947,9 @@ def build_month(folder, target, args):
         keys = keys[:at]
         series = series[:at]
         print(f'  promotion: {got:,.0f} unit(s) banded, over '
-              f'{len({k[-2] for k in combos}):,} band(s) and '
-              f'{len({k[-1] for k in combos}):,} campaign(s)')
+              f'{len({k[-3] for k in combos}):,} band(s), '
+              f'{len({k[-2] for k in combos}):,} campaign 1 value(s) and '
+              f'{len({k[-1] for k in combos}):,} campaign 2 value(s)')
 
     def skip_sku_arg():
         return tuple(t.strip().upper()

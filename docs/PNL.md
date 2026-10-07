@@ -592,7 +592,7 @@ of the key, so the existing code draws it: clicking a bar narrows to that value
 and the next level down splits what is left, Back steps out, and the filter rows
 carry it like any other level.
 
-> **Promotion** -> **DTC campaign**
+> **Promotion** -> **DTC campaign 1** -> **DTC campaign 2**
 
 Three bands, which is what the page is read for:
 
@@ -602,9 +602,16 @@ Three bands, which is what the page is read for:
 | DTC + Nation-wide | it names both |
 | No promotion | nothing above, **and** what no order could be banded at all - no DTC promotion brought it in either way |
 
-Clicking **DTC promotion** opens it by **DTC campaign** - the campaigns inside
-that band, folded to one spelling each, so `DTC Boost week` and `DTC Boost Week`
-are one bar.
+Clicking **DTC promotion** opens it by **DTC campaign 1**, and clicking one of
+those opens it by **DTC campaign 2** - what ran inside that campaign. The plan's
+two DTC columns are a hierarchy, so they are two levels: joined into a single
+`A + B` value they were neither campaign and there was nothing to open. Names
+are folded to one spelling each, so `DTC Boost week` and `DTC Boost Week` are
+one bar.
+
+A blank second column reads as **`(no second campaign)`** - the plan saying
+there was not one - which is a different statement from `(no campaign)`, where
+the first column is blank too.
 
 ### The shape
 
