@@ -384,8 +384,12 @@ CAPACITY = re.compile(r'^\d+(gb|tb|mb|kg|l|w|cm|mm|inch)$')
 # The two-letter heads Samsung actually hyphenates. Joining any two-letter token
 # would read `...-smart-tv-qa55s90fawxxy` as TV-QA55S90FAWXXY, which is a word
 # from the name stuck onto the code.
-CODE_HEAD = {'sm', 'hw', 'ef', 'ej', 'et', 'gp'}
-CODE_REGION = {'sa', 'xy', 'xsa', 'au'}
+# Heads Samsung hyphenates. Joining any short token would read
+# `...-smart-tv-qa55s90fawxxy` as TV-QA55S90FAWXXY, a word from the name stuck
+# onto the code, so this is a list rather than a shape.
+CODE_HEAD = {'sm', 'hw', 'ef', 'ej', 'et', 'gp', 'mu', 'skk', 'vca', 'bn',
+             'da97', 'da29', 'db', 'ue', 'ls', 'aa'}
+CODE_REGION = {'sa', 'xy', 'xsa', 'au', 'ww', 'zs', 'xsg', 'xxy'}
 
 
 def code_from_url(url: str) -> str:
@@ -403,14 +407,17 @@ def code_from_url(url: str) -> str:
     if not parts:
         return ''
     last = parts[-1]
-    # A code has letters and digits and is not a capacity: `...-128gb` is the
-    # size, not the model.
-    if not (len(last) >= 8 and re.search(r'\d', last) and re.search(r'[a-z]', last)
-            and not CAPACITY.match(last)):
+    if CAPACITY.match(last):
+        return ''                          # `...-128gb` is the size, not the model
+    head = parts[-2] if len(parts) >= 2 and parts[-2] in CODE_HEAD else ''
+    # A hyphenated code can be short on its own - HW-Q930H/XY is `q930h`, five
+    # characters - so the length a code has to reach is lower once a head is
+    # carrying part of it.
+    need = 3 if head else 8
+    if not (len(last) >= need and re.search(r'\d', last)
+            and re.search(r'[a-z0-9]', last)):
         return ''
-    if len(parts) >= 2 and parts[-2] in CODE_HEAD:
-        return (parts[-2] + '-' + last).upper() + region
-    return last.upper() + region
+    return ((head + '-' + last) if head else last).upper() + region
 
 
 LD_RE = re.compile(
@@ -761,10 +768,19 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
         # them products - 36 rows of "Accept" and "Cart" on four listings, every
         # one of them flagged as on sale. A product url carries a model code;
         # none of those do, so that is the test.
-        keep = [r for r in rows if code_from_url(r.get('product_url') or '')]
+        #
+        # It is a test for the two extractors that guess. A JSON-LD row sits
+        # inside a schema.org Product because the site put it there, so it is a
+        # product whatever its url looks like - and applying the test to those
+        # as well threw away 56 of 62 appliance accessories and every soundbar,
+        # whose codes are shapes the reader does not pick up (HW-Q930H/XY,
+        # SKK-NWG/ZS, DA97-13137E). Being unable to read a code is not evidence
+        # that there is no product.
+        keep = [r for r in rows if r.get('source') == 'ld+json'
+                or code_from_url(r.get('product_url') or '')]
         if len(keep) != len(rows):
-            print(f'    {len(rows) - len(keep)} row(s) dropped: no model code in '
-                  f'the url, so not a product')
+            print(f'    {len(rows) - len(keep)} guessed row(s) dropped: no model '
+                  f'code in the url, so not a product')
         rows = keep
 
     if not rows and dump is None:
