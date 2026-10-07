@@ -76,6 +76,11 @@ class Months:
         self.measured = 0.0
         self.files: list[str] = []
         self.amount_col = None
+        # Units per promotion band, on the same key. Filled only when the
+        # caller passes a `band_of`, and only for what this month earned -
+        # carried out is next month's and has earned nothing here to split.
+        self.by_band: dict[tuple, list[float]] = {}
+        self.bands: tuple = ()
 
     def add(self, key, which, qty, amt):
         v = self.by_key.get(key)
@@ -83,6 +88,14 @@ class Months:
             v = self.by_key[key] = [0.0] * 6
         v[which * 2] += qty
         v[which * 2 + 1] += amt
+
+    def add_band(self, key, band, qty):
+        if band not in self.bands:
+            return
+        v = self.by_band.get(key)
+        if v is None:
+            v = self.by_band[key] = [0.0] * len(self.bands)
+        v[self.bands.index(band)] += qty
 
     def totals(self):
         out = [0.0] * 6
@@ -94,13 +107,14 @@ class Months:
 
 def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
          products: dict, skip_sku: tuple = (), currency: str | None = None,
-         say=print) -> Months | None:
+         band_of=None, bands: tuple = (), say=print) -> Months | None:
     """Read every SAP export and total the month onto the profit file's key.
 
     `month` is the month being drawn, as YYYYMM. A line counts when it left in
     that month, or when it was ordered in that month and leaves after it.
     """
     out = Months()
+    out.bands = tuple(bands)
     for path in paths:
         rows, info = read_any(path)
         if not rows:
@@ -181,6 +195,12 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
                            else p.get(slot) or CUST.BLANK)
             out.counted += 1
             out.add(tuple(key), which, qty, amt)
+            # What brought it in, banded on the day it was ordered rather than
+            # the day it shipped: the promotion was live when the customer
+            # bought, not when the warehouse got to it. Carried out is left
+            # alone - it is next month's revenue and has earned nothing here.
+            if band_of is not None and which != CARRIED_OUT:
+                out.add_band(tuple(key), band_of(sku, made), qty)
     return out if out.files else None
 
 

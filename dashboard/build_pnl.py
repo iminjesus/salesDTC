@@ -311,6 +311,15 @@ def main() -> int:
     # new and the page it is on should not replace the one being read today.
     # --no-promo gives the plain page back under its own name.
     tag = '' if args.no_promo else '_promo'
+    # A button that disables itself is indistinguishable from a button that is
+    # broken, and this one did exactly that for a whole build: the split was
+    # only ever read off the store export, so every run SAP answered produced a
+    # page whose Promo button was dead and said nothing about why.
+    if not args.no_promo and not any(m.get('promoBands') for m in months):
+        print('\nStack by Promo will be OFF on this page: nothing was banded '
+              'by promotion.\n  It needs an order source (SAP orders_* or the '
+              'store export) and a plan\n  (--plan, default MX_product '
+              'ce_product) that lists the products sold.')
     out = Path(args.out) if args.out else HERE / (
         f'pnl{tag}_{str(months[-1]["ym"])[-4:]}.html' if months[-1].get('ym')
         else f'pnl{tag}.html')
@@ -810,6 +819,34 @@ def build_month(folder, target, args):
     # rather than argued for, and it carries the payer, so the key comes out at
     # full depth with nothing spread. Both beat the store export, so it goes
     # first and the store export is the fallback.
+    # Built once, before either order source is read, because either of them
+    # can be the one that answers: SAP wins where its exports are there and the
+    # store export is the fallback, and the promotion split has to come out the
+    # same way round. Reading it only off the store export left the split
+    # missing - and so the button dead - on every build SAP answered.
+    bander = (None if args.no_orders or args.no_promo
+              else promo_bander(folder, args.plan))
+
+    banded_any = [False]
+
+    def merge_bands(src):
+        """Spread an order source's banded units onto the sales."""
+        if bander is None:
+            return
+        if not getattr(src, 'by_band', None):
+            print('  no unit could be banded by promotion, so Stack by Promo '
+                  'will be off on the page')
+            return
+        banded_any[0] = True
+        merge_orders(src.by_band, skip_sku_arg(), add_series=PROMO_SERIES)
+        got = sum(sum(v) for v in src.by_band.values())
+        print(f'  promotion bands: {got:,.0f} unit(s) banded by what the plan '
+              f'says was live for them')
+
+    def skip_sku_arg():
+        return tuple(t.strip().upper()
+                     for t in args.skip_sku.split(',') if t.strip())
+
     got_sap = None
     if not args.no_orders and not args.no_sap and ym:
         sap_files = pick_series(folder, args.sap)
@@ -824,7 +861,8 @@ def build_month(folder, target, args):
                 prod_levels=PRODUCT_LEVELS, customers=cust, products=prod,
                 currency=args.currency,
                 skip_sku=tuple(t.strip().upper()
-                               for t in args.skip_sku.split(',') if t.strip()))
+                               for t in args.skip_sku.split(',') if t.strip()),
+                band_of=bander, bands=PROMO_BANDS if bander else ())
             if got_sap:
                 SAP.report(got_sap, ym)
                 carry_in_known = any(
@@ -836,6 +874,7 @@ def build_month(folder, target, args):
                           'carried into this one is not nil - it is unknown, '
                           'and\n  the page says so rather than charting a zero')
                 merge_orders(got_sap.by_key)
+                merge_bands(got_sap)
                 oi = n_measures
                 own = sum(v[oi] for k, v in combos.items())
                 came = sum(v[oi + 2] for v in combos.values())
@@ -882,9 +921,6 @@ def build_month(folder, target, args):
                                    for t in args.negative.split(',') if t.strip()),
                     booked=({t.strip().upper() for t in args.booked.split(',')
                              if t.strip()} if args.booked else None))
-        # What brought each order in, on the same key as everything else.
-        bander = (None if args.no_promo
-                  else promo_bander(folder, args.plan))
         if bander is not None:
             load = dict(load, band_of=bander, bands=PROMO_BANDS)
         this = ORD.load(op, **load)
@@ -927,24 +963,19 @@ def build_month(folder, target, args):
                         else [0.0] * 4)
                 by_key_store[key] = [own[0], own[1], came[2], came[3],
                                      own[2], own[3]]
-            skip = tuple(t.strip().upper()
-                         for t in args.skip_sku.split(',') if t.strip())
-            merge_orders(by_key_store, skip)
+            merge_orders(by_key_store, skip_sku_arg())
             # The promotion split rides the same spreading, so it lands on the
             # same combinations in the same proportions as the orders it is a
             # property of. Both months, because a bar is the month as sold and
             # what carried in is part of it.
             if bander is not None and this.by_band:
-                by_band = {}
+                both = type('B', (), {'by_band': {}})()
                 for side in (this, before):
                     for k, v in (side.by_band.items() if side else ()):
-                        row = by_band.setdefault(k, [0.0] * N_PROMO)
+                        row = both.by_band.setdefault(k, [0.0] * N_PROMO)
                         for i in range(N_PROMO):
                             row[i] += v[i]
-                merge_orders(by_band, skip, add_series=PROMO_SERIES)
-                got = sum(sum(v) for v in by_band.values())
-                print(f'  promotion bands: {got:,.0f} shipped unit(s) banded '
-                      f'by what the plan says was live for them')
+                merge_bands(both)
             # The month as the orders model it, beside the month as sold. A
             # wide gap between them means the booking rule does not describe
             # this export, and py tools\cohort.py is where to find out why.
@@ -1070,6 +1101,10 @@ def build_month(folder, target, args):
         # says the month earned all its own revenue - which is a finding, and a
         # wrong one.
         'carryIn': carry_in_known,
+        # Whether anything could be banded by promotion. Carried out of the
+        # month build so the run can say, once and at the end, that Stack by
+        # Promo will be off - a disabled button looks the same as a broken one.
+        'promoBands': banded_any[0],
         'levels': levels,
         'series': series,
         'start': index[levels[0]['name']].get(start, -1) if start else -1,

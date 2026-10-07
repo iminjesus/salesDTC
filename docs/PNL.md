@@ -635,6 +635,28 @@ py dashboard\build_pnl.py --no-promo      # -> dashboard/pnl_<yymm>.html, as bef
 ```
 
 **A different file on purpose.** The promotion split is new and the page being
-read today is not replaced by it. The button disables itself when the build had
-no plan to read, rather than drawing an empty stack; `--plan` names the plan
-files (default `MX_product ce_product`).
+read today is not replaced by it. `--plan` names the plan files (default
+`MX_product ce_product`).
+
+### Either order source, not just one
+
+The page takes its orders from SAP where `orders_*` exports are there, and falls
+back to the store export otherwise - and **the promotion split has to come out
+of whichever one answered.** Reading it only off the store export left the band
+series missing on every build SAP answered, so the button was disabled on
+exactly the builds most likely to be run. The bander is now built once, before
+either source is read, and both pass it through.
+
+On the SAP side the units are banded on **`Created On`, not `Goods Issue
+Date`**: the promotion was live when the customer bought, not when the warehouse
+got to it. Carried out is left unbanded - it is next month's revenue and has
+earned nothing here to split.
+
+A disabled button looks exactly like a broken one, so a build that bands nothing
+now says so at the end, with what it would need:
+
+```
+Stack by Promo will be OFF on this page: nothing was banded by promotion.
+  It needs an order source (SAP orders_* or the store export) and a plan
+  (--plan, default MX_product ce_product) that lists the products sold.
+```
