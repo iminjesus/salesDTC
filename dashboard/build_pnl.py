@@ -51,6 +51,9 @@ PRODUCT_LEVELS = [
 ]
 FILTERS = CUST.LEVELS + PRODUCT_LEVELS
 CUST_DEPTH = len(CUST.LEVELS)
+# Where the promotion levels start, once they are appended. The page splits the
+# levels into chains at these two marks: customer, then product, then promotion.
+PROMO_AT = len(FILTERS)
 
 # The five figures the chart is made of, plus the denominator of the line. Each
 # is looked up by header with the spellings the export has used, and the build
@@ -97,21 +100,36 @@ N_ORDER = len(ORDER_SERIES)
 # campaign columns they name. Not from the price - the price rejects lines the
 # plan does cover, because a trade-in or a stacked voucher moves what was
 # collected away from what the plan quotes.
-PROMO_SERIES = [
-    ('pdtc',  'DTC promotion'),
-    ('pboth', 'DTC + Nation-wide'),
-    ('pnat',  'Nation-wide only'),
-    # These two were one band, and they are not one thing. "No promotion" is
-    # the plan covering a line and naming no campaign on it - a statement. The
-    # plan having no line for the product, or none whose window covers the
-    # order, is the absence of a statement: it says nothing about whether a
-    # promotion ran. Together they read as "this much sold unpromoted", which
-    # is a conclusion the second one does not support.
-    ('pnone', 'No promotion'),
-    ('pgap',  'Not in the plan'),
-]
-PROMO_BANDS = tuple(k for k, _ in PROMO_SERIES)
-N_PROMO = len(PROMO_SERIES)
+# Three on the page. The other two stay in the data and come back with
+# --promo-bands all: "Nation-wide only" and "Not in the plan" are real and
+# different - the plan saying nothing is not the plan saying there was no
+# promotion - but three bands is what this is read for, and the distinction is
+# kept rather than thrown away.
+PROMO_LABEL = {
+    'pdtc':  'DTC promotion',
+    'pboth': 'DTC + Nation-wide',
+    'pnat':  'Nation-wide only',
+    'pnone': 'No promotion',
+    'pgap':  'Not in the plan',
+}
+# What each band folds to when only three are shown. The two that fold are the
+# ones that say "no DTC promotion brought this in", which is what the third
+# band means on a page read for DTC.
+PROMO_FOLD = {'pnat': 'pnone', 'pgap': 'pnone'}
+PROMO_ORDER = ('pboth', 'pdtc', 'pnat', 'pnone', 'pgap')
+# The levels the promotion adds to the key. Two, so the first splits the bar
+# and the second is what a bar opens into - the same shape as the customer and
+# product chains, and driven by the same code.
+PROMO_LEVELS = [('Promotion', 'promoband', ()),
+                ('DTC campaign', 'promocamp', ())]
+NO_ORDER = '(no order matched)'
+NO_CAMPAIGN = '(no campaign)'
+
+
+# How many campaign names the drill carries. Bounded on purpose: one series per
+# campaign on every combination is what makes a payload too big to open, and the
+# tail of a campaign list is a long run of ones.
+PROMO_TOP = 8
 
 
 def promo_bander(folder, stems, say=print):
@@ -130,17 +148,23 @@ def promo_bander(folder, stems, say=print):
         return None
     say(f'  promotion plan: {len(plan.rows):,} live line(s) over '
         f'{len(plan.by_code):,} product code(s)')
+    # One spelling per campaign. `DTC Boost week` and `DTC Boost Week` are one
+    # campaign and came out as two bars; the commonest spelling in the plan
+    # wins, read off the plan rather than from a table here.
+    canon = PM.canon_campaigns(plan.rows, say=say)
     cache: dict = {}
 
     def band(sku, day):
         if day is None:
             # No date, so no window can be tested - an absence of information
             # about this line, not a finding about it.
-            return 'pgap'
+            return ('pgap', '')
         k = (PM.code_norm(sku), day.year, day.month, day.day)
         hit = cache.get(k)
         if hit is not None:
             return hit
+        # Both answers come out together: which band, and which campaign inside
+        # it. One walk of the plan lines answers both.
         cands, _ = plan.candidates(k[0])
         live = [c for c in cands
                 if (not c['start'] or day >= c['start'])
@@ -152,7 +176,12 @@ def promo_bander(folder, stems, say=print):
                # A live line that names no campaign says there was none. No
                # live line at all says nothing either way.
                else 'pnone' if live else 'pgap')
-        cache[k] = hit
+        # And which DTC campaign, for the drill. The first non-empty of the two
+        # DTC columns over the live lines, spelled one way; a line in two at
+        # once keeps both, because picking one would be inventing a precedence.
+        names = sorted({canon.get(n, n) for c in live
+                        for n in (c.get('camp') or ['', '', ''])[1:] if n})
+        cache[k] = hit = (hit, ' + '.join(names))
         return hit
 
     return band
@@ -238,6 +267,10 @@ def main() -> int:
                          'never reach the profit file')
     ap.add_argument('--no-promo', action='store_true',
                     help='leave out the promotion split')
+    ap.add_argument('--promo-bands', choices=('three', 'all'), default='three',
+                    help='three folds "Nation-wide only" and "Not in the plan" '
+                         'into "No promotion" (default); all keeps the five '
+                         'apart')
     ap.add_argument('--plan', nargs='+', metavar='STEM',
                     default=['MX_product', 'ce_product'],
                     help='the promotion plan(s) the promotion split is read '
@@ -830,18 +863,74 @@ def build_month(folder, target, args):
     banded_any = [False]
 
     def merge_bands(src):
-        """Spread an order source's banded units onto the sales."""
+        """Make the promotion two more levels of the key.
+
+        Not an overlay on the bar like "When ordered", but levels of the
+        combination - so Stack by Promo is the same mechanism as Customer and
+        Product, drawn by the same code: clicking a bar narrows to it and the
+        next level splits what is left.
+
+        The profit file has no promotion on it, so each combination is split
+        across the promotions its orders came in on, in proportion to the units
+        each carried. That is an allocation; it assumes every unit of a product
+        earns the same margin whichever promotion brought it in, which is the
+        one thing a discount does not do. It ranks promotions; it does not
+        price one.
+        """
+        nonlocal keys, series
         if bander is None:
             return
-        if not getattr(src, 'by_band', None):
+        tokens, by_band = (src.band_rows() if getattr(src, 'band_at', None)
+                           else ([], {}))
+        if not tokens:
             print('  no unit could be banded by promotion, so Stack by Promo '
                   'will be off on the page')
             return
         banded_any[0] = True
-        merge_orders(src.by_band, skip_sku_arg(), add_series=PROMO_SERIES)
-        got = sum(sum(v) for v in src.by_band.values())
-        print(f'  promotion bands: {got:,.0f} unit(s) banded by what the plan '
-              f'says was live for them')
+        got = sum(sum(v) for v in by_band.values())
+        # Onto the combinations first, by the spreading the order side already
+        # uses, so a band lands where its orders could have landed.
+        merge_orders(by_band, skip_sku_arg(),
+                     add_series=[(f'_pb{i}', t) for i, t in enumerate(tokens)])
+        at = len(keys) - len(tokens)
+        # Then split each combination by those columns and drop them. What the
+        # orders could not band keeps a row of its own, so the month still
+        # comes to its own total.
+        fold = {} if args.promo_bands == 'all' else PROMO_FOLD
+        kept = []
+        for key, vals in list(combos.items()):
+            share = vals[at:]
+            total = sum(share)
+            del combos[key]
+            n = counts.pop(key, 0)
+            head = vals[:at]
+            if not total:
+                kept.append(((key + (NO_ORDER, NO_ORDER)), head, n))
+                continue
+            per: dict = {}
+            for t, u in zip(tokens, share):
+                if not u:
+                    continue
+                band, camp = t if isinstance(t, tuple) else (t, '')
+                band = fold.get(band, band)
+                lv = (PROMO_LABEL.get(band, band), camp or NO_CAMPAIGN)
+                per[lv] = per.get(lv, 0.0) + u
+            for lv, u in per.items():
+                kept.append((key + lv, [x * u / total for x in head], n))
+        for key, vals, n in kept:
+            row = combos.get(key)
+            if row is None:
+                combos[key] = list(vals)
+                counts[key] = n
+            else:
+                for i, x in enumerate(vals):
+                    row[i] += x
+                counts[key] = counts.get(key, 0) + n
+        keys = keys[:at]
+        series = series[:at]
+        print(f'  promotion: {got:,.0f} unit(s) banded, over '
+              f'{len({k[-2] for k in combos}):,} band(s) and '
+              f'{len({k[-1] for k in combos}):,} campaign(s)')
 
     def skip_sku_arg():
         return tuple(t.strip().upper()
@@ -862,7 +951,7 @@ def build_month(folder, target, args):
                 currency=args.currency,
                 skip_sku=tuple(t.strip().upper()
                                for t in args.skip_sku.split(',') if t.strip()),
-                band_of=bander, bands=PROMO_BANDS if bander else ())
+                band_of=bander)
             if got_sap:
                 SAP.report(got_sap, ym)
                 carry_in_known = any(
@@ -922,7 +1011,7 @@ def build_month(folder, target, args):
                     booked=({t.strip().upper() for t in args.booked.split(',')
                              if t.strip()} if args.booked else None))
         if bander is not None:
-            load = dict(load, band_of=bander, bands=PROMO_BANDS)
+            load = dict(load, band_of=bander)
         this = ORD.load(op, **load)
         before = ORD.load(bp, **load) if bp is not None else None
         if bp is None:
@@ -968,14 +1057,14 @@ def build_month(folder, target, args):
             # same combinations in the same proportions as the orders it is a
             # property of. Both months, because a bar is the month as sold and
             # what carried in is part of it.
-            if bander is not None and this.by_band:
-                both = type('B', (), {'by_band': {}})()
-                for side in (this, before):
-                    for k, v in (side.by_band.items() if side else ()):
-                        row = both.by_band.setdefault(k, [0.0] * N_PROMO)
-                        for i in range(N_PROMO):
-                            row[i] += v[i]
-                merge_bands(both)
+            # Both months' bands onto one source, because a bar is the
+            # month as sold and what carried into it is part of that.
+            if bander is not None and before is not None:
+                for k, v in before.by_band.items():
+                    for token, i in before.band_at.items():
+                        if i < len(v) and v[i]:
+                            this.add_band(k, token, v[i])
+            merge_bands(this)
             # The month as the orders model it, beside the month as sold. A
             # wide gap between them means the booking rule does not describe
             # this export, and py tools\cohort.py is where to find out why.
@@ -1012,13 +1101,23 @@ def build_month(folder, target, args):
     # ── what the filters ended up holding ──────────────────────────────────
     levels = []
     print('\nfilter values:')
-    for n, (label, slot, names) in enumerate(FILTERS):
+    # The promotion levels are only there when something was banded, so they
+    # are appended here rather than being part of FILTERS - a page built
+    # without them must not carry two empty filters.
+    shown = FILTERS + (PROMO_LEVELS if banded_any[0] else [])
+    for n, (label, slot, names) in enumerate(shown):
         seen = sorted({k[n] for k in combos})
         levels.append({'name': label, 'values': seen})
-        known = {v for m in (cust, prod) for row in m.values()
-                 if (v := row.get(slot))} if n else set()
+        known = ({v for m in (cust, prod) for row in m.values()
+                  if (v := row.get(slot))}
+                 if n and n < len(FILTERS) else set())
         missing = sorted(known - set(seen))
         src = []
+        if n >= len(FILTERS):
+            print(f'  {label}: {len(seen)} value(s)  (from the promotion plan)')
+            print('    ' + ', '.join(seen[:14])
+                  + (' ...' if len(seen) > 14 else ''))
+            continue
         if from_master[n]:
             src.append(f'{from_master[n]:,} row(s) from the master')
         if from_export[n]:
@@ -1105,6 +1204,9 @@ def build_month(folder, target, args):
         # month build so the run can say, once and at the end, that Stack by
         # Promo will be off - a disabled button looks the same as a broken one.
         'promoBands': banded_any[0],
+        # Where the promotion chain starts, so the page can split the levels
+        # into three chains the way it already splits them into two.
+        'promoAt': PROMO_AT if banded_any[0] else None,
         'levels': levels,
         'series': series,
         'start': index[levels[0]['name']].get(start, -1) if start else -1,

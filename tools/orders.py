@@ -73,7 +73,10 @@ class Orders:
         # because it is a different question about the same line: by_key says
         # whether the order shipped, this says what brought it in.
         self.by_band: dict[tuple, list[float]] = {}
-        self.bands: tuple = ()
+        # token -> column. The tokens are (band, campaign) pairs and which ones
+        # exist is not known until the file has been read, so the vector grows
+        # as they turn up rather than being sized from a list written here.
+        self.band_at: dict = {}
 
     def month(self):
         """The month this export covers, as YYYYMM, or None if it spans more.
@@ -97,13 +100,24 @@ class Orders:
         v[which * 2] += qty
         v[which * 2 + 1] += amt
 
-    def add_band(self, key: tuple, band: str, qty: float) -> None:
-        if band not in self.bands:
-            return
-        v = self.by_band.get(key)
-        if v is None:
-            v = self.by_band[key] = [0.0] * len(self.bands)
-        v[self.bands.index(band)] += qty
+    def add_band(self, key, band, qty):
+        i = self.band_at.get(band)
+        if i is None:
+            i = self.band_at[band] = len(self.band_at)
+        v = self.by_band.setdefault(key, [])
+        if len(v) <= i:
+            v.extend([0.0] * (i + 1 - len(v)))
+        v[i] += qty
+
+    def band_rows(self):
+        """(tokens, {key: vector}) with every vector the same width."""
+        tokens = sorted(self.band_at, key=self.band_at.get)
+        n = len(tokens)
+        for v in self.by_band.values():
+            if len(v) < n:
+                v.extend([0.0] * (n - len(v)))
+        return tokens, self.by_band
+
 
     def totals(self) -> list[float]:
         out = [0.0, 0.0, 0.0, 0.0]
@@ -117,8 +131,7 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
          products: dict, shipped: set | None = None, booked: set | None = None,
          positive: tuple = POSITIVE, negative: tuple = NEGATIVE,
          signed: bool = True, currency: str | None = None,
-         agree: float = 80.0, band_of=None, bands: tuple = (),
-         say=print) -> Orders | None:
+         agree: float = 80.0, band_of=None, say=print) -> Orders | None:
     """Read the order export and total it onto the profit file's key.
 
     `cust_levels` and `prod_levels` are the level lists in the order the key is
@@ -170,7 +183,6 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
             'the order side')
 
     out = Orders(path)
-    out.bands = tuple(bands)
     out.amount_col = head[amt_i] if amt_i is not None else None
 
     def cell(r, i):

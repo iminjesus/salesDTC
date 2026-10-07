@@ -80,7 +80,10 @@ class Months:
         # caller passes a `band_of`, and only for what this month earned -
         # carried out is next month's and has earned nothing here to split.
         self.by_band: dict[tuple, list[float]] = {}
-        self.bands: tuple = ()
+        # token -> column. The tokens are (band, campaign) pairs and which ones
+        # exist is not known until the file has been read, so the vector grows
+        # as they turn up rather than being sized from a list written here.
+        self.band_at: dict = {}
 
     def add(self, key, which, qty, amt):
         v = self.by_key.get(key)
@@ -90,12 +93,23 @@ class Months:
         v[which * 2 + 1] += amt
 
     def add_band(self, key, band, qty):
-        if band not in self.bands:
-            return
-        v = self.by_band.get(key)
-        if v is None:
-            v = self.by_band[key] = [0.0] * len(self.bands)
-        v[self.bands.index(band)] += qty
+        i = self.band_at.get(band)
+        if i is None:
+            i = self.band_at[band] = len(self.band_at)
+        v = self.by_band.setdefault(key, [])
+        if len(v) <= i:
+            v.extend([0.0] * (i + 1 - len(v)))
+        v[i] += qty
+
+    def band_rows(self):
+        """(tokens, {key: vector}) with every vector the same width."""
+        tokens = sorted(self.band_at, key=self.band_at.get)
+        n = len(tokens)
+        for v in self.by_band.values():
+            if len(v) < n:
+                v.extend([0.0] * (n - len(v)))
+        return tokens, self.by_band
+
 
     def totals(self):
         out = [0.0] * 6
@@ -107,14 +121,13 @@ class Months:
 
 def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
          products: dict, skip_sku: tuple = (), currency: str | None = None,
-         band_of=None, bands: tuple = (), say=print) -> Months | None:
+         band_of=None, say=print) -> Months | None:
     """Read every SAP export and total the month onto the profit file's key.
 
     `month` is the month being drawn, as YYYYMM. A line counts when it left in
     that month, or when it was ordered in that month and leaves after it.
     """
     out = Months()
-    out.bands = tuple(bands)
     for path in paths:
         rows, info = read_any(path)
         if not rows:

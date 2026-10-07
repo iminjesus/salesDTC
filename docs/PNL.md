@@ -586,65 +586,60 @@ by adding the column's name to `LEVELS` in `tools/customer.py`.
 
 ## Stack by Promo
 
-A fourth button beside Customer, Product and When ordered. It splits the same
-revenue by **what the plan had live for that product on the day it was
-ordered**:
+A fourth button beside Customer, Product and When ordered - and **the same
+mechanism as those two, not as When ordered.** The promotion is two more levels
+of the key, so the existing code draws it: clicking a bar narrows to that value
+and the next level down splits what is left, Back steps out, and the filter rows
+carry it like any other level.
+
+> **Promotion** -> **DTC campaign**
+
+Three bands, which is what the page is read for:
 
 | | |
 |---|---|
 | DTC + Nation-wide | a plan line covering that product on that date names both |
 | DTC promotion | it names a DTC campaign only |
-| Nation-wide only | it names the nationwide campaign only |
-| **No promotion** | a plan line **does** cover it and names no campaign at all |
-| **Not in the plan** | no plan line covers it: the product is not in the plan, or every line for it has a window the order date sits outside (or the order row has no readable date) |
-| No order matched | no order could be banded at all - it keeps its own band |
+| No promotion | nothing above |
 
-**The last two were one band, and they are not one thing.** *No promotion* is a
-statement: the plan has a line for this product, live on this date, and it names
-no campaign. *Not in the plan* is the absence of a statement - the plan says
-nothing about this line either way, so it cannot say whether a promotion ran.
+Clicking **DTC promotion** opens it by **DTC campaign** - the campaigns inside
+that band, folded to one spelling each, so `DTC Boost week` and `DTC Boost Week`
+are one bar.
 
-Together they read as "this much sold unpromoted", which only the first one
-supports. In the test fixture that was 499 of net sales sitting under *No
-promotion* for a SKU the plan simply does not list. A gap in the plan file and an
-unpromoted sale are different problems and want different work: one is chased in
-the plan, the other in the pricing.
+`--promo-bands all` keeps five apart instead of three. The two that fold are
+real and different, and the distinction is kept in the data rather than thrown
+away:
 
-Read the way "When ordered" is read, and for the same reason: **a cut of the
-same revenue, not a level of the key.** The bands are the shipped units' own, so
-each one is a share and the bar still comes to the month's own total - a month
-that read smaller under one split than another would be a chart arguing with
-itself. What no order could be banded keeps its own band rather than being
-shared out, which is what holds that total.
+| | |
+|---|---|
+| Nation-wide only | a plan line covers it and names the nationwide campaign, no DTC one |
+| Not in the plan | **no plan line covers it at all** - the product is not in the plan, or every line for it has a window the order date sits outside |
 
-The band is read from the product code and the date, **never from the price** -
-the price rejects plan lines the plan does cover, because a trade-in or a
-stacked voucher moves what was collected away from what the plan quotes. The
-same test `promo_match --dtc-only` and `promo_profit` use, so the three cannot
-disagree about one order.
+*Not in the plan* is the absence of a statement, not a finding: the plan says
+nothing about that line either way. Folded into *No promotion* it reads as "this
+much sold unpromoted", which it does not support - so the fold is a display
+choice the data can be asked to undo, not a loss.
 
-The units are banded in the order loader, on the profit file's own key, and
-spread onto the sales by the same routine the order side already used - an order
-that cannot settle a level lands on the combinations it is consistent with, in
-proportion to what each one sold. That is an allocation; it says where an order
-could have gone, in the proportions the month itself gives.
+### How a profit row gets a promotion on it
 
-```
-py dashboard\build_pnl.py                 # -> dashboard/pnl_promo_<yymm>.html
-py dashboard\build_pnl.py --no-promo      # -> dashboard/pnl_<yymm>.html, as before
-```
+The profit file has no promotion. Each combination is split across the
+promotions its orders came in on, in proportion to the units each carried, and
+the split rides the spreading the order side already used - an order that cannot
+settle a level lands on the combinations it is consistent with, in the shape
+those rows already have. What no order could band keeps a row of its own, so the
+month still comes to its own total.
 
-**A different file on purpose.** The promotion split is new and the page being
-read today is not replaced by it. `--plan` names the plan files (default
-`MX_product ce_product`).
+That is an allocation. It assumes every unit of a product earns the same margin
+whichever promotion brought it in, which is the one thing a discount does not
+do. It ranks promotions; it does not price one.
 
 ### Either order source, not just one
 
 The page takes its orders from SAP where `orders_*` exports are there, and falls
-back to the store export otherwise - and **the promotion split has to come out
-of whichever one answered.** Reading it only off the store export left the band
-series missing on every build SAP answered, so the button was disabled on
-exactly the builds most likely to be run. The bander is now built once, before
+back to the store export otherwise - and **the promotion split comes out of
+whichever one answered.** Reading it only off the store export left the band
+levels missing on every build SAP answered, so the button was disabled on
+exactly the builds most likely to be run. The bander is built once, before
 either source is read, and both pass it through.
 
 On the SAP side the units are banded on **`Created On`, not `Goods Issue
@@ -652,8 +647,24 @@ Date`**: the promotion was live when the customer bought, not when the warehouse
 got to it. Carried out is left unbanded - it is next month's revenue and has
 earned nothing here to split.
 
+The band is read from the product code and the date, **never from the price** -
+the price rejects plan lines the plan does cover, because a trade-in or a
+stacked voucher moves what was collected away from what the plan quotes. The
+same test `promo_match --dtc-only` and `promo_profit` use, so the three cannot
+disagree about one order.
+
+```
+py dashboard\build_pnl.py                      # -> dashboard/pnl_promo_<yymm>.html
+py dashboard\build_pnl.py --promo-bands all    # five bands, not three
+py dashboard\build_pnl.py --no-promo           # -> dashboard/pnl_<yymm>.html, as before
+```
+
+**A different file on purpose.** The promotion split is new and the page being
+read today is not replaced by it. `--plan` names the plan files (default
+`MX_product ce_product`).
+
 A disabled button looks exactly like a broken one, so a build that bands nothing
-now says so at the end, with what it would need:
+says so at the end, with what it would need:
 
 ```
 Stack by Promo will be OFF on this page: nothing was banded by promotion.

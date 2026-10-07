@@ -334,6 +334,10 @@ function unify(months) {
     months: months.map(m => ({ ym: m.ym, label: m.month, file: m.file,
                                carryIn: !!m.carryIn })),
     custDepth: shape.custDepth,
+    // Where the promotion chain starts, carried up from the months the same
+    // way custDepth is. Left off, the chain came out empty and the button sat
+    // disabled on a page whose data had the levels in it.
+    promoAt: (months.find(m => m.promoAt != null) || {}).promoAt ?? null,
     file: months.length === 1 ? months[0].file
           : `${months.length} exports, ${months[0].file} .. ${months[months.length - 1].file}`,
     rows: months.reduce((a, m) => a + m.rows, 0),
@@ -400,9 +404,16 @@ function rebind() {
   COSTS = ['deduction', 'cogs', 'opex'].filter(k => has[k] !== undefined);
   // The two chains the page drills: the customer levels, then the product ones.
   // A chain stacks the level below whichever one the bars are on.
+  // Three chains now, cut at two marks. The promotion is levels of the key
+  // like every other level, so Stack by Promo is the same mechanism as
+  // Customer and Product and is drawn by the same code - clicking a bar
+  // narrows to it and the next level down splits what is left.
+  const pAt = DATA.promoAt == null ? DATA.levels.length : DATA.promoAt;
   CHAINS = {
     customer: DATA.levels.map((_, i) => i).filter(i => i < DATA.custDepth),
-    product:  DATA.levels.map((_, i) => i).filter(i => i >= DATA.custDepth),
+    product:  DATA.levels.map((_, i) => i)
+                .filter(i => i >= DATA.custDepth && i < pAt),
+    promo:    DATA.levels.map((_, i) => i).filter(i => i >= pAt),
   };
 }
 
@@ -807,9 +818,16 @@ function setFilter(i, v) {
   state.filter[i] = v;
   // Narrowing to one value leaves nothing to split by at that level, so the
   // split steps on to the next open one in the same chain; widening steps back.
-  const chain = (i < DATA.custDepth ? CHAINS.customer : CHAINS.product);
+  // Which chain this level belongs to. Three now, so "not customer" is no
+  // longer the same as "product" - reading it that way sent a click on a
+  // promotion band back into the product chain and split the next bar by
+  // Division.
+  const chainOf = j => (j < DATA.custDepth ? 'customer'
+                        : (DATA.promoAt != null && j >= DATA.promoAt) ? 'promo'
+                        : 'product');
+  const chain = CHAINS[chainOf(i)] || [];
   if (v >= 0) {
-    state.stack = i < DATA.custDepth ? 'customer' : 'product';
+    state.stack = chainOf(i);
     const next = chain.find(j => j > i && state.filter[j] < 0);
     if (next !== undefined) state.dim = next;
   } else if (state.dim > i && chain.includes(state.dim)) {
@@ -828,7 +846,8 @@ const BTN_MAX = 8;
 function buildFilters() {
   const box = document.getElementById('filters');
   box.innerHTML = '';
-  [['Customer', CHAINS.customer], ['Product', CHAINS.product]]
+  [['Customer', CHAINS.customer], ['Product', CHAINS.product],
+   ['Promotion', CHAINS.promo || []]]
     .filter(([, ids]) => ids.length)
     .forEach(([chainName, ids]) => {
       const chain = document.createElement('div');
@@ -1131,22 +1150,6 @@ function draw() {
 
    The profit line is on both, each point carrying its own figure, so
    switching never loses it. */
-// The promotion bands, in the order they stack. Same shape as ORIGINS: a cut of
-// the same revenue rather than a level of the key, so the bar still comes to
-// the month's own total and can be read against the other splits. Out here
-// because whether the split is available at all is decided at the top of
-// drawStack, before any of its own constants have run.
-const PROMOS = [['pboth', 'DTC + Nation-wide'],
-                ['pdtc',  'DTC promotion'],
-                ['pnat',  'Nation-wide only'],
-                // A statement: a plan line covers this and names no campaign.
-                ['pnone', 'No promotion'],
-                // Not a statement: the plan has no line for the product, or
-                // none whose window covers the order, so it says nothing
-                // either way. Folding this into the one above would read as
-                // "this much sold unpromoted", which it does not support.
-                ['pgap',  'Not in the plan'],
-                [null,    'No order matched']];
 let stkChart = null;
 function drawStack() {
   // "When ordered" is not a level of the key: it cuts the same revenue by the
@@ -1157,22 +1160,20 @@ function drawStack() {
   // The promotion split needs the band series on the cells; a build run
   // without a plan has none, and the button stays off rather than drawing an
   // empty stack.
-  const canPromo = PROMOS.some(([k]) => k && has[k] !== undefined);
+  const canPromo = (CHAINS.promo || []).length > 0;
   if (state.stack === 'orders' && !canOrd) state.stack = 'customer';
   if (state.stack === 'promo' && !canPromo) state.stack = 'customer';
   const ordMode = state.stack === 'orders';
-  const promoMode = state.stack === 'promo';
   // The level that splits each bar. P&L has no split, so it ignores this.
   const chain = CHAINS[state.stack] || [];
-  const sl = (ordMode || promoMode) ? undefined : (splitLevel() ?? undefined);
+  const sl = ordMode ? undefined : (splitLevel() ?? undefined);
   const slNext = sl === undefined ? null
     : (chain[chain.indexOf(sl) + 1] ?? null);
   [['stkCust', 'customer'], ['stkProd', 'product'],
    ['stkOrd', 'orders'], ['stkPromo', 'promo']].forEach(([id, v]) => {
     const b = document.getElementById(id);
     b.classList.toggle('active', state.stack === v);
-    b.disabled = v === 'orders' ? !canOrd
-               : v === 'promo' ? !canPromo : !CHAINS[v].length;
+    b.disabled = v === 'orders' ? !canOrd : !(CHAINS[v] || []).length;
   });
 
   // Where the month's revenue came from. The first two are the orders; the
@@ -1321,30 +1322,6 @@ function drawStack() {
       });
       continue;
     }
-    if (promoMode) {
-      // The same revenue, cut by what the plan had live for that product on
-      // the day it was ordered. The bands are units, so they are a set of
-      // shares; what no order could be banded at all keeps its own band, which
-      // is what makes the bar come to the month's own total.
-      const v = fig === undefined ? 0 : c.v[fig] * flip;
-      let banded = 0;
-      for (const [k] of PROMOS) if (k && has[k] !== undefined) banded += c.v[has[k]];
-      PROMOS.forEach(([k, name]) => {
-        const share = k === null
-          ? (banded ? 0 : 1)
-          : (has[k] === undefined || !banded ? 0 : c.v[has[k]] / banded);
-        if (!share) return;
-        const b = slotFor(name)[ci];
-        for (const kk of ['profit', 'net', 'gross']) {
-          if (has[kk] !== undefined) b[kk] += c.v[has[kk]] * share;
-        }
-        const row = xs[ci].row;
-        row.set(name, (row.get(name) || 0) + v * share);
-        xs[ci].total += v * share;
-        stackTotal.set(name, (stackTotal.get(name) || 0) + v * share);
-      });
-      continue;
-    }
     if (pnlMode || sl === undefined) continue;
     const g = DATA.levels[sl].values[c.k[sl]];
     const b = slotFor(g)[ci];
@@ -1383,9 +1360,7 @@ function drawStack() {
   // Eight slots, in a fixed order by size across the whole span - so a member
   // keeps its colour from month to month, which is the only way a stacked bar
   // can be read along a time axis at all. A ninth folds into Other.
-  const members = promoMode
-    ? PROMOS.map(o => o[1]).filter(n => stackTotal.has(n))
-    : ordMode
+  const members = ordMode
     ? ORIGINS.map(o => o[1]).filter(n => stackTotal.has(n))
     : [...stackTotal.entries()]
         .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
@@ -1404,8 +1379,6 @@ function drawStack() {
   // pair of colours rather than taking whichever slot they sorted into.
   // The unmatched band takes the palette's neutral slot, which is what it is.
   const bandColour = i => (ordMode ? [C.stack[0], C.stack[4], C.stack[8]][i]
-                        : promoMode ? [C.stack[0], C.stack[2], C.stack[4],
-                                       C.stack[6], C.stack[7], C.stack[8]][i]
                                    : C.stack[i]);
   const series = pnlMode ? [] : named.map((g, i) => ({
     label: g, stack: 'a', data: scale(raw(g)), amounts: raw(g),
@@ -1607,12 +1580,6 @@ function drawStack() {
       : pnlMode
       ? `${label('gross')} beside what it went out on, by ${PER}. Costs are `
         + 'drawn as amounts.'
-      : promoMode
-      ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}, `
-        + 'split by what the plan had live for that product on the day it was '
-        + 'ordered. The bands are the shipped units\u2019 own, so the bar still '
-        + 'comes to the month\u2019s total; what no order could be banded at all '
-        + 'keeps its own band rather than being shared out.'
       : sl === undefined
         ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}. `
           + `Every ${state.stack} level is narrowed to one value, so there is `
