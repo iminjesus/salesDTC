@@ -1177,11 +1177,13 @@ def main() -> int:
                     help='when a page comes back with no products, wait at the console '
                          'so you can deal with it in the browser yourself, then retry '
                          'that page. Use with --headed.')
-    ap.add_argument('--attach', nargs='?', const='http://localhost:9222',
+    ap.add_argument('--attach', nargs='?', const='http://127.0.0.1:9222',
                     metavar='URL',
                     help='read a browser that is already running instead of '
                          'starting one, over its debugging port (default '
-                         'http://localhost:9222). Start Chrome with '
+                         'http://127.0.0.1:9222 - the numeric address on '
+                         'purpose: Chrome listens on IPv4 and "localhost" '
+                         'resolves to ::1 first on Windows). Start Chrome with '
                          '--remote-debugging-port=9222, clear any check by '
                          'hand, and the crawl uses that window and its session')
     ap.add_argument('--open-tabs', action='store_true',
@@ -1293,7 +1295,26 @@ def main() -> int:
             #
             # Start Chrome once with a debugging port and leave it open:
             #   chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\hn
-            browser = pw.chromium.connect_over_cdp(args.attach)
+            try:
+                browser = pw.chromium.connect_over_cdp(args.attach)
+            except Exception as exc:
+                first = str(exc).splitlines()[0]
+                print(f'could not attach to a browser at {args.attach}\n'
+                      f'  {first}\n\n'
+                      'Nothing is listening on that port. An already-running\n'
+                      'Chrome does not have one - it has to be started with the\n'
+                      'flag, in its own profile folder, and left open:\n\n'
+                      '  Windows:\n'
+                      '    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" ^\n'
+                      '      --remote-debugging-port=9222 --user-data-dir=C:\\hn-profile\n\n'
+                      '  macOS:\n'
+                      '    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \\\n'
+                      '      --remote-debugging-port=9222 --user-data-dir=/tmp/hn-profile\n\n'
+                      'Open the pages you want in that window, clear any check,\n'
+                      'then run this again. Check the port is up first:\n'
+                      '  curl http://127.0.0.1:9222/json/version',
+                      file=sys.stderr)
+                return 2
             if not browser.contexts:
                 print(f'nothing is open in the browser at {args.attach}',
                       file=sys.stderr)

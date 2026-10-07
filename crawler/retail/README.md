@@ -166,13 +166,24 @@ answers one with a 1.2 KB Imperva page whether it is headless or not, and from
 a home connection as readily as from a datacentre. The answer is not to dress
 it better. It is to stop starting one.
 
-Start Chrome once with a debugging port and leave it open:
+Start Chrome once with a debugging port **and leave it open**. A Chrome that is
+already running does not have the port — the flag only takes effect at start-up,
+and `--user-data-dir` gives it a profile of its own so it starts a new process
+instead of handing the command to the window you already have:
 
-```sh
-chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\hn-profile
+```bat
+:: Windows (cmd / PowerShell - quote the path)
+"C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+  --remote-debugging-port=9222 --user-data-dir=C:\hn-profile
 ```
 
-Browse to the page you want, clear any check by hand, then:
+Check the port is actually up before crawling — this should print a JSON blob:
+
+```sh
+curl http://127.0.0.1:9222/json/version
+```
+
+Browse to the page you want in that window, clear any check by hand, then:
 
 ```sh
 # read the tabs that are open, navigating nowhere - crawl what is on screen
@@ -182,7 +193,10 @@ python crawl.py --site samsung --attach --open-tabs
 python crawl.py --site samsung --attach --url "https://www.samsung.com/au/monitors/all-monitors/"
 ```
 
-`--attach` defaults to `http://localhost:9222`. Nothing about the browser is
+`--attach` defaults to `http://127.0.0.1:9222` — the numeric address on purpose.
+Chrome's debugging port listens on IPv4 only, while on Windows `localhost`
+resolves to `::1` first, so the hostname gives `ECONNREFUSED ::1:9222` against a
+browser that is running perfectly well. Nothing about the browser is
 faked - it **is** the browser, with the session a person established in it, so
 there is no fingerprint to get wrong. `--open-tabs` reads each open tab where it
 stands; navigating it would throw away the very thing it is being read for.
