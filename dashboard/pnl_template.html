@@ -166,6 +166,13 @@ select:disabled { opacity: .5; }
   color: var(--ink-2); margin-bottom: 8px; }
 .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block;
   margin-right: 6px; vertical-align: -1px; }
+/* A legend entry is a switch, so it looks like one: pointer, and struck
+   through once it is off rather than simply gone, which would leave no way
+   back to it. */
+.legend .pick { cursor: pointer; user-select: none; }
+.legend .pick:hover { color: var(--ink); }
+.legend .pick.off { color: var(--ink-3); text-decoration: line-through; }
+.legend .pick.off i { opacity: .3; }
 .chart { position: relative; height: 420px; }
 /* The chart's own controls. Back is in the menu too, but by the time you have
    drilled three levels the menu is a long way from the bar you just clicked,
@@ -383,6 +390,10 @@ function fade(colour, a) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
+// A band's own margin line is named after it, so one is found from the other.
+const stripMargin = l => l.replace(/ margin$/, '');
+const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+  .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const fmt = n => Math.round(n).toLocaleString();
 /* A per-unit figure is a price, so it keeps its cents. */
 const unitFmt = n => n.toLocaleString(undefined, { minimumFractionDigits: 2,
@@ -427,6 +438,10 @@ const state = {
   // statement, the money, or the units. It opens on the statement, which is
   // the page's title.
   stack: 'customer',
+  // Legend entries switched off, by label. A band and its dotted margin line
+  // go together: hiding "DTC promotion" hides "DTC promotion margin" with it,
+  // or the chart keeps a line for a band that is no longer drawn.
+  hidden: new Set(),
   // The whole statement, which the page opens on. Not a figure - it has no
   // split, so neither Stack by nor Figure applies while it is on.
   pnl: true,
@@ -1494,17 +1509,34 @@ function drawStack() {
           borderColor: fade(bandColour(i, g), .75),
           backgroundColor: fade(bandColour(i, g), .75),
           borderWidth: 1.4, borderDash: [4, 3],
-          pointRadius: 0, pointHoverRadius: 5, tension: .25, fill: false,
+          // Points, like the solid line. Without them a dotted line is a shape
+          // and nothing else: there is no telling which months it actually has
+          // a figure for and which stretch it is only spanning a gap across.
+          pointRadius: 3, pointHoverRadius: 6, tension: .25, fill: false,
           spanGaps: true, order: -1, bandLine: true,
         });
       });
     }
   }
 
+  // The legend is a switch: clicking an entry takes that band out of every bar
+  // and clicking it again puts it back. Held by label rather than by index, so
+  // a band keeps its state while the months and the figure change underneath
+  // it, and dropped when it is no longer on the chart at all.
+  const shownSeries = series.filter(d => !state.hidden.has(stripMargin(d.label)));
   document.getElementById('stkLegend').innerHTML = series
     .filter(d => !d.bandLine)        // the band's own colour already names it
-    .map(d => `<span><i style="background:${d.type === 'line' ? d.borderColor
+    .map(d => `<span class="pick${state.hidden.has(d.label) ? ' off' : ''}" `
+      + `data-label="${esc(d.label)}" title="click to take it out of the bars">`
+      + `<i style="background:${d.type === 'line' ? d.borderColor
       : d.backgroundColor}"></i>${d.label}</span>`).join('');
+  document.getElementById('stkLegend').querySelectorAll('.pick').forEach(el => {
+    el.onclick = () => {
+      const g = el.dataset.label;
+      if (state.hidden.has(g)) state.hidden.delete(g); else state.hidden.add(g);
+      render();
+    };
+  });
   // Expanded, the stylesheet gives the plot the window; the inline height set
   // here would win over it, so it steps aside.
   plot.style.height = state.zoom === 'stk' ? ''
@@ -1517,7 +1549,7 @@ function drawStack() {
   const canDrill = !pnlMode && !ordMode && sl !== undefined;
   if (stkChart) stkChart.destroy();
   stkChart = new Chart(document.getElementById('stkBars'), {
-    type: 'bar', data: { labels: xs.map(r => r.name), datasets: series },
+    type: 'bar', data: { labels: xs.map(r => r.name), datasets: shownSeries },
     plugins: [pointLabels, barValues],
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
@@ -1735,6 +1767,10 @@ document.addEventListener('keydown', e => {
 document.getElementById('resetBtn').onclick = () => {
   startHere();
   state.stack = 'customer';
+  // A band switched off at the legend is as much a narrowing as a filter is,
+  // and Reset that leaves one off is a page still hiding something after being
+  // told to show everything.
+  state.hidden.clear();
   render();
 };
 [['stkCust', 'customer'], ['stkProd', 'product'], ['stkOrd', 'orders'],
