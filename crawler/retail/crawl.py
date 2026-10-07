@@ -26,7 +26,9 @@ How it reads the page
 
 Be a good citizen: this pulls public listing pages at a walking pace (--delay),
 identifies itself in the user agent, and is meant for price monitoring of a brand
-you already sell. Check the site's terms and robots.txt before scheduling it.
+you already sell. It reads the site's robots.txt itself and skips any page that
+file disallows (--ignore-robots overrides, deliberately); the site's terms are
+still yours to check before scheduling it.
 """
 from __future__ import annotations
 
@@ -128,12 +130,23 @@ SITES = {
             'homeacc':      '/home-appliance-accessories/all-home-appliance-accessories/',
         },
     },
+    # Harvey Norman. Its robots.txt disallows /catalogsearch/, which is exactly
+    # what this entry used to be built on, so a run starts from a real category
+    # listing instead and finds the sibling categories from the page's own
+    # navigation. Only the category below is confirmed to exist; the rest come
+    # from the site at run time, and robots.txt is checked before every fetch.
+    #
+    # There is no brand facet worth guessing at on a category page, so its url
+    # is used exactly as written (`plain_urls`) and the brand filter narrows the
+    # products afterwards.
     'harveynorman': {
         'base':          'https://www.harveynorman.com.au',
-        'search':        '/catalogsearch/result/',
+        # Where a run with no --category starts. The site's own search is
+        # disallowed, so this is a listing, not a search.
+        'search':        '/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs',
+        'plain_urls':    True,
         'query_param':   'q',
         'brand_param':   'af',
-        # /catalogsearch/result/?q=samsung&af=def_general_brand%3ASamsung
         'brand_value':   lambda b: f'def_general_brand:{b.title()}',
         'query_value':   lambda b: b.lower(),
         # Product urls here are not a reliable shape, so every link is considered
@@ -145,9 +158,15 @@ SITES = {
         # served normally, so run with a window unless told otherwise.
         'needs_headed':  True,
         'product_href':  r'',
-        'category_href': r'/([a-z0-9\-]+/[a-z0-9\-]+)/?$',
+        # A category is /<group>/<kind> or /<group>/<by-something>/<kind>. A
+        # product page ends .html, and a numeric last segment is a filtered view
+        # (/oled-tvs/1065) - neither is a listing to queue, so the last segment
+        # has to carry a letter and no dot.
+        'category_href': r'/((?:[a-z0-9\-]+/){1,2}[a-z0-9\-]*[a-z][a-z0-9\-]*)/?$',
         'category_path': '/{slug}',
-        'categories': {},
+        'categories': {
+            'qled_lcd_tvs': '/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs',
+        },
     },
 }
 
@@ -206,10 +225,12 @@ def listing_url(url: str, brand: str) -> str:
         /collections/tvs?query=x     -> /collections/tvs?query=x&Brand=SAMSUNG
     """
     parts = urlsplit(url if url.startswith('http') else BASE + url)
-    # A single-brand store needs neither: there is no facet to narrow to the
-    # brand, and a search term appended to a category listing is at best noise
-    # and at worst a page that answers nothing.
-    if SITE.get('own_brand'):
+    # Some sites want neither. A search term appended to a category listing is
+    # at best noise and at worst a page that answers nothing, and a single-brand
+    # store has no facet to narrow to the brand. A site whose category urls
+    # carry no facet worth guessing at (`plain_urls`) is left alone the same
+    # way, and the brand filter narrows its results afterwards instead.
+    if SITE.get('own_brand') or SITE.get('plain_urls'):
         return urlunsplit(parts)
     params = dict(parse_qsl(parts.query, keep_blank_values=True))
     params.setdefault(SITE['query_param'], SITE['query_value'](brand))
@@ -711,6 +732,109 @@ def discover_categories(page, payloads: list, brand: str, limit: int) -> list[tu
     return cats[:limit]
 
 
+# ── what the site asks ──────────────────────────────────────────────────────
+# The README has always said to check robots.txt. Saying so is not the same as
+# doing it, and this crawler's own harveynorman entry was built on
+# /catalogsearch/, which that file disallows - nobody noticed because nothing
+# looked. So the crawler reads it itself, once per run, before it fetches.
+#
+# urllib.robotparser is not enough here. It compares paths with startswith, so
+# every wildcard rule silently passes: Harvey Norman's "Disallow: /*1065" (the
+# filtered listings) would read as allowed. The matcher below follows the rules
+# the search engines publish - `*` is any run of characters, `$` anchors the
+# end, and of the rules that match, the longest pattern wins, Allow breaking a
+# tie - so a wildcard rule is honoured instead of ignored.
+ROBOTS = {'rules': None, 'read': False, 'skipped': 0}
+
+
+class Robots:
+    def __init__(self, text: str):
+        # robots.txt is read in groups: one or more User-agent lines, then the
+        # rules that belong to them, until the next User-agent line starts a
+        # new group. Only the groups addressed to everyone are kept - a rule
+        # written for one named crawler is not ours to obey or to ignore.
+        self.rules: list[tuple[str, bool]] = []
+        agents: list[str] = []
+        buf: list[tuple[str, bool]] = []
+        naming = False
+
+        def flush():
+            if any(a == '*' for a in agents):
+                self.rules.extend(buf)
+
+        for line in text.splitlines():
+            line = line.split('#', 1)[0].strip()
+            if ':' not in line:
+                continue
+            field, _, value = line.partition(':')
+            field, value = field.strip().lower(), value.strip()
+            if field == 'user-agent':
+                if not naming and agents:          # the group before is done
+                    flush()
+                    agents, buf = [], []
+                agents.append(value.lower())
+                naming = True
+            elif field in ('allow', 'disallow'):
+                naming = False
+                if value:
+                    buf.append((value, field == 'allow'))
+        flush()
+
+    @staticmethod
+    def _matches(pattern: str, path: str) -> bool:
+        anchored = pattern.endswith('$')
+        body = pattern[:-1] if anchored else pattern
+        rx = ''.join('.*' if c == '*' else re.escape(c) for c in body)
+        return re.match(rx + ('$' if anchored else ''), path) is not None
+
+    def allows(self, url: str) -> bool:
+        parts = urlsplit(url)
+        path = parts.path or '/'
+        if parts.query:
+            path += '?' + parts.query
+        best: tuple[int, bool] | None = None
+        for pattern, allowed in self.rules:
+            if self._matches(pattern, path):
+                key = (len(pattern.rstrip('$')), allowed)
+                if best is None or key > best:
+                    best = key
+        return True if best is None else best[1]
+
+
+def robots_for(page, say=print):
+    """The site's robots.txt, read once through the same browser session.
+
+    page.request, not a fetch() inside the page: the browser's own request
+    context carries the session's cookies but is not bound by the page's
+    origin, so a blank starting tab can still read it.
+    """
+    if ROBOTS['read']:
+        return ROBOTS['rules']
+    ROBOTS['read'] = True
+    root = urlsplit(BASE)
+    txt = ''
+    try:
+        reply = page.request.get(f'{root.scheme}://{root.netloc}/robots.txt',
+                                 timeout=20_000)
+        if reply.ok:
+            txt = reply.text()
+    except Exception as exc:
+        say(f'  could not read robots.txt ({type(exc).__name__})')
+    if not txt.strip():
+        say('  robots.txt could not be read, so no page is checked against it')
+        return None
+    rules = Robots(txt)
+    ROBOTS['rules'] = rules
+    say(f'  robots.txt read: {len(rules.rules)} rule(s) for everyone, '
+        f'checked before each page')
+    return rules
+
+
+def robots_allows(page, url: str, say=print) -> bool:
+    rules = robots_for(page, say)
+    return True if rules is None else rules.allows(url)
+
+
 # ── page driving ────────────────────────────────────────────────────────────
 def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
     """Load a listing page and pull the products out of it.
@@ -1074,6 +1198,11 @@ def main() -> int:
                     help='reject a discount above this %% as a misread - the higher '
                          'number is kept as the price and the row is reported '
                          '(default: 70, use 100 to trust everything)')
+    ap.add_argument('--ignore-robots', action='store_true',
+                    help="fetch a page robots.txt disallows. Off by default: "
+                         "the site is asking, and a listing it asks you to "
+                         "leave alone usually has an allowed path to the same "
+                         "products")
     ap.add_argument('--no-brand-filter', action='store_true',
                     help='keep every product, not just the brand')
     args = ap.parse_args()
@@ -1214,6 +1343,15 @@ def main() -> int:
             name, url = queue.pop(0)
             if args.open_tabs:
                 page = open_pages.get(url, page)
+            # A tab a person already opened is theirs, not the crawler's fetch,
+            # so it is read either way; everything the crawler would go and get
+            # is checked first.
+            if not args.ignore_robots and not args.open_tabs \
+                    and url.startswith('http') \
+                    and not robots_allows(page, url):
+                ROBOTS['skipped'] += 1
+                print(f'  skipped, robots.txt disallows it: {url[:88]}')
+                continue
             if url in done:
                 continue
             done.add(url)
@@ -1300,6 +1438,9 @@ def main() -> int:
     on_sale = sum(1 for r in rows if r['on_sale'])
     note = ' (stopped early)' if interrupted else ''
     print(f'\n{len(rows)} products -> {out}  ({on_sale} on sale){note}')
+    if ROBOTS['skipped']:
+        print(f"{ROBOTS['skipped']} page(s) were left alone because robots.txt "
+              f'disallows them')
     fields = sorted({r['sku_field'] for r in rows if r.get('sku_field')})
     if fields:
         print(f"sku column taken from the site field(s): {', '.join(fields)}")

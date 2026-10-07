@@ -1,12 +1,13 @@
 # Retail price crawler
 
 Pulls brand listings from an Australian retailer into a CSV: on-sale flag, product
-name, original price, sale price and % off. Two sites are configured:
+name, original price, sale price and % off. Three sites are configured:
 
-| `--site` | search page |
+| `--site` | where a run with no `--category` starts |
 |---|---|
 | `jbhifi` (default) | `jbhifi.com.au/search?query=samsung&Brand=SAMSUNG` |
-| `harveynorman` | `harveynorman.com.au/catalogsearch/result/?q=samsung&af=def_general_brand%3ASamsung` |
+| `samsung` | every `/au/x/all-x/` listing on `samsung.com/au` |
+| `harveynorman` | `harveynorman.com.au/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs`, then the categories that page links to |
 
 Everything site-specific — base url, the search path, the query and brand facet
 parameters, how product and category links look — is the `SITES` dict at the top of
@@ -25,8 +26,9 @@ python -m playwright install chromium
 # JB Hi-Fi: search for SAMSUNG, then every category the site offers for it
 python crawl.py
 
-# Harvey Norman, same treatment. It is not served to a hidden browser, so a
-# window opens automatically; --profile keeps the cookies between runs.
+# Harvey Norman. Its search is disallowed by robots.txt, so the run starts from
+# a category listing and discovers the rest. It is not served to a hidden
+# browser, so a window opens automatically; --profile keeps cookies between runs.
 python crawl.py --site harveynorman --profile .profile
 
 # Samsung's own store. Every product on it is Samsung, so no brand facet is
@@ -187,10 +189,29 @@ stands; navigating it would throw away the very thing it is being read for.
 
 Note what this does and does not settle. It respects a site's wish not to be
 crawled no more and no less than a person browsing it does - so read the terms
-and `robots.txt` first, and leave alone what they ask you to leave alone.
-Harvey Norman's `robots.txt` disallows `/catalogsearch/` and `/search/`, which
-is the path this tool's `harveynorman` entry was built on, so that entry wants
-rethinking rather than reconnecting.
+first, and leave alone what they ask you to leave alone.
+
+## robots.txt
+
+The crawler reads the site's `robots.txt` once per run and skips any page the
+rules addressed to everyone (`User-agent: *`) disallow, naming each one it
+skipped and counting them in the run summary. `--ignore-robots` fetches anyway,
+which is a deliberate decision to make and not a default.
+
+Wildcards are honoured: `*` for any run of characters, `$` to anchor the end,
+and of the rules that match a url the longest pattern wins with `Allow`
+breaking a tie. `urllib.robotparser` compares paths with `startswith`, so it
+reads every wildcard rule as allowed — which is why the matcher here is its
+own.
+
+An open tab read with `--open-tabs` is not checked: that page is one a person
+loaded in their own browser, not a fetch this tool made.
+
+This is also why `harveynorman` no longer runs off the site's search. That
+entry used to be built on `/catalogsearch/`, which Harvey Norman's
+`robots.txt` disallows, and nothing looked. It now starts from a category
+listing (`/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs`) and finds the
+sibling categories from the page's own navigation.
 
 ## Stopping part way
 
