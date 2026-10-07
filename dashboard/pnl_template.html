@@ -844,11 +844,20 @@ const chainOf = j => (j < DATA.custDepth ? 'customer'
 
 function setFilter(i, v) {
   state.filter[i] = v;
-  // Narrowing to one value leaves nothing to split by at that level, so the
-  // split steps on to the next open one in the same chain; widening steps back.
-  const chain = CHAINS[chainOf(i)] || [];
+  // Narrowing a level outside the stack being looked at is a filter and only a
+  // filter: it says which rows to count, not what the bars are split by. It
+  // used to move the page into that level's own chain, so picking a Division
+  // while stacked by Promotion stopped showing promotions and started showing
+  // products - when what was being asked for was that Division's promotions.
+  if (chainOf(i) !== state.stack) {
+    render();
+    return;
+  }
+  // Inside the stack, narrowing to one value leaves nothing to split by at
+  // that level, so the split steps on to the next open one in the same chain;
+  // widening steps back.
+  const chain = CHAINS[state.stack] || [];
   if (v >= 0) {
-    state.stack = chainOf(i);
     const next = chain.find(j => j > i && state.filter[j] < 0);
     if (next !== undefined) state.dim = next;
   } else if (state.dim > i && chain.includes(state.dim)) {

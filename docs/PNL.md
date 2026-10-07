@@ -662,6 +662,16 @@ drawing. **Double-click** keeps only that band, and double-clicking the band
 that is already alone puts the rest back, so the gesture is its own undo. Reset
 clears both: a band switched off is as much a narrowing as a filter is.
 
+**A filter is a filter, and only the Stack by buttons change the stack.**
+Narrowing a level that the current stack does not contain says which rows to
+count, not what the bars are split by - so picking Division DA while stacked by
+Promotion shows *that division's* promotions, which is what the pick was asking
+for. It used to move the page into that level's own chain instead, so the bars
+stopped being promotions and became products.
+
+Narrowing a level the stack *does* contain still steps the split down, and a
+bar click is exactly that: a bar is always a level of the current chain.
+
 **Back steps back inside the stack you are on**, and is disabled at that stack's
 first level. Measured against the whole page instead, it stayed alive at the top
 of a chain and widened a narrowing belonging to a different one - which is how
