@@ -64,6 +64,11 @@ def cell(row, i):
     return (row[i] if i is not None and i < len(row) else '') or ''
 
 
+# Sold-To -> the name it matched under, filled in by named_accounts and read
+# back when the per-account breakdown is printed.
+NAMES_SEEN: dict = {}
+
+
 def squash(t: str) -> str:
     return ''.join(ch for ch in str(t or '').lower() if ch.isalnum())
 
@@ -97,6 +102,7 @@ def named_accounts(head: list, rows: list, key_names: tuple, names: list,
                     out[n].add(key)
                     seen[n][str(v).strip()] += 1
                     where[n][head[i] if i < len(head) else f'column {i}'] += 1
+                    NAMES_SEEN[key] = str(v).strip()
                     break
     for n in names:
         if not out[n]:
@@ -153,7 +159,11 @@ def sold_by_channel(path: Path, cust: dict, online: str, groups=None,
               # What the export actually bought from, by name. A --named that
               # finds nothing is almost always a retailer the master spells
               # some other way, and the only cure is to see the real spellings.
-              'accounts': collections.Counter()}
+              'accounts': collections.Counter(),
+              # And, for a retailer that did match, what each of its Sold-To
+              # codes brought in - the join itself, written out, so a code the
+              # export never mentions is visible rather than a quiet nothing.
+              'per_account': collections.Counter()}
     for r in rows[1:]:
         qty = parse_number(cell(r, i_qty)) or 0.0
         amt = parse_number(cell(r, i_amt)) or 0.0 if i_amt is not None else 0.0
@@ -179,6 +189,7 @@ def sold_by_channel(path: Path, cust: dict, online: str, groups=None,
         for name, keys in (groups or {}).items():
             if key not in keys:
                 continue
+            totals['per_account'][(name, key, where)] += qty
             if where == CUST.OFFLINE:
                 v['named'][name] += qty
                 v['named'][name + '\0amt'] += amt
@@ -281,6 +292,20 @@ def main() -> int:
         if not got and not out_of:
             print(f'  nothing was bought through an account naming {name!r}; '
                   f'the columns above say what the master does hold.')
+            continue
+        names_seen = NAMES_SEEN
+        hits = sorted(((k, w, q) for (n, k, w), q
+                       in totals['per_account'].items() if n == name),
+                      key=lambda x: -x[2])
+        print(f'    {"sold-to":<14}{"side":<14}{"units":>12}   account')
+        for k, side, q in hits[:20]:
+            print(f'    {k[:12]:<14}{side:<14}{q:>12,.0f}   '
+                  f'{(names_seen.get(k) or "")[:44]}')
+        quiet = [k for k in groups.get(name, ()) if
+                 not any(h[0] == k for h in hits)]
+        if quiet:
+            print(f'    {len(quiet):,} more Sold-To code(s) under that name '
+                  f'bought nothing this month')
 
     with gap.open(encoding='utf-8-sig', newline='') as f:
         rows = list(csv.DictReader(f))
