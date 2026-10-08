@@ -14,11 +14,23 @@ not have is neither, and is counted and reported rather than quietly folded
 into one of them - a split that does not add up to the export is worse than no
 split.
 
+    py tools\\gap_units.py gap.csv --sales sales_2609 --named "harvey norman"
+
+`--named` adds a column per retailer named, counting its **offline** units -
+the shelf the crawler priced - from the accounts whose name contains that
+text. A named retailer is a subset of the offline units, not a third channel:
+Harvey Norman's units are already inside `offline units` and are not added to
+anything. Units sold through its accounts that are not marked off-line are
+left out and reported, so the column never quietly means two things. The run
+also prints the accounts each name matched, so a retailer the master spells
+differently reads as nothing matched rather than as a zero.
+
 New columns
     online units, offline units        what the export counted, by channel
     online share                       of the two, where there are any
     unplaced units                     sold, but the customer could not be placed
     online net sales, offline net sales
+    <name> offline units, <name> offline net sales   one pair per --named
 
 A model with no row in the export gets blanks, not zeros: "it sold none" and
 "the export does not mention it" are different answers and only one of them is
@@ -27,6 +39,7 @@ a finding.
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import sys
 from pathlib import Path
@@ -47,7 +60,40 @@ def cell(row, i):
     return (row[i] if i is not None and i < len(row) else '') or ''
 
 
-def sold_by_channel(path: Path, cust: dict, online: str, say=print) -> tuple:
+def squash(t: str) -> str:
+    return ''.join(ch for ch in str(t or '').lower() if ch.isalnum())
+
+
+def named_accounts(cust: dict, names: list, say=print) -> dict:
+    """{name as typed: the customer keys whose account name contains it}.
+
+    Matched on the account name with case and punctuation taken out, so
+    "harvey norman" finds "HARVEY NORMAN AUSTRALIA" and "Harvey-Norman". What
+    matched is printed: a retailer the master spells some other way has to
+    read as nothing matched, not as a zero.
+    """
+    out = {n: set() for n in names}
+    seen = {n: collections.Counter() for n in names}
+    for key, c in cust.items():
+        account = (c or {}).get('account') or ''
+        flat = squash(account)
+        for n in names:
+            if squash(n) and squash(n) in flat:
+                out[n].add(key)
+                seen[n][account] += 1
+    for n in names:
+        if not out[n]:
+            say(f'  {n!r}: no account name contains it - that column will be '
+                f'empty', )
+            continue
+        shown = ', '.join(a for a, _ in seen[n].most_common(4))
+        say(f'  {n!r}: {len(out[n]):,} account(s) - {shown}'
+            + (' ...' if len(seen[n]) > 4 else ''))
+    return out
+
+
+def sold_by_channel(path: Path, cust: dict, online: str, groups=None,
+                    say=print) -> tuple:
     """{model code: {'on': units, 'off': units, ...}} out of a sales export."""
     rows, info = read_any(path)
     if not rows:
@@ -72,7 +118,8 @@ def sold_by_channel(path: Path, cust: dict, online: str, say=print) -> tuple:
         return {}, {}
 
     out: dict[str, dict] = {}
-    totals = {'rows': 0, 'on': 0.0, 'off': 0.0, 'lost': 0.0, 'nocode': 0.0}
+    totals = {'rows': 0, 'on': 0.0, 'off': 0.0, 'lost': 0.0, 'nocode': 0.0,
+              'named': collections.Counter()}
     for r in rows[1:]:
         qty = parse_number(cell(r, i_qty)) or 0.0
         amt = parse_number(cell(r, i_amt)) or 0.0 if i_amt is not None else 0.0
@@ -81,10 +128,27 @@ def sold_by_channel(path: Path, cust: dict, online: str, say=print) -> tuple:
         if not code:
             totals['nocode'] += qty
             continue
-        c = cust.get(key_norm(cell(r, i_cust))) or {}
+        key = key_norm(cell(r, i_cust))
+        c = cust.get(key) or {}
         where = CUST.channel_of(c.get('account'), bool(c))
         v = out.setdefault(code, {'on': 0.0, 'off': 0.0, 'lost': 0.0,
-                                  'on_amt': 0.0, 'off_amt': 0.0})
+                                  'on_amt': 0.0, 'off_amt': 0.0,
+                                  'named': collections.Counter()})
+        # A named retailer is its offline business: the shelf the crawler
+        # priced. It sits inside the offline units rather than beside them,
+        # so it is counted on the same row and nothing is taken off either
+        # side. A retailer that also sells online - Harvey Norman does - has
+        # those units left out, and the run says how many rather than letting
+        # the column quietly mean two things.
+        for name, keys in (groups or {}).items():
+            if key not in keys:
+                continue
+            if where == CUST.OFFLINE:
+                v['named'][name] += qty
+                v['named'][name + '\0amt'] += amt
+                totals['named'][name] += qty
+            else:
+                totals['named'][name + '\0out'] += qty
         if where == online:
             v['on'] += qty
             v['on_amt'] += amt
@@ -110,6 +174,12 @@ def main() -> int:
                          'try --sales sales_2609)')
     ap.add_argument('--customer', default='customer', metavar='STEM',
                     help='how the customer master is named (default: customer)')
+    ap.add_argument('--named', nargs='*', default=[], metavar='RETAILER',
+                    help='also count the units sold through the accounts whose '
+                         'name contains this, one column each: --named '
+                         '"harvey norman" "jb hi-fi". A named retailer sits '
+                         'inside one of the two channels, it is not a third '
+                         'one')
     ap.add_argument('--channel', default=CUST.ONLINE, metavar='NAME',
                     help=f'which channel counts as online (default: {CUST.ONLINE})')
     ap.add_argument('--out', default=None,
@@ -147,8 +217,13 @@ def main() -> int:
               f'be placed in a channel', file=sys.stderr)
         return 2
 
+    groups = {}
+    if args.named:
+        print('\nnamed retailers:')
+        groups = named_accounts(cust, args.named)
+
     print('\nsales export:')
-    sold, totals = sold_by_channel(sp, cust, args.channel)
+    sold, totals = sold_by_channel(sp, cust, args.channel, groups)
     if not sold:
         return 2
     print(f'  {totals["on"]:,.0f} online, {totals["off"]:,.0f} offline unit(s)'
@@ -156,6 +231,14 @@ def main() -> int:
              if totals['lost'] else '')
           + (f', {totals["nocode"]:,.0f} with no product code'
              if totals['nocode'] else ''))
+    for name in args.named:
+        got = totals['named'].get(name, 0.0)
+        out_of = totals['named'].get(name + '\0out', 0.0)
+        print(f'  {name}: {got:,.0f} offline unit(s)'
+              + (f', {got / totals["off"] * 100:.1f}% of all offline'
+                 if totals['off'] and got else '')
+              + (f'; {out_of:,.0f} more sold through its accounts that are not '
+                 f'marked off-line, left out' if out_of else ''))
 
     with gap.open(encoding='utf-8-sig', newline='') as f:
         rows = list(csv.DictReader(f))
@@ -171,6 +254,8 @@ def main() -> int:
 
     added = ['online units', 'offline units', 'online share', 'unplaced units',
              'online net sales', 'offline net sales']
+    for name in args.named:
+        added += [f'{name} offline units', f'{name} offline net sales']
     found = covered = 0.0
     for r in rows:
         hit = next((sold[k] for c in cols
@@ -188,6 +273,11 @@ def main() -> int:
         r['unplaced units'] = round(hit['lost'], 2) if hit['lost'] else ''
         r['online net sales'] = round(hit['on_amt'], 2)
         r['offline net sales'] = round(hit['off_amt'], 2)
+        for name in args.named:
+            r[f'{name} offline units'] = round(
+                hit['named'].get(name, 0.0), 2)
+            r[f'{name} offline net sales'] = round(
+                hit['named'].get(name + '\0amt', 0.0), 2)
 
     out = Path(args.out) if args.out else gap.with_name(f'{gap.stem}_units.csv')
     with out.open('w', newline='', encoding='utf-8-sig') as f:
