@@ -205,6 +205,31 @@ Note what this does and does not settle. It respects a site's wish not to be
 crawled no more and no less than a person browsing it does - so read the terms
 first, and leave alone what they ask you to leave alone.
 
+## The price a listing does not publish
+
+A listing's structured data is not always the price being charged. samsung.com
+publishes the **RRP** there and nothing else — the 77" OLED S90H sits on the
+listing at `$5,499` while its own product page sells it at `$4,499`, a thousand
+off — and the cards cannot be read instead, because the listing leaves its
+prices as an unrendered template, so there is no price in the DOM to find. A
+423-row crawl of that site came back with **2 products on sale**, which is the
+one result that is never true.
+
+`--with-price` opens each product page and reads the selling price out of its
+structured data, where it is stated plainly:
+
+```sh
+python crawl.py --site samsung --with-price
+```
+
+One page load per product, so it adds minutes to a run — on the OLED listing it
+turned 1 product on sale into 4, with the S90H reading `5,499 → 4,499, 18.2%
+off`. A run that ends with almost nothing on sale now says so and points at the
+flag.
+
+Harvey Norman does not need it: its catalogue states the price being charged
+and the amount off, on the listing itself.
+
 ## robots.txt
 
 The crawler reads the site's `robots.txt` once per run and skips any page the

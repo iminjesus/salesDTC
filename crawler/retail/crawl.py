@@ -1383,6 +1383,66 @@ def keep_brand(rows: list[dict], brand: str) -> list[dict]:
             or b in r['product_url'].lower()]
 
 
+def fill_prices(page, rows: list[dict], args) -> int:
+    """Open each product page and read the price the site is actually charging.
+
+    A samsung.com listing publishes the RRP in its structured data and nothing
+    else: the 77" OLED S90H sits there at $5,499 while its own product page
+    sells it at $4,499, a thousand off. The cards cannot be read instead - the
+    listing leaves its prices as an unrendered template, so there is no price
+    in the DOM to find - and that is why a 423-row file came back with 2
+    products on sale.
+
+    The product page states the selling price in its own structured data, so
+    that is where it is read. One page load per product, so this is opt-in
+    (--with-price).
+    """
+    todo = [r for r in rows if r.get('product_url')]
+    if not todo:
+        return 0
+    print(f'\n  reading the selling price from {len(todo)} product pages '
+          f'(about {len(todo) * (args.delay + 2) / 60:.0f} min)')
+    changed = 0
+    for i, r in enumerate(todo, 1):
+        try:
+            page.goto(r['product_url'], wait_until='domcontentloaded',
+                      timeout=args.timeout * 1000)
+            found = from_ld_json(page.content())
+            # A product page carries other products - "looking for alternatives"
+            # - so the record has to be the one this row is about.
+            want = r['product_url'].split('?')[0].rstrip('/').lower()
+            rec = next((f for f in found
+                        if f['product_url'].split('?')[0].rstrip('/').lower() == want),
+                       None)
+            if rec is None and r.get('sku'):
+                rec = next((f for f in found if f['sku'] == r['sku']), None)
+            if rec is None and len(found) == 1:
+                rec = found[0]
+            price = rec and rec['sale_price']
+            if price:
+                listed = r.get('original_price') or r.get('sale_price') or price
+                if price < listed - 0.01:
+                    r['original_price'], r['sale_price'] = listed, price
+                    r['on_sale'] = True
+                    r['discount_pct'] = discount(listed, price)
+                    changed += 1
+                elif price > listed + 0.01:
+                    # The listing was the stale one. The product page is the till.
+                    r['original_price'] = r['sale_price'] = price
+                    r['on_sale'] = False
+                    r['discount_pct'] = None
+                    changed += 1
+            time.sleep(args.delay)
+        except KeyboardInterrupt:
+            print('    stopped - keeping the prices read so far')
+            break
+        except Exception:
+            continue
+        if i % 25 == 0:
+            print(f'    {i}/{len(todo)}, {changed} corrected')
+    return changed
+
+
 def fill_models(page, rows: list[dict], args) -> int:
     """Open each product page that has no model code and read it off the page.
 
@@ -1467,6 +1527,12 @@ def main() -> int:
                     help='Chromium executable to use, when Playwright cannot find its own '
                          '(also read from CHROMIUM_PATH)')
     ap.add_argument('--dump-dir', help='keep raw payloads and an HTML snapshot here')
+    ap.add_argument('--with-price', action='store_true',
+                    help='open each product page and read the price it is '
+                         'actually charging. A listing may publish only the RRP '
+                         '- samsung.com does - so without this a product on '
+                         'sale is reported at its full price. One page load per '
+                         'product, so it adds minutes to a run')
     ap.add_argument('--with-model', action='store_true',
                     help='also open each product page to read its MODEL code '
                          '(one extra page load per product, so it is slow)')
@@ -1710,15 +1776,22 @@ def main() -> int:
                 interrupted = True
                 break
 
-        if args.with_model and not interrupted and not args.from_html:
+        if (args.with_model or args.with_price) and not interrupted \
+                and not args.from_html:
             try:
                 to_fill = merge(all_rows)
                 if not args.no_brand_filter:
                     to_fill = keep_brand(to_fill, args.brand)
-                n = fill_models(page, to_fill, args)
-                print(f'  model code filled for {n} products')
-                write_csv(out, all_rows, args.brand, not args.no_brand_filter,
-                          args.max_discount)
+                if args.with_price:
+                    n = fill_prices(page, to_fill, args)
+                    print(f'  selling price corrected on {n} products')
+                    write_csv(out, all_rows, args.brand, not args.no_brand_filter,
+                              args.max_discount)
+                if args.with_model:
+                    n = fill_models(page, to_fill, args)
+                    print(f'  model code filled for {n} products')
+                    write_csv(out, all_rows, args.brand, not args.no_brand_filter,
+                              args.max_discount)
             except KeyboardInterrupt:
                 pass
 
@@ -1736,6 +1809,12 @@ def main() -> int:
     on_sale = sum(1 for r in rows if r['on_sale'])
     note = ' (stopped early)' if interrupted else ''
     print(f'\n{len(rows)} products -> {out}  ({on_sale} on sale){note}')
+    # A listing that publishes only the RRP reports a store with no sales on in
+    # it, which is the one result that is never true.
+    if rows and not args.with_price and not args.from_html and on_sale < len(rows) * 0.05:
+        print(f'only {on_sale} of {len(rows)} came back on sale. If the site shows '
+              f'discounts it is\nnot publishing them on its listings - re-run with '
+              f'--with-price to read the\nselling price off each product page.')
     if ROBOTS['skipped']:
         print(f"{ROBOTS['skipped']} page(s) were left alone because robots.txt "
               f'disallows them')
