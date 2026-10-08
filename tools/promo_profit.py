@@ -73,13 +73,7 @@ def band_of(plan, code: str, day, promoted: bool) -> str:
     named but no plan line did is promoted with no campaign, which is not "no
     promotion" - saying so is the point of having that band.
     """
-    cands, _ = plan.candidates(code)
-    live = [c for c in cands
-            if day is not None
-            and (not c['start'] or day >= c['start'])
-            and (not c['end'] or day <= c['end'])]
-    nat = any((c.get('camp') or [''])[0] for c in live)
-    dtc = any(any((c.get('camp') or ['', '', ''])[1:]) for c in live)
+    live, nat, dtc = PM.plan_state(plan, code, day)
     if dtc and nat:
         return 'rule'
     if dtc:

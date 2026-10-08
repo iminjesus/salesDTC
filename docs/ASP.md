@@ -137,10 +137,10 @@ Three further decisions, all visible in the sheet:
   and the deepest offer is the one a forecast should be least sure of. Both
   sides of the bias use that same definition, which is what makes subtracting
   them mean anything.
-- The **promotion** column is the plan's own offer type and detail put through
-  the same family table the store rules go through, with the live line count
-  beside it. There are no units yet, so there is no "mostly" to report - one
-  category standing for six plan lines is worth seeing as six.
+- The **promotion** column is the same five bands the closed months carry, read
+  from the same plan. There are no units yet to weight by, so the share is of
+  the month's own days: a campaign live from the 1st to the 25th of November
+  covered 83% of it, and the cell says so.
 - A material the plan prices for November but which **has not sold** in the
   months read is still in the sheet, with its category's median bias and a last
   column that says so. A product launching in November has no row in any profit
@@ -154,21 +154,45 @@ cost of a wider actuals sheet, because the same flag drives both.
 
 ### The promotion, and why it carries a share
 
-The promotion comes from the store's own orders (`26 DTC Jul`), where every line
-carries the rule the engine applied. Most promoted units ran under more than one
-rule, so a material-month usually has no single promotion - the cell names the
-one most of its units ran under **and its share**:
+The promotion comes from **the plan**, read the way the P&L page and the profit
+split read it: the product code and the order's date against the plan's windows
+and its campaign columns. Not from the price, which a trade-in or a stacked
+voucher moves away from what the plan quotes, and not from the rule the store
+engine applied, which is the engine's account of itself rather than the campaign
+the order belongs to. The three tools now share one reading of the plan
+(`PM.plan_state`), so the same August order cannot be `EPP welcome voucher` here
+and `DTC + Nation-wide` on the page.
+
+Five answers, the same five the page stacks:
+
+| | |
+|---|---|
+| `DTC promotion` | a DTC campaign was live, and no nationwide one |
+| `DTC + Nation-wide` | both were |
+| `Nation-wide only` | a nationwide campaign, with no DTC campaign beside it |
+| `No promotion` | a plan line was live and named no campaign |
+| `Not in the plan` | no plan line covered that product on that date |
+
+The last two are not the same answer and are not merged: one is the plan saying
+there was no promotion, the other is the plan saying nothing.
+
+A material-month rarely sits on one band - a campaign that ends on the 20th
+leaves the rest of the month somewhere else - so the cell names the band most of
+its **units** ran under, with the campaign inside it and the share:
 
 ```
-% off RRP (68% of units, 2 others)
-EPP welcome voucher
+DTC promotion: FF8 Pre-Order / Trade-in bonus (58% of units, 1 other)
+DTC + Nation-wide: QLED Days
+Not in the plan
 ```
 
 A share below 100% means the rest ran under something else, not that the label
-is uncertain. `--detail` names the offer itself instead of the family it belongs
-to, and `--precedence` decides which family a unit counts as where it matches
-several - the same table and flag as `tools/promo.py`, because it is the same
-question. Cancelled orders are left out. The store's orders are its own channel:
+is uncertain. Campaign spellings that differ only by case or punctuation are
+folded to the one the plan uses most, so `DTC boost week` and `DTC Boost Week`
+are one campaign. Cancelled orders are left out.
+
+`--promo-from rule` brings the old column back - the rule the store engine
+applied, with `--detail` and `--precedence` working on it as they did. The store's orders are its own channel:
 in `Material.xlsx` a material sold mainly elsewhere shows the promotion its
 store units ran under and nothing about the rest, which the foot of the sheet
 says.

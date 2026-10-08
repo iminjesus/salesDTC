@@ -156,8 +156,55 @@ class ListPrice:
             self.say(f'    {n:>7,}  {where}')
 
 
+# ── which promotion, as the rest of the repository reads it ─────────────────
+# The P&L page and the profit split both read a promotion from the plan: the
+# product code and the date against the plan's windows and its campaign
+# columns. This sheet used to read it from the rule the store engine applied
+# instead, so the same August order could be "EPP welcome voucher" here and
+# "DTC + Nation-wide" there. It now asks the plan the same question - see
+# PM.plan_state - and --promo-from rule brings the old column back.
+BANDS = {
+    'both': 'DTC + Nation-wide',
+    'dtc':  'DTC promotion',
+    'nat':  'Nation-wide only',
+    'none': 'No promotion',
+    'gap':  'Not in the plan',
+}
+
+
+def band_of(plan, canon, code, day) -> str:
+    """The band and, where there is one, the DTC campaign inside it."""
+    live, nat, dtc = PM.plan_state(plan, code, day)
+    key = ('both' if (dtc and nat) else 'dtc' if dtc else 'nat' if nat
+           # A live line naming no campaign says there was none. No live line
+           # at all says nothing either way, which is not the same answer.
+           else 'none' if live else 'gap')
+    name = PM.campaign_names(live, canon, 1)
+    second = PM.campaign_names(live, canon, 2)
+    if name and second:
+        name = f'{name} / {second}'
+    return f'{BANDS[key]}: {name}' if name else BANDS[key]
+
+
+def month_bands(plan, canon, code, lo, hi) -> collections.Counter:
+    """Days per band for one product over one month.
+
+    A forecast month has no orders to weight by, and neither has a material the
+    plan prices but nobody bought. The month's own days are what is left, and
+    they are the honest weight: a campaign live for the first week of November
+    covered a week of it.
+    """
+    out: collections.Counter = collections.Counter()
+    day = lo
+    while day <= hi:
+        out[band_of(plan, canon, code, day)] += 1
+        day += timedelta(days=1)
+    return out
+
+
 # ── what the store ran it under ─────────────────────────────────────────────
-def promotions_of(path, detail=False, precedence=None, say=print) -> dict:
+def promotions_of(path, detail=False, precedence=None, say=print,
+                  plan=None, canon=None) -> dict:
     """Units per promotion per material, from one month of store orders.
 
     A material's units in a month rarely sit on one promotion - most of MX's
@@ -180,18 +227,29 @@ def promotions_of(path, detail=False, precedence=None, say=print) -> dict:
         code = PM.code_norm(r['sku'])
         if not code:
             continue
-        raw = (r['raw'] or '').strip()
-        if not raw or raw == '-':
-            label = PR.NONE
+        if plan is not None:
+            # From the plan, by product code and date - never from the price,
+            # which a trade-in or a stacked voucher moves away from what the
+            # plan quotes, and never from the rule, which is the engine's
+            # account of itself rather than the campaign it belongs to.
+            label = band_of(plan, canon, code, r.get('date'))
         else:
-            kind, offer, _ = PR.levels_of(raw)
-            label = offer if detail else PR.family_of(offer, precedence)
+            raw = (r['raw'] or '').strip()
+            if not raw or raw == '-':
+                label = PR.NONE
+            else:
+                kind, offer, _ = PR.levels_of(raw)
+                label = offer if detail else PR.family_of(offer, precedence)
         out.setdefault(code, collections.Counter())[label] += max(r['qty'], 0.0)
     return out
 
 
-def promo_cell(tally) -> str:
-    """The promotion a material-month mostly ran under, with its share."""
+def promo_cell(tally, unit='units') -> str:
+    """The promotion a material-month mostly ran under, with its share.
+
+    `unit` is what the share is of. A month that has not happened has no units
+    to weight by, so its share is of the month's own days.
+    """
     if not tally:
         return ''
     live = {k: v for k, v in tally.items() if v > 0}
@@ -205,7 +263,7 @@ def promo_cell(tally) -> str:
     if live[best] >= total * 0.995:
         return best
     rest = len(live) - 1
-    return (f'{best} ({live[best] / total * 100:.0f}% of units, {rest} other'
+    return (f'{best} ({live[best] / total * 100:.0f}% of {unit}, {rest} other'
             + ('s)' if rest > 1 else ')'))
 
 
@@ -241,6 +299,12 @@ def main() -> int:
                          'here, what the plan says about it and an ASP '
                          'forecast built from the months above (try '
                          '--forecast 2611 2612 2701)')
+    ap.add_argument('--promo-from', choices=('plan', 'rule'), default='plan',
+                    help="where the promotion column comes from: 'plan' (the "
+                         "default) reads the campaign windows the P&L page and "
+                         "the profit split read, by product code and date; "
+                         "'rule' is the old column, the rule the store engine "
+                         "applied")
     ap.add_argument('--no-promotion', action='store_true',
                     help='skip the store exports, and the promotion columns '
                          'with them')
@@ -328,6 +392,13 @@ def main() -> int:
     PM.plan_structure(pmeta)
     price = ListPrice(plan, prod)
 
+    # ── the plan again, this time for the promotion ─────────────────────────
+    band_plan = plan if args.promo_from == 'plan' else None
+    canon = PM.canon_campaigns(plan.rows) if band_plan else {}
+    if args.promo_from == 'plan' and not band_plan:
+        print('\nno plan was read, so the promotion falls back to the store '
+              'rule')
+
     # ── the store's own orders, for the promotion ───────────────────────────
     promos: dict[str, dict] = {}
     if not args.no_promotion:
@@ -341,7 +412,8 @@ def main() -> int:
                 print(f'  {month_label(digits)}: no store export '
                       f'(tried {", ".join(repr(s) for s in stems)})')
                 continue
-            promos[digits] = promotions_of(sp, args.detail, order)
+            promos[digits] = promotions_of(sp, args.detail, order,
+                                           plan=band_plan, canon=canon)
             print(f'    {len(promos[digits]):,} material code(s) with a '
                   f'promotion')
 
@@ -415,7 +487,8 @@ def main() -> int:
                   f'line live that month')
         fpath = out / 'ASP forecast.xlsx'
         n, divs, info = write_forecast(fpath, rows, months, fore, 'qty', 'amt',
-                                       prod, rrp, price, args)
+                                       prod, rrp, price, args,
+                                       canon if band_plan else None)
         if not n:
             print('  no material has a priced plan line in any of those months,'
                   ' so nothing was written', file=sys.stderr)
@@ -717,7 +790,8 @@ def plan_family(lines, order=None) -> str:
     return fam if len(lines) == 1 else f'{fam} ({len(lines)} plan lines)'
 
 
-def write_forecast(path, rows, months, fore, qk, ak, prod, rrp, price, args):
+def write_forecast(path, rows, months, fore, qk, ak, prod, rrp, price, args,
+                   canon=None):
     """One sheet: the actual months as the basis, the planned months forecast."""
     L = XL.col_letter
     # Every material the plan has something priced to say about, which is not the
@@ -738,8 +812,17 @@ def write_forecast(path, rows, months, fore, qk, ak, prod, rrp, price, args):
         for m in fore:
             lines = price.live(sku, m)
             r = plan_rrp(lines)
+            # The promotion the same way the closed months read it: the
+            # plan's windows, by product code and date. No units exist yet, so
+            # the share is of the month's days.
+            if canon is not None and price.plan:
+                lo, hi = month_span(m)
+                fam = promo_cell(month_bands(price.plan, canon,
+                                             PM.code_norm(sku), lo, hi), 'days')
+            else:
+                fam = plan_family(lines, args.order)
             plan[m] = {'rrp': r, 'dc': plan_dc(lines, r),
-                       'fam': plan_family(lines, args.order), 'n': len(lines)}
+                       'fam': fam, 'n': len(lines)}
         if not any(plan[m]['rrp'] and plan[m]['dc'] is not None for m in fore):
             continue              # the plan says nothing priced about any of them
         q = sum(v[qk].get(m, 0.0) for m in months)

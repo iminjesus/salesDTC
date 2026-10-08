@@ -1030,6 +1030,40 @@ NO_CAMPAIGN = '(outside every campaign)'
 NO_PLAN = '(no plan line fits this order)'
 
 
+def plan_state(plan, code: str, day):
+    """What the plan says about one product on one date.
+
+    Returns (live lines, a nationwide campaign is named, a DTC campaign is
+    named). It is the one reading of the plan every band in this repository is
+    built on - the P&L page's stack, the profit split, and the ASP sheet - so
+    that the three agree about one order instead of each walking the plan its
+    own way.
+
+    Read from the product code and the date, never from the price: a trade-in
+    or a stacked voucher moves what was collected away from what the plan
+    quotes, and a band decided on the price rejects lines the plan does cover.
+    """
+    cands, _ = plan.candidates(code)
+    live = [c for c in cands
+            if day is not None
+            and (not c['start'] or day >= c['start'])
+            and (not c['end'] or day <= c['end'])]
+    nat = any((c.get('camp') or [''])[0] for c in live)
+    dtc = any(any((c.get('camp') or ['', '', ''])[1:]) for c in live)
+    return live, nat, dtc
+
+
+def campaign_names(live, canon=None, at=1) -> str:
+    """The campaigns named in column `at` of the live lines, spelled one way.
+
+    A product in two campaigns at once on the same date keeps both: picking one
+    would be inventing a precedence the plan does not state.
+    """
+    canon = canon or {}
+    return ' + '.join(sorted({canon.get(n, n) for c in live
+                              if (n := (c.get('camp') or ['', '', ''])[at])}))
+
+
 def canon_campaigns(rows: list, say=print) -> dict:
     """Fold campaign spellings that differ only by case or punctuation.
 

@@ -41,6 +41,8 @@ import customer as CUST                                         # noqa: E402
 # The family table lives beside MECHANIC and EXECUTED_AS in promo_match: they
 # are one vocabulary layer, and the cross-check needs to put a rule and a plan
 # line on the same family as much as this file does.
+from promo_match import NAMES as PM_NAMES                        # noqa: E402
+from promo_match import to_date                                 # noqa: E402
 from promo_match import (FAMILIES, MECHANIC, OTHER, families_in,  # noqa: E402
                          family_label, family_of, mechanics_in,
                          parse_rule, split_rules)
@@ -59,6 +61,10 @@ D_PROMO = ('Nationwide_Campaign', 'DTC_Campaign1', 'Promotion Name',
            'Promotion', 'Campaign')
 D_GROUP = ('Portal Group', 'Portal', 'Site', 'Channel', 'Store')
 D_STATUS = ('order_status', 'Order Status', 'Status')
+# When the order was placed. A promotion band is read from the product code and
+# the date - the plan's windows - so the date has to come out of the export
+# with everything else.
+D_DATE = PM_NAMES['date']
 
 NONE = '(no promotion)'
 # A store line whose product code nothing knows. Named rather than left blank:
@@ -116,7 +122,7 @@ def read_store(path, say=print):
     i = {k: find(head, *v) for k, v in
          {'order': D_ORDER, 'sku': D_SKU, 'qty': D_QTY, 'amt': D_AMT,
           'rule': D_RULE, 'promo': D_PROMO, 'group': D_GROUP,
-          'status': D_STATUS}.items()}
+          'status': D_STATUS, 'date': D_DATE}.items()}
     say(f'  {path.name}: {info["format"]}, {len(rows) - 1:,} rows')
     if i['sku'] is None:
         say('    no product code - skipped')
@@ -136,6 +142,7 @@ def read_store(path, say=print):
             'raw': cell(r, i['rule']) or cell(r, i['promo']),
             'group': cell(r, i['group']) or '(no group)',
             'status': cell(r, i['status']).upper(),
+            'date': to_date(cell(r, i['date'])) if i['date'] is not None else None,
         })
     return out
 

@@ -176,13 +176,9 @@ def promo_bander(folder, stems, say=print):
         if hit is not None:
             return hit
         # Both answers come out together: which band, and which campaign inside
-        # it. One walk of the plan lines answers both.
-        cands, _ = plan.candidates(k[0])
-        live = [c for c in cands
-                if (not c['start'] or day >= c['start'])
-                and (not c['end'] or day <= c['end'])]
-        nat = any((c.get('camp') or [''])[0] for c in live)
-        dtc = any(any((c.get('camp') or ['', '', ''])[1:]) for c in live)
+        # it. One walk of the plan lines answers both, and it is the same walk
+        # the profit split and the ASP sheet make - see PM.plan_state.
+        live, nat, dtc = PM.plan_state(plan, k[0], day)
         hit = ('pboth' if (dtc and nat) else 'pdtc' if dtc
                else 'pnat' if nat
                # A live line that names no campaign says there was none. No
@@ -192,12 +188,10 @@ def promo_bander(folder, stems, say=print):
         # one opens into the other. Spelled one way; a product in two campaigns
         # at once on the same date keeps both, because picking one would be
         # inventing a precedence the plan does not state.
-        def named(at):
-            return sorted({canon.get(n, n) for c in live
-                           if (n := (c.get('camp') or ['', '', ''])[at])})
-        one, two = named(1), named(2)
-        cache[k] = hit = (hit, ' + '.join(one) or NO_CAMPAIGN,
-                          ' + '.join(two) or (NO_SECOND if one else NO_CAMPAIGN))
+        one = PM.campaign_names(live, canon, 1)
+        two = PM.campaign_names(live, canon, 2)
+        cache[k] = hit = (hit, one or NO_CAMPAIGN,
+                          two or (NO_SECOND if one else NO_CAMPAIGN))
         return hit
 
     return band
