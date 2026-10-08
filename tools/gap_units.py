@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Add the units a model actually sold, online and offline, to a price gap file.
 
-    py tools\\gap_units.py gap.csv --sales sales_2609
+    py tools\\gap_units.py gap.csv --export profit_2609
 
 Reads a file keyed on a model code - the crawler's `gap.csv` is the one this
-was written for - looks each model up in a sales export, and writes the same
+was written for - looks each model up in a profit export, and writes the same
 rows back with what that model sold beside the two shelf prices.
 
 Which side of the business a row is on comes from `customer.py`, the same rule
@@ -14,7 +14,7 @@ not have is neither, and is counted and reported rather than quietly folded
 into one of them - a split that does not add up to the export is worse than no
 split.
 
-    py tools\\gap_units.py gap.csv --sales sales_2609 --named "harvey norman"
+    py tools\\gap_units.py gap.csv --export profit_2609 --named "harvey norman"
 
 `--named` adds a column per retailer named, counting its **offline** units -
 the shelf the crawler priced - from the accounts whose name contains that
@@ -94,7 +94,7 @@ def named_accounts(cust: dict, names: list, say=print) -> dict:
 
 def sold_by_channel(path: Path, cust: dict, online: str, groups=None,
                     say=print) -> tuple:
-    """{model code: {'on': units, 'off': units, ...}} out of a sales export."""
+    """{model code: {'on': units, 'off': units, ...}} out of a profit export."""
     rows, info = read_any(path)
     if not rows:
         say(f'  {path.name}: empty')
@@ -169,9 +169,10 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('gap', help='the csv to add the columns to')
     ap.add_argument('--dir', default='rawdata')
-    ap.add_argument('--sales', default='sales', metavar='STEM',
-                    help='how the sales export is named (default: sales; '
-                         'try --sales sales_2609)')
+    ap.add_argument('--export', default='profit', metavar='STEM',
+                    help='how the export to count is named (default: profit; '
+                         'try --export profit_2609). The units and the money '
+                         'are read from it and from nothing else')
     ap.add_argument('--customer', default='customer', metavar='STEM',
                     help='how the customer master is named (default: customer)')
     ap.add_argument('--named', nargs='*', default=[], metavar='RETAILER',
@@ -196,10 +197,10 @@ def main() -> int:
         print(f'no such folder: {folder.resolve()}', file=sys.stderr)
         return 2
 
-    sp = pick_file(folder, args.sales) or next(
-        iter(pick_series(folder, args.sales)), None)
+    sp = pick_file(folder, args.export) or next(
+        iter(pick_series(folder, args.export)), None)
     if sp is None:
-        print(f'no sales export matching {args.sales!r} in {folder.resolve()}',
+        print(f'no export matching {args.export!r} in {folder.resolve()}',
               file=sys.stderr)
         return 2
 
@@ -222,7 +223,7 @@ def main() -> int:
         print('\nnamed retailers:')
         groups = named_accounts(cust, args.named)
 
-    print('\nsales export:')
+    print('\nthe export:')
     sold, totals = sold_by_channel(sp, cust, args.channel, groups)
     if not sold:
         return 2
