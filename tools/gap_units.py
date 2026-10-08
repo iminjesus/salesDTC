@@ -48,8 +48,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
 import promo_match as PM                                       # noqa: E402
 from asp import AMT_NET, CUSTOMER_KEYS, PRODUCT_KEYS, QTY_NET  # noqa: E402
-from rawdata import (find, key_norm, master, parse_number,     # noqa: E402
-                     pick_file, pick_series, read_any)
+from rawdata import (MASTER_RAW, find, key_norm, master,       # noqa: E402
+                     parse_number, pick_file, pick_series, read_any)
+
+# How the customer master names its key, in one place so the lookup and the
+# retailer search agree about which column is the Sold-To.
+CUSTOMER_MASTER_KEYS = ('Sold-To', 'sold To', 'sold_to')
 
 # The column in the gap file that holds a model code, in the order they are
 # tried. The crawler writes both sides; either names the same product.
@@ -64,32 +68,58 @@ def squash(t: str) -> str:
     return ''.join(ch for ch in str(t or '').lower() if ch.isalnum())
 
 
-def named_accounts(cust: dict, names: list, say=print) -> dict:
-    """{name as typed: the customer keys whose account name contains it}.
+def named_accounts(head: list, rows: list, key_names: tuple, names: list,
+                   say=print) -> dict:
+    """{name as typed: the customer keys whose master row names it}.
 
-    Matched on the account name with case and punctuation taken out, so
-    "harvey norman" finds "HARVEY NORMAN AUSTRALIA" and "Harvey-Norman". What
-    matched is printed: a retailer the master spells some other way has to
-    read as nothing matched, not as a zero.
+    Every column of the master is searched, not the account name alone. The
+    account name here carries the channel and nothing else - `off-line`,
+    `E-STORE` - so a retailer looked for there is never found; which column
+    does hold it differs by master and is not worth guessing at. Matched with
+    case and punctuation taken out, so "harvey norman" finds "HARVEY NORMAN
+    AUSTRALIA PTY LTD" and "Harvey-Norman".
+
+    What matched, and the column it matched in, is printed: a retailer the
+    master spells some other way has to read as nothing matched, not as a zero.
     """
+    k = find(head, *key_names)
     out = {n: set() for n in names}
     seen = {n: collections.Counter() for n in names}
-    for key, c in cust.items():
-        account = (c or {}).get('account') or ''
-        flat = squash(account)
-        for n in names:
-            if squash(n) and squash(n) in flat:
-                out[n].add(key)
-                seen[n][account] += 1
+    where = {n: collections.Counter() for n in names}
+    wanted = {n: squash(n) for n in names if squash(n)}
+    for r in rows:
+        key = key_norm(r[k] if k is not None and k < len(r) else '')
+        if not key:
+            continue
+        for n, want in wanted.items():
+            for i, v in enumerate(r):
+                if want in squash(v):
+                    out[n].add(key)
+                    seen[n][str(v).strip()] += 1
+                    where[n][head[i] if i < len(head) else f'column {i}'] += 1
+                    break
     for n in names:
         if not out[n]:
-            say(f'  {n!r}: no account name contains it - that column will be '
-                f'empty', )
+            say(f'  {n!r}: no column of the master contains it - that column '
+                f'will be empty')
             continue
-        shown = ', '.join(a for a, _ in seen[n].most_common(4))
-        say(f'  {n!r}: {len(out[n]):,} account(s) - {shown}'
-            + (' ...' if len(seen[n]) > 4 else ''))
+        col = ', '.join(c for c, _ in where[n].most_common(2))
+        shown = ', '.join(a for a, _ in seen[n].most_common(3))
+        say(f'  {n!r}: {len(out[n]):,} account(s), from {col} - {shown}'
+            + (' ...' if len(seen[n]) > 3 else ''))
     return out
+
+
+def master_columns(head: list, rows: list, say=print) -> None:
+    """What the master has to offer, for when a retailer is in none of it."""
+    say('  the master\'s columns, with what they hold:')
+    for i, h in enumerate(head):
+        vals = collections.Counter(str(r[i]).strip() for r in rows
+                                   if i < len(r) and str(r[i]).strip())
+        if not vals:
+            continue
+        shown = ', '.join(v[:28] for v, _ in vals.most_common(2))
+        say(f'    {h[:28]:<30} {len(vals):>6,} distinct   {shown}')
 
 
 def sold_by_channel(path: Path, cust: dict, online: str, groups=None,
@@ -216,8 +246,7 @@ def main() -> int:
     if cp is not None:
         want = {slot: names for _, slot, names in CUST.LEVELS if names}
         want['account'] = CUST.ACCOUNT_NAMES
-        cust = master(cp, ('Sold-To', 'sold To', 'sold_to'), want,
-                      say=lambda *a: None)
+        cust = master(cp, CUSTOMER_MASTER_KEYS, want, say=lambda *a: None)
         print(f'  {cp.name}, {len(cust):,} account(s)')
     else:
         print(f'  nothing matching {args.customer!r} - without it no row can '
@@ -227,7 +256,10 @@ def main() -> int:
     groups = {}
     if args.named:
         print('\nnamed retailers:')
-        groups = named_accounts(cust, args.named)
+        head, raw = MASTER_RAW.get(cp.name, ([], []))
+        groups = named_accounts(head, raw, CUSTOMER_MASTER_KEYS, args.named)
+        if not any(groups.values()):
+            master_columns(head, raw)
 
     print('\nthe export:')
     sold, totals = sold_by_channel(sp, cust, args.channel, groups)
@@ -247,10 +279,8 @@ def main() -> int:
               + (f'; {out_of:,.0f} more sold through its accounts that are not '
                  f'marked off-line, left out' if out_of else ''))
         if not got and not out_of:
-            print(f'  nothing was bought under a name containing {name!r}. '
-                  f'The export\'s biggest accounts are:')
-            for (acct, side), q in totals['accounts'].most_common(12):
-                print(f'    {q:>10,.0f}  {side:<12} {acct[:52]}')
+            print(f'  nothing was bought through an account naming {name!r}; '
+                  f'the columns above say what the master does hold.')
 
     with gap.open(encoding='utf-8-sig', newline='') as f:
         rows = list(csv.DictReader(f))
