@@ -153,6 +153,8 @@ SITES = {
         'search':        '/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs',
         'plain_urls':    True,
         'catalogue':     True,
+        'facet_path':    '/{brand}/993',
+        'pagination_selector': 'nav[aria-label="Pagination"] a[href]',
         'query_param':   'q',
         'brand_param':   'af',
         'brand_value':   lambda b: f'def_general_brand:{b.title()}',
@@ -264,6 +266,18 @@ def listing_url(url: str, brand: str) -> str:
         /collections/tvs?query=x     -> /collections/tvs?query=x&Brand=SAMSUNG
     """
     parts = urlsplit(url if url.startswith('http') else BASE + url)
+    # Harvey Norman's brand filter is a path segment rather than a query
+    # parameter - /kitchen-appliances/appliances/fridges/samsung/993, where 993
+    # is the brand attribute, as the site's own facet links are written. A
+    # category without it answers with its first page of every brand: 4 Samsung
+    # fridges out of the 53 the facet holds.
+    facet = SITE.get('facet_path')
+    if facet:
+        path = parts.path.rstrip('/')
+        if brand.lower() not in path.lower():
+            # A listing that already names the brand is the brand's listing.
+            path += facet.format(brand=brand.lower())
+        return urlunsplit(parts._replace(path=path, query=''))
     # Some sites want neither. A search term appended to a category listing is
     # at best noise and at worst a page that answers nothing, and a single-brand
     # store has no facet to narrow to the brand. A site whose category urls
@@ -603,8 +617,36 @@ def from_catalogue(rec: dict) -> dict | None:
     }
 
 
-def catalogue_rows(html: str, payloads: list) -> list[dict]:
-    """The listing's own product records, from the page and from its XHRs."""
+def catalogue_counts(node, out: list | None = None, depth: int = 0) -> list:
+    """Every page_info the listing publishes, with the matching total_count.
+
+    The listing states how many products it has and over how many pages. A
+    category of 400 fridges hands the page the first 40 of them, and without
+    this the run would quietly report 4 Samsung fridges off page one and call
+    the category done.
+    """
+    out = [] if out is None else out
+    if depth > 14:
+        return out
+    if isinstance(node, dict):
+        info = node.get('page_info')
+        if isinstance(info, dict) and 'total_pages' in info:
+            out.append({'total': node.get('total_count'),
+                        'page': info.get('current_page'),
+                        'pages': info.get('total_pages')})
+        for v in node.values():
+            catalogue_counts(v, out, depth + 1)
+    elif isinstance(node, list):
+        for v in node:
+            catalogue_counts(v, out, depth + 1)
+    return out
+
+
+def catalogue_rows(html: str, payloads: list) -> tuple[list[dict], dict]:
+    """The listing's own product records, from the page and from its XHRs.
+
+    Returns (rows, what the listing says it holds).
+    """
     trees = []
     for block in NEXT_RE.findall(html or ''):
         try:
@@ -612,14 +654,18 @@ def catalogue_rows(html: str, payloads: list) -> list[dict]:
         except Exception:
             continue                   # a malformed block is not a reason to stop
     trees += payloads
-    rows, seen = [], set()
+    rows, seen, counts = [], set(), []
     for tree in trees:
+        counts += catalogue_counts(tree)
         for rec in catalogue_records(tree):
             row = from_catalogue(rec)
             if row and (row['sku'], row['sale_price']) not in seen:
                 seen.add((row['sku'], row['sale_price']))
                 rows.append(row)
-    return rows
+    # The listing's own count, not the widest number on the page: a facet
+    # group counts products the listing is not showing.
+    best = max(counts, key=lambda c: c.get('pages') or 0, default={})
+    return rows, best
 
 
 # ── extractor 2: the rendered cards ─────────────────────────────────────────
@@ -1018,9 +1064,25 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
         found = from_ld_json(page.content())
         print(f'    {len(found)} product(s) in the page\'s structured data')
         rows += found
+    pages: list[str] = []
     if SITE.get('catalogue'):
-        found = catalogue_rows(page.content(), payloads)
+        found, says = catalogue_rows(page.content(), payloads)
         print(f'    {len(found)} product(s) in the listing\'s own catalogue data')
+        if (says.get('pages') or 1) > 1:
+            print(f"    the listing says it holds {says.get('total')} product(s) "
+                  f"over {says['pages']} pages")
+            # Its own pagination links, read off the page rather than a guess at
+            # the url shape. Queued by the caller; already-seen urls drop out.
+            try:
+                pages = [u for u in page.evaluate(
+                    'sel => [...document.querySelectorAll(sel)].map(a => a.href)',
+                    SITE.get('pagination_selector') or 'nav[aria-label="Pagination"] a[href]')
+                    if u and u.startswith('http')]
+            except Exception:
+                pages = []
+            print(f'    {len(pages)} page link(s) to follow'
+                  if pages else
+                  '    no page links on it, so only this page was read')
         if found:
             # The catalogue is the site's own record of what is on the page.
             # Next to it the card reader's output is noise - every link on
@@ -1064,7 +1126,7 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
     if not rows:
         print('    nothing matched on this page:')
         diagnose(page, payloads, dump)
-    return rows, stopped
+    return rows, stopped, pages
 
 
 def diagnose(page, payloads: list, dump: Path | None) -> None:
@@ -1515,7 +1577,7 @@ def main() -> int:
                 continue
             done.add(url)
             try:
-                rows, stopped = harvest(page, payloads, url, args, dump)
+                rows, stopped, pages = harvest(page, payloads, url, args, dump)
                 if not rows and args.pause_on_block and not stopped:
                     print('\n  This page returned nothing. If the browser is showing a')
                     print('  check to confirm you are human, complete it in the browser')
@@ -1523,7 +1585,7 @@ def main() -> int:
                     print('  (--profile DIR keeps it from being asked every time.)')
                     try:
                         input('  press Enter to continue: ')
-                        rows, stopped = harvest(page, payloads, url, args, dump)
+                        rows, stopped, pages = harvest(page, payloads, url, args, dump)
                     except (EOFError, KeyboardInterrupt):
                         interrupted = True
                 if stopped:
@@ -1535,6 +1597,9 @@ def main() -> int:
             except Exception as exc:
                 print(f'    failed: {exc}')
                 continue
+            for u in pages:
+                if u not in done and (name, u) not in queue:
+                    queue.append((name, u))
             for r in rows:
                 r['category'] = r.get('site_category') or name
                 r['crawled_at'] = stamp

@@ -251,6 +251,23 @@ banner and the cart.
 The same records come back from the storefront's GraphQL calls while paging
 through a listing, so the captured payloads are read for the shape too.
 
+### One page is not the listing
+
+The catalogue states how many products the listing holds and over how many
+pages, and a page only ever hands over the first 40. Two things come from that:
+
+- **The brand filter is part of the path**, not a query parameter:
+  `/kitchen-appliances/appliances/fridges/samsung/993`, where `993` is the brand
+  attribute, written the way the site's own facet links are. Without it the
+  category answers with its first 40 products of every brand — which is how a
+  run reported **4** Samsung fridges from a listing of 53. A category whose path
+  already names the brand (`samsung-tvs`) is left as it is.
+- **Pagination is followed from the site's own links.** When the catalogue says
+  there is more than one page, the run reads the hrefs out of the listing's
+  pagination nav and queues them; the url shape is never guessed at. If a
+  multi-page listing has no links to read, the run says so instead of quietly
+  stopping at page one.
+
 ## Stopping part way
 
 The CSV is rewritten after every page, and written atomically, so whatever has been
