@@ -361,9 +361,14 @@ def to_money(v) -> float | None:
 def abs_url(u) -> str:
     if not u:
         return ''
-    u = str(u)
+    u = str(u).strip()
     if u.startswith('http'):
         return u
+    # javascript:void(0), mailto:, tel: - a control, not a place. Glued to the
+    # base these became .../au/javascript:void(0), which then carried the
+    # banner's "$2,000" into the file as a product called "Accept".
+    if re.match(r'(?i)^(javascript|mailto|tel|sms|about|data|#)', u):
+        return ''
     if not u.startswith('/'):
         u = '/' + u                       # bare slug / handle
     # A base can carry a path of its own - samsung.com/au - and a root-relative
@@ -1188,6 +1193,32 @@ def merge(rows: list[dict]) -> list[dict]:
     ID_FIELDS = ('sku', 'product_url', 'site_category', 'brand', 'sku_field', 'model')
     PRICE_FIELDS = ('on_sale', 'original_price', 'sale_price', 'discount_pct')
 
+    # What the site states about itself - its structured data, its own catalogue
+    # records - against what had to be read off the rendered page.
+    STATED = ('ld+json', 'catalogue')
+
+    def about_something_else(cur: dict, new: dict) -> bool:
+        """True when a card's numbers are too low to be this product's price.
+
+        samsung.com prints "save up to $2,000 with trade-in" beside a $9,999 TV
+        and "4 interest-free instalments between $30 - $3,000" across the top of
+        every listing. Those were read as prices, and the rule below - neither
+        row knows a discount, so the lower price wins - handed them the row: a
+        98-inch QN90F came out at $2,000 against a stated $9,999, and three
+        different portable SSDs all came out at $37.46.
+
+        A real discount still gets through, because it is the card's HIGHER
+        number that is tested: a card marked down from $9,999 to $4,999 still
+        carries the $9,999 and is believed. A card whose every number sits far
+        under the stated price is not about this product's price at all.
+        """
+        if cur.get('source') not in STATED or new.get('source') in STATED:
+            return False
+        stated = cur.get('sale_price') or cur.get('original_price')
+        seen = [v for v in (new.get('original_price'), new.get('sale_price'))
+                if isinstance(v, (int, float))]
+        return bool(stated and seen and max(seen) < stated * 0.6)
+
     def combine(cur: dict, new: dict) -> dict:
         """Fold new into cur. Identity fields fill gaps; price fields are taken as a
         set from whichever row actually knows about a discount - a card showing a
@@ -1195,6 +1226,8 @@ def merge(rows: list[dict]) -> list[dict]:
         for f in ID_FIELDS:
             if not cur.get(f) and new.get(f):
                 cur[f] = new[f]
+        if about_something_else(cur, new):
+            return cur                     # identity merged, prices left alone
         cur_knows = cur.get('discount_pct') is not None
         new_knows = new.get('discount_pct') is not None
         if new_knows and not cur_knows:
@@ -1237,9 +1270,48 @@ def merge(rows: list[dict]) -> list[dict]:
     return list(best.values())
 
 
+# ── what tells two listings of one product apart ────────────────────────────
+# Comparing two retailers founders on the variants: samsung.com writes "Galaxy
+# Tab S10 FE Wi-Fi" and leaves the storage and the colour to the url slug
+# (galaxy-a17-5g-black-128gb-sm-a176bzkcats), while Harvey Norman writes them
+# into the name ("... Wi-Fi 256GB - Grey"). Neither file could say whether two
+# rows were the same configuration. Both are now read out, from wherever the
+# site happens to put them, into columns of their own.
+CAPACITY = re.compile(r'\b(\d+(?:\.\d+)?)\s*-?\s*(gb|tb)\b', re.I)
+COLOURS = ('black', 'white', 'grey', 'gray', 'silver', 'blue', 'green', 'pink',
+           'gold', 'titanium', 'titan', 'graphite', 'lavender', 'lilac', 'navy',
+           'beige', 'cream', 'charcoal', 'steel', 'platinum', 'bronze', 'copper',
+           'mint', 'coral', 'red', 'yellow', 'purple', 'violet', 'sand', 'ivory',
+           'onyx', 'pebble', 'jade', 'amber', 'sapphire', 'cotta', 'stainless')
+COLOUR_RE = re.compile(r'\b(' + '|'.join(COLOURS) + r')\b', re.I)
+
+
+def variant_of(row: dict) -> tuple[str, str]:
+    """(capacity, colour) for a row, from its name first and its url second."""
+    name = row.get('product_name') or ''
+    slug = re.sub(r'[-_/]+', ' ', (row.get('product_url') or '').split('?')[0])
+    cap = ''
+    for text in (name, slug):
+        found = CAPACITY.findall(text)
+        if found:
+            # "12GB/512GB" is RAM then storage; the larger one is the storage.
+            cap = max((f'{float(n):g}{u.upper()}' for n, u in found),
+                      key=lambda v: float(re.match(r'[\d.]+', v).group())
+                      * (1024 if v.endswith('TB') else 1))
+            break
+    colour = ''
+    for text in (name, slug):
+        hit = COLOUR_RE.findall(text)
+        if hit:
+            colour = ' '.join(dict.fromkeys(w.lower() for w in hit))
+            colour = colour.replace('gray', 'grey')
+            break
+    return cap, colour
+
+
 COLUMNS = ['crawled_at', 'category', 'brand', 'product_name', 'product_url', 'sku',
-           'sku_field', 'model', 'on_sale', 'original_price', 'sale_price',
-           'discount_pct', 'currency']
+           'sku_field', 'model', 'capacity', 'colour', 'on_sale', 'original_price',
+           'sale_price', 'discount_pct', 'currency']
 
 
 def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool,
@@ -1261,7 +1333,9 @@ def write_csv(path: Path, rows: list[dict], brand: str, brand_filter: bool,
         w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction='ignore')
         w.writeheader()
         for r in rows:
-            w.writerow({**r, 'on_sale': 'Y' if r['on_sale'] else 'N'})
+            cap, colour = variant_of(r)
+            w.writerow({**r, 'capacity': cap, 'colour': colour,
+                        'on_sale': 'Y' if r['on_sale'] else 'N'})
     # Swap into place so the CSV on disk is never half-written, even if killed here.
     for attempt in range(6):
         try:
