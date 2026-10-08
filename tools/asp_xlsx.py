@@ -186,6 +186,27 @@ def band_of(plan, canon, code, day) -> str:
     return f'{BANDS[key]}: {name}' if name else BANDS[key]
 
 
+def plan_months(plan) -> list:
+    """Every month the plan has a priced line live in, as yymm.
+
+    "ASP forecast.xlsx is not there" has two causes and they look identical
+    from the outside: --forecast was not passed, or it named months the plan
+    says nothing priced about. The run can simply say which months it does
+    cover, so neither has to be guessed at.
+    """
+    out = set()
+    for lines in (plan.by_code.values() if plan else ()):
+        for c in lines:
+            lo, hi = c.get('start'), c.get('end')
+            if not lo or not hi or not c.get('prices'):
+                continue
+            y, m = lo.year, lo.month
+            while (y, m) <= (hi.year, hi.month):
+                out.add(f'{y % 100:02d}{m:02d}')
+                y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return sorted(out)
+
+
 def month_bands(plan, canon, code, lo, hi) -> collections.Counter:
     """Days per band for one product over one month.
 
@@ -492,6 +513,11 @@ def main() -> int:
         if not n:
             print('  no material has a priced plan line in any of those months,'
                   ' so nothing was written', file=sys.stderr)
+            covered = [m for m in plan_months(price.plan) if m not in fore]
+            if covered:
+                print('  the plan does price: '
+                      + ', '.join(month_label(m) for m in covered),
+                      file=sys.stderr)
         else:
             print(f'  {n:,} material code(s), {info["forecasts"]:,} '
                   f'material-month(s) forecast; {info["own"]:,} carry a bias '
@@ -523,6 +549,15 @@ def main() -> int:
     # The totals are the profit export's, so say so with the two figures side by
     # side rather than in a docstring. A gap here is a bug in this tool, and the
     # only honest place to find it is on the way out.
+    # Named here rather than left to be discovered: the two reasons the forecast
+    # workbook is not on disk look identical from the outside.
+    if not fore and price.plan:
+        later = [m for m in plan_months(price.plan) if m not in months]
+        if later:
+            print(f'\nthe plan also prices {", ".join(month_label(m) for m in later)}. '
+                  f'--forecast {" ".join(later)}\nwrites "ASP forecast.xlsx" '
+                  f'for them; without it only the two books above are written.')
+
     print(f'\nagainst the profit exports: {src["q"]:,.0f} net unit(s), '
           f'{src["a"]:,.0f} net sales')
     _, _, _, mq, ma = made[0]
