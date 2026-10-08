@@ -119,7 +119,11 @@ def sold_by_channel(path: Path, cust: dict, online: str, groups=None,
 
     out: dict[str, dict] = {}
     totals = {'rows': 0, 'on': 0.0, 'off': 0.0, 'lost': 0.0, 'nocode': 0.0,
-              'named': collections.Counter()}
+              'named': collections.Counter(),
+              # What the export actually bought from, by name. A --named that
+              # finds nothing is almost always a retailer the master spells
+              # some other way, and the only cure is to see the real spellings.
+              'accounts': collections.Counter()}
     for r in rows[1:]:
         qty = parse_number(cell(r, i_qty)) or 0.0
         amt = parse_number(cell(r, i_amt)) or 0.0 if i_amt is not None else 0.0
@@ -131,6 +135,8 @@ def sold_by_channel(path: Path, cust: dict, online: str, groups=None,
         key = key_norm(cell(r, i_cust))
         c = cust.get(key) or {}
         where = CUST.channel_of(c.get('account'), bool(c))
+        totals['accounts'][(c.get('account') or '(no account name)',
+                            where)] += qty
         v = out.setdefault(code, {'on': 0.0, 'off': 0.0, 'lost': 0.0,
                                   'on_amt': 0.0, 'off_amt': 0.0,
                                   'named': collections.Counter()})
@@ -240,6 +246,11 @@ def main() -> int:
                  if totals['off'] and got else '')
               + (f'; {out_of:,.0f} more sold through its accounts that are not '
                  f'marked off-line, left out' if out_of else ''))
+        if not got and not out_of:
+            print(f'  nothing was bought under a name containing {name!r}. '
+                  f'The export\'s biggest accounts are:')
+            for (acct, side), q in totals['accounts'].most_common(12):
+                print(f'    {q:>10,.0f}  {side:<12} {acct[:52]}')
 
     with gap.open(encoding='utf-8-sig', newline='') as f:
         rows = list(csv.DictReader(f))
