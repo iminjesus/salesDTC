@@ -7,7 +7,7 @@ name, original price, sale price and % off. Three sites are configured:
 |---|---|
 | `jbhifi` (default) | `jbhifi.com.au/search?query=samsung&Brand=SAMSUNG` |
 | `samsung` | every `/au/x/all-x/` listing on `samsung.com/au` |
-| `harveynorman` | `harveynorman.com.au/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs`, then the categories that page links to |
+| `harveynorman` | the 25 category listings Samsung sells in, from TVs to split systems |
 
 Everything site-specific — base url, the search path, the query and brand facet
 parameters, how product and category links look — is the `SITES` dict at the top of
@@ -223,9 +223,33 @@ loaded in their own browser, not a fetch this tool made.
 
 This is also why `harveynorman` no longer runs off the site's search. That
 entry used to be built on `/catalogsearch/`, which Harvey Norman's
-`robots.txt` disallows, and nothing looked. It now starts from a category
-listing (`/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs`) and finds the
-sibling categories from the page's own navigation.
+`robots.txt` disallows, and nothing looked. It now goes to the category
+listings instead — 25 of them, read off the site's own footer navigation and
+every one checked against `robots.txt`.
+
+## The catalogue in the page
+
+An Adobe Commerce storefront — Harvey Norman is one — hands its React app the
+listing it is about to draw, as JSON inside the page: a `__NEXT_DATA__` script
+whose `pageData.productsData.items` are the products. That is the catalogue,
+not a guess at it:
+
+| field | from |
+|---|---|
+| `sku` | `sku` — the manufacturer's model code (`QA75LS03HEWXXY`) |
+| `product_name` | `name` |
+| `product_url` | `url_key` + `url_suffix` |
+| `sale_price` | `price_range.minimum_price.final_price.value` |
+| `original_price` | that price **plus** `discount.amount_off`, which is off the original, not off what is charged |
+
+It is also complete. The cards are drawn lazily, so the rendered page holds a
+fraction of what this holds — on the QLED TV listing, 22 products in the
+catalogue against the handful of cards on screen. Where a site publishes it, it
+supersedes the card and payload readers, whose output beside it is the cookie
+banner and the cart.
+
+The same records come back from the storefront's GraphQL calls while paging
+through a listing, so the captured payloads are read for the shape too.
 
 ## Stopping part way
 

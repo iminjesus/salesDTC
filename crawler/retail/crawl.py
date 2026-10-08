@@ -12,13 +12,20 @@ Output columns
 
 How it reads the page
     The storefront renders client side, so the page is driven with a real browser.
-    Two extractors run and their results are merged by product URL:
+    Four extractors run and their results are merged by product URL. Two of them
+    read what the site states; two guess from shape:
 
-      1. network  - every JSON response the page fetches is kept, then walked for
-                    product-shaped records (a name-ish key next to a price-ish key).
-                    This survives CSS changes and is the primary source.
-      2. dom      - the rendered product cards are read as a fallback, for the case
-                    where the data arrives server side instead of as JSON.
+      1. catalogue - the listing the storefront hands its own app, as JSON in the
+                     page (__NEXT_DATA__) and in its XHRs. Model code, price and
+                     the amount off, from the site's own records. Where a site
+                     publishes it, it supersedes the two that guess.
+      2. ld+json   - the schema.org ItemList the page publishes for search
+                     engines: name, price, currency and the product url.
+      3. network   - every JSON response the page fetches is kept, then walked for
+                     product-shaped records (a name-ish key next to a price-ish key).
+                     This survives CSS changes.
+      4. dom       - the rendered product cards are read as a fallback, for the case
+                     where the data arrives server side instead of as JSON.
 
     If both come back empty, run with --dump-dir and send the dump: it holds the
     captured payloads and an HTML snapshot, which is what the field names have to
@@ -131,20 +138,21 @@ SITES = {
         },
     },
     # Harvey Norman. Its robots.txt disallows /catalogsearch/, which is exactly
-    # what this entry used to be built on, so a run starts from a real category
-    # listing instead and finds the sibling categories from the page's own
-    # navigation. Only the category below is confirmed to exist; the rest come
-    # from the site at run time, and robots.txt is checked before every fetch.
+    # what this entry used to be built on, so the run goes to the category
+    # listings instead - every one of them read off the site itself and checked
+    # against robots.txt.
     #
     # There is no brand facet worth guessing at on a category page, so its url
     # is used exactly as written (`plain_urls`) and the brand filter narrows the
-    # products afterwards.
+    # products afterwards. The listing itself comes back as JSON inside the
+    # page, which is where the products are read from - see catalogue_rows.
     'harveynorman': {
         'base':          'https://www.harveynorman.com.au',
-        # Where a run with no --category starts. The site's own search is
-        # disallowed, so this is a listing, not a search.
+        # The site's own search is disallowed by robots.txt, so this stands in
+        # for it: --category search is that one listing.
         'search':        '/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs',
         'plain_urls':    True,
+        'catalogue':     True,
         'query_param':   'q',
         'brand_param':   'af',
         'brand_value':   lambda b: f'def_general_brand:{b.title()}',
@@ -164,8 +172,39 @@ SITES = {
         # has to carry a letter and no dot.
         'category_href': r'/((?:[a-z0-9\-]+/){1,2}[a-z0-9\-]*[a-z][a-z0-9\-]*)/?$',
         'category_path': '/{slug}',
+        # Read off the site's own footer navigation, which lists every category
+        # in the store - 806 of them, from bathroom basins up. These are the
+        # ones Samsung sells in, with the brand's own landing pages preferred
+        # where it has one. `all_categories` queues them all when nothing is
+        # named, which is also what keeps discovery from wandering into tiles
+        # and towels.
+        'all_categories': True,
         'categories': {
-            'qled_lcd_tvs': '/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs',
+            'tvs_samsung':   '/tv-blu-ray-home-theatre/tvs-by-brand/samsung-tvs',
+            'tvs_all':       '/tv-blu-ray-home-theatre/tvs-by-screen-size/all-tvs',
+            'tvs_qled':      '/tv-blu-ray-home-theatre/tvs-by-type/qled-lcd-tvs',
+            'soundbars':     '/tv-blu-ray-home-theatre/home-theatre-speakers/soundbars',
+            'phones_samsung': '/mobile-phones-wearables/samsung-galaxy',
+            'phones_all':    '/mobile-phones-wearables/mobile-phones',
+            'phones_fold':   '/mobile-phones-wearables/mobile-phones/flip-fold-phones',
+            'watches':       '/mobile-phones-wearables/smart-watches/samsung-watch',
+            'earbuds':       '/headphones-audio-music/headphones/true-wireless-earbuds',
+            'tablets':       '/computers-tablets/ipads-surface-tablets/samsung-tablets',
+            'monitors':      '/computers-tablets/monitors/samsung-monitors',
+            'ssds':          '/computers-tablets/hard-drives-storage/portable-ssds',
+            'memory_cards':  '/computers-tablets/hard-drives-storage/memory-cards',
+            'usb_drives':    '/computers-tablets/hard-drives-storage/usb-flash-drives',
+            'fridges':       '/kitchen-appliances/appliances/fridges',
+            'dishwashers':   '/kitchen-appliances/appliances/dishwashers',
+            'microwaves':    '/kitchen-appliances/appliances/microwave-ovens',
+            'cooktops':      '/kitchen-appliances/appliances/cooktops',
+            'ovens':         '/kitchen-appliances/appliances/ovens',
+            'washing':       '/vacuum-laundry-appliances/washing-machines-dryers/washing-machines',
+            'dryers':        '/vacuum-laundry-appliances/washing-machines-dryers/dryers',
+            'washer_dryers': '/vacuum-laundry-appliances/washing-machines-dryers/washer-dryer-combos',
+            'vacuums_stick': '/vacuum-laundry-appliances/vacuum-cleaners/stick-vacuum-cleaners',
+            'vacuums_robot': '/vacuum-laundry-appliances/vacuum-cleaners/robotic-vacuum-cleaners',
+            'aircon':        '/heating-cooling-air-treatment/air-conditioning/split-system-airconditioners',
         },
     },
 }
@@ -495,6 +534,91 @@ def from_ld_json(html: str) -> list[dict]:
                 'discount_pct': None,
                 'source': 'ld+json',
             })
+    return rows
+
+
+# ── extractor 4: the storefront's own catalogue records ─────────────────────
+# An Adobe Commerce storefront - Harvey Norman is one - hands its React app the
+# listing it is about to draw, as JSON inside the page: a __NEXT_DATA__ script
+# whose pageData.productsData.items are the products, each with the sku, the
+# name, the url slug and a price_range.
+#
+# This is the catalogue, not a guess at it. It carries the model code as the
+# sku (QA75LS03HEWXXY), the real sale price, and the discount as an amount off
+# - so the was-price is arithmetic rather than a strikethrough that has to be
+# found on screen. It is also complete: the cards are drawn lazily, so the DOM
+# on a page that has not been scrolled holds a fraction of what this holds.
+#
+# The same records come back from the storefront's GraphQL calls as you page
+# through a listing, so network payloads are read for the shape too.
+NEXT_RE = re.compile(
+    r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', re.S)
+
+
+def catalogue_records(node, out: list | None = None, depth: int = 0) -> list:
+    """Every dict carrying a sku beside a price_range, however deeply nested."""
+    out = [] if out is None else out
+    if depth > 14:
+        return out
+    if isinstance(node, dict):
+        if node.get('sku') and isinstance(node.get('price_range'), dict):
+            out.append(node)
+        for v in node.values():
+            catalogue_records(v, out, depth + 1)
+    elif isinstance(node, list):
+        for v in node:
+            catalogue_records(v, out, depth + 1)
+    return out
+
+
+def from_catalogue(rec: dict) -> dict | None:
+    name = rec.get('name')
+    low = ((rec.get('price_range') or {}).get('minimum_price') or {})
+    sale = to_money((low.get('final_price') or {}).get('value'))
+    if not name or sale is None:
+        return None
+    # amount_off is off the original, not off the price being charged:
+    # $2,295 with 700 off and 23.37% off reads back as 700/2995.
+    off = to_money((low.get('discount') or {}).get('amount_off')) or 0.0
+    was = sale + off if off > 0 else None
+    slug = rec.get('url_key')
+    url = (BASE + '/' + str(slug).lstrip('/') + (rec.get('url_suffix') or '')
+           if slug else abs_url(pick(rec, URL_KEYS)))
+    # No brand field on these records; the storefront writes the brand as the
+    # first word of every product name ("Samsung 75-inch The Frame ...").
+    first = str(name).strip().split(' ')[0]
+    return {
+        'brand': first if first.isalpha() else '',
+        'product_name': str(name).strip(),
+        'product_url': url,
+        'sku': str(rec.get('sku')),
+        'sku_field': 'sku',
+        'model': str(rec.get('sku')),
+        'site_category': '',
+        'on_sale': off > 0,
+        'original_price': was if was is not None else sale,
+        'sale_price': sale,
+        'discount_pct': discount(was, sale),
+        'source': 'catalogue',
+    }
+
+
+def catalogue_rows(html: str, payloads: list) -> list[dict]:
+    """The listing's own product records, from the page and from its XHRs."""
+    trees = []
+    for block in NEXT_RE.findall(html or ''):
+        try:
+            trees.append(json.loads(block))
+        except Exception:
+            continue                   # a malformed block is not a reason to stop
+    trees += payloads
+    rows, seen = [], set()
+    for tree in trees:
+        for rec in catalogue_records(tree):
+            row = from_catalogue(rec)
+            if row and (row['sku'], row['sale_price']) not in seen:
+                seen.add((row['sku'], row['sale_price']))
+                rows.append(row)
     return rows
 
 
@@ -894,6 +1018,20 @@ def harvest(page, payloads: list, url: str, args, dump: Path | None) -> tuple:
         found = from_ld_json(page.content())
         print(f'    {len(found)} product(s) in the page\'s structured data')
         rows += found
+    if SITE.get('catalogue'):
+        found = catalogue_rows(page.content(), payloads)
+        print(f'    {len(found)} product(s) in the listing\'s own catalogue data')
+        if found:
+            # The catalogue is the site's own record of what is on the page.
+            # Next to it the card reader's output is noise - every link on
+            # this site is a candidate, so the cookie banner and the cart
+            # come back as products - and it holds nothing the catalogue
+            # lacks.
+            guessed = len(rows)
+            rows = found
+            if guessed:
+                print(f'    {guessed} guessed row(s) dropped: the catalogue '
+                      f'says what is on the page')
     if SITE.get('needs_code'):
         # Every link on the page is a candidate here, and the card reader finds
         # a price near enough to the cookie banner, the cart and the nav to call
