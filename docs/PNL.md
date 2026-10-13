@@ -206,7 +206,29 @@ stack. `--find` and `--where` are what chase them down.
 | **Amount / % of bar** | sizes between bars, or the mix inside each one. Not in P&L mode, where there is no mix |
 | **Numbers** | the totals behind the chart, and the profit split by where the order came from. **Off by default** - the page is the chart |
 | **Table** | every figure behind the bars, with quantity, ASP and the margin |
+| **Excel** | this view as a workbook - see below |
 | **Reset** | back to the opening view |
+
+### The Excel download
+
+**Excel** writes the view on screen to an `.xlsx` named after the page, in three
+sheets:
+
+| Sheet | What it holds |
+|---|---|
+| `Chart` | the bars as drawn - one row per series, one column per period. The margin lines come with a percent format, so 14.4% is not written beside the amounts as `14` |
+| `Table` | the breakdown under the chart, **every row of it**. The screen stops at twelve because it runs out of room, which is no reason for a workbook to |
+| `Scope` | what was on screen when it was taken: the source files, the narrowing in force, Stack by, Period, and the totals |
+
+It is the slice the filters leave, not the whole file - a download that quietly
+held more than the page showed would be a different report wearing its name.
+Narrow first, then press it.
+
+The workbook is written in the page itself, not fetched: an `.xlsx` is a zip of
+XML, and the page has to stay one file that opens from an email attachment. It
+is the same four parts `tools/xlsx.py` writes, so a workbook from the page and
+one from the toolchain open alike. Numbers go in as numbers, so the sheet can
+be summed.
 
 ### Orders, and the month they belong to
 

@@ -249,6 +249,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         ><button class="btn" id="stkPct">% of bar</button></span></label>
       <button class="btn" id="numbersBtn" title="the totals behind the chart, and the profit split by where the order came from">Numbers</button>
       <button class="btn" id="tableBtn">Table</button>
+      <button class="btn" id="xlsBtn" title="the figures behind this view as a workbook - the chart, the table, and the narrowing in force">Excel</button>
       <button class="btn" id="resetBtn">Reset</button>
     </div>
     <div class="scope" id="scope"></div>
@@ -1188,6 +1189,10 @@ function draw() {
     .filter(r => r.rows && (r.gross || r.profit));
   rows.sort((a, b) => Math.abs(b.gross) - Math.abs(a.gross));
   const top = rows.slice(0, 12);
+  // Kept for the Excel download, which takes every row: the screen stops at
+  // twelve because it runs out of room, which is not a reason for a workbook
+  // to stop there too.
+  lastTable = { rows, dimName: lv.name };
   renderTable(top, lv.name, rows.length);
   drawStack();
 }
@@ -1208,6 +1213,7 @@ function draw() {
    The profit line is on both, each point carrying its own figure, so
    switching never loses it. */
 let stkChart = null;
+let lastTable = null;
 function drawStack() {
   // "When ordered" is not a level of the key: it cuts the same revenue by the
   // month the order behind it was placed. It needs the order export and the
@@ -1919,6 +1925,306 @@ document.getElementById('stkAmt').onclick = () => {
 document.getElementById('stkPct').onclick = () => {
   state.stkScale = 'pct'; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+
+
+/* ── the workbook, written here rather than fetched ─────────────────────────
+   This page has to stay one file that opens from an email attachment, so the
+   .xlsx is built in the browser with no library: an .xlsx is a zip of XML, and
+   a stored (uncompressed) zip is a header, the bytes and a central directory.
+   The only arithmetic it needs is a CRC32. tools/xlsx.py writes the same four
+   parts the same way, so a workbook from the page and one from the toolchain
+   open identically.
+
+   What goes in is what is on screen, not the whole file: the same slice the
+   filters leave, the same split the chart is drawn by. A download that quietly
+   held more than the page showed would be a different report wearing its
+   name. */
+let CRC = null;
+function crc32(bytes) {
+  if (!CRC) {
+    CRC = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      CRC[n] = c >>> 0;
+    }
+  }
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const parts = [], dir = [];
+  let at = 0;
+  // One timestamp for the whole archive, in the DOS format the zip header
+  // wants: seconds have one bit, so they go in pairs.
+  const d = new Date();
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const body = enc.encode(f.data);
+    const crc = crc32(body);
+    const head = new DataView(new ArrayBuffer(30));
+    head.setUint32(0, 0x04034b50, true);
+    head.setUint16(4, 20, true);
+    head.setUint16(6, 0x0800, true);        // names are UTF-8
+    head.setUint16(8, 0, true);             // stored
+    head.setUint16(10, time, true);
+    head.setUint16(12, date, true);
+    head.setUint32(14, crc, true);
+    head.setUint32(18, body.length, true);
+    head.setUint32(22, body.length, true);
+    head.setUint16(26, name.length, true);
+    head.setUint16(28, 0, true);
+    parts.push(new Uint8Array(head.buffer), name, body);
+    const cen = new DataView(new ArrayBuffer(46));
+    cen.setUint32(0, 0x02014b50, true);
+    cen.setUint16(4, 20, true);
+    cen.setUint16(6, 20, true);
+    cen.setUint16(8, 0x0800, true);
+    cen.setUint16(10, 0, true);
+    cen.setUint16(12, time, true);
+    cen.setUint16(14, date, true);
+    cen.setUint32(16, crc, true);
+    cen.setUint32(20, body.length, true);
+    cen.setUint32(24, body.length, true);
+    cen.setUint16(28, name.length, true);
+    cen.setUint32(42, at, true);
+    dir.push(new Uint8Array(cen.buffer), name);
+    at += 30 + name.length + body.length;
+  }
+  const dirAt = at;
+  let dirLen = 0;
+  dir.forEach(p => { dirLen += p.length; });
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, dirLen, true);
+  end.setUint32(16, dirAt, true);
+  const all = [...parts, ...dir, new Uint8Array(end.buffer)];
+  let total = 0;
+  all.forEach(p => { total += p.length; });
+  const out = new Uint8Array(total);
+  let o = 0;
+  all.forEach(p => { out.set(p, o); o += p.length; });
+  return out;
+}
+
+const xEsc = v => String(v).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+const colLetter = n => {
+  let s = '';
+  while (n) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s;
+              n = (n - r - 1) / 26; }
+  return s;
+};
+
+/* Styles, the same six tools/xlsx.py uses, so the two look alike in Excel. */
+const XL_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0;(#,##0);-"/>
+<numFmt numFmtId="165" formatCode="0.0%;(0.0%);-"/></numFmts>
+<fonts count="2"><font><sz val="11"/><name val="Arial"/></font>
+<font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Arial"/></font></fonts>
+<fills count="3"><fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF44546A"/>
+<bgColor indexed="64"/></patternFill></fill></fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1"
+ applyFill="1" applyAlignment="1"><alignment horizontal="center"
+ vertical="center" wrapText="1"/></xf>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+
+/* A cell carries its type: a number goes in as a number so the sheet can be
+   summed, a percentage keeps its format, and everything else is an inline
+   string - no shared-string table to keep in step. */
+function sheetXml(rows, widths) {
+  const body = rows.map((row, r) => {
+    const cells = row.map((v, c) => {
+      if (v === null || v === undefined || v === '') return '';
+      const ref = `${colLetter(c + 1)}${r + 1}`;
+      if (r === 0) return `<c r="${ref}" s="1" t="inlineStr"><is><t>${xEsc(v)}</t></is></c>`;
+      if (v && typeof v === 'object' && v.pct !== undefined) {
+        return Number.isFinite(v.pct)
+          ? `<c r="${ref}" s="3"><v>${v.pct / 100}</v></c>` : '';
+      }
+      if (typeof v === 'number') {
+        return Number.isFinite(v) ? `<c r="${ref}" s="2"><v>${v}</v></c>` : '';
+      }
+      return `<c r="${ref}" s="0" t="inlineStr"><is><t xml:space="preserve">${
+        xEsc(v)}</t></is></c>`;
+    }).join('');
+    return `<row r="${r + 1}">${cells}</row>`;
+  }).join('');
+  const cols = (widths || []).map((w, i) =>
+    `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2"
+ activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${body}</sheetData></worksheet>`;
+}
+
+function buildXlsx(sheets) {
+  const files = [];
+  const types = sheets.map((s, i) =>
+    `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
+  files.push({ name: '[Content_Types].xml', data:
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+${types}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>` });
+  files.push({ name: '_rels/.rels', data:
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>` });
+  // Excel refuses a sheet name over 31 characters or carrying : \ / ? * [ ]
+  const used = new Set();
+  const safe = n => {
+    let s = String(n).replace(/[:\\\/?*\[\]]/g, ' ').slice(0, 31) || 'Sheet';
+    let i = 2;
+    while (used.has(s)) s = `${s.slice(0, 28)} ${i++}`;
+    used.add(s);
+    return s;
+  };
+  const tabs = sheets.map((s, i) =>
+    `<sheet name="${xEsc(safe(s.name))}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
+  files.push({ name: 'xl/workbook.xml', data:
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets>${tabs}</sheets></workbook>` });
+  const rels = sheets.map((s, i) =>
+    `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('');
+  files.push({ name: 'xl/_rels/workbook.xml.rels', data:
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${rels}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>` });
+  files.push({ name: 'xl/styles.xml', data: XL_STYLES });
+  sheets.forEach((s, i) => files.push({
+    name: `xl/worksheets/sheet${i + 1}.xml`,
+    data: sheetXml(s.rows, s.widths) }));
+  return zipStore(files);
+}
+
+function saveXlsx(name, sheets) {
+  const blob = new Blob([buildXlsx(sheets)], { type:
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* What the three sheets hold: the figures behind the chart, the breakdown the
+   table shows, and the narrowing in force - so a workbook sent on says which
+   slice it is of. */
+function exportBook() {
+  const pct = v => (v == null || !Number.isFinite(v) ? '' : { pct: v });
+  const sheets = [];
+
+  // 1. the chart, exactly as drawn: one row per series, one column per period
+  if (stkChart) {
+    const labels = stkChart.data.labels || [];
+    const rows = [['Series', ...labels]];
+    stkChart.data.datasets.forEach(d => {
+      if (d.label == null) return;
+      // The margin lines are read off the second axis and are percentages;
+      // writing them beside the amounts under a thousands format turned 14.4%
+      // into "14", which is the one number on the sheet nobody could place.
+      const isPct = d.yAxisID === 'y1';
+      rows.push([d.label, ...labels.map((_, i) => {
+        const v = d.data[i];
+        // A band drawn as a floating bar carries [from, to]; its height is
+        // what the chart shows, so that is what the sheet gets.
+        const n = Array.isArray(v) ? v[1] - v[0] : v;
+        if (!Number.isFinite(n)) return '';
+        return isPct ? { pct: n } : n;
+      })]);
+    });
+    sheets.push({ name: 'Chart', rows,
+                  widths: [34, ...labels.map(() => 14)] });
+  }
+
+  // 2. the table, every row of it - the page shows the top twelve because a
+  //    screen runs out, which is not a reason for the workbook to stop there
+  if (lastTable) {
+    const { rows, dimName } = lastTable;
+    const head = [dimName, label('gross'), ...COSTS.map(k => label(k)), 'Costs',
+                  label('profit'), 'Profit %',
+                  ...(has.qty === undefined ? [] : ['Qty (net)', 'ASP'])];
+    const line = r => {
+      const costs = COSTS.reduce((a, k) => a + r[k], 0);
+      const m = r.net ? (r.profit / r.net) * 100 : null;
+      return [r.name, each(r, 'gross'), ...COSTS.map(k => each(r, k)), costs,
+              each(r, 'profit'), pct(m),
+              ...(has.qty === undefined ? [] : [r.qty, r.asp])];
+    };
+    const out = [head, ...rows.map(line)];
+    const tot = totals();
+    out.push([]);
+    out.push(line({ name: 'Total', ...tot }));
+    sheets.push({ name: 'Table', rows: out,
+                  widths: [34, ...head.slice(1).map(() => 14)] });
+  }
+
+  // 3. what was on screen when it was taken
+  const all = totals();
+  const scope = DATA.levels
+    .map((lv, i) => (state.filter[i] >= 0 ? [lv.name, lv.values[state.filter[i]]] : null))
+    .filter(Boolean);
+  const sl = splitLevel();
+  sheets.push({ name: 'Scope', widths: [26, 46], rows: [
+    ['Item', 'Value'],
+    ['Report', DATA.title],
+    ['Source', DATA.file],
+    ['Rows read', DATA.rows],
+    ['Taken at', new Date().toLocaleString()],
+    [],
+    ['Period', state.period === 'quarter' ? 'Quarter' : 'Month'],
+    ['Cumulative', state.cumul ? 'Yes' : 'No'],
+    ['Stack by', state.stack],
+    ['Split by', state.stack === 'orders' ? 'when ordered'
+                 : sl === null ? '(none)' : DATA.levels[sl].name],
+    ['Scale', state.stkScale === 'pct' ? '% of bar' : 'Amount'],
+    [],
+    ['Filters in force', scope.length ? '' : '(none - the whole file)'],
+    ...scope.map(([k, v]) => [k, v]),
+    [],
+    [label('gross'), each(all, 'gross')],
+    ...COSTS.map(k => [label(k), each(all, k)]),
+    [label('profit'), each(all, 'profit')],
+    ['Profit %', pct(all.margin)],
+    ...(has.qty === undefined ? [] : [['Qty (net)', all.qty], ['ASP', all.asp]]),
+  ] });
+
+  const stem = (location.pathname.split('/').pop() || 'pnl')
+    .replace(/\.html?$/i, '') || 'pnl';
+  saveXlsx(`${stem}.xlsx`, sheets);
+}
+
+document.getElementById('xlsBtn').onclick = exportBook;
 
 rebind();
 startHere();
