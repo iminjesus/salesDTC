@@ -340,8 +340,10 @@ function unify(months) {
 
   return {
     levels, series, combos,
+    // The list price per SKU, kept per month: a price drop is a new list
+    // price, and one map for the whole page would date-stamp it wrongly.
     months: months.map(m => ({ ym: m.ym, label: m.month, file: m.file,
-                               carryIn: !!m.carryIn })),
+                               carryIn: !!m.carryIn, rrp: m.rrp || {} })),
     custDepth: shape.custDepth,
     // Where the promotion chain starts, carried up from the months the same
     // way custDepth is. Left off, the chain came out empty and the button sat
@@ -2028,8 +2030,9 @@ const colLetter = n => {
 /* Styles, the same six tools/xlsx.py uses, so the two look alike in Excel. */
 const XL_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0;(#,##0);-"/>
-<numFmt numFmtId="165" formatCode="0.0%;(0.0%);-"/></numFmts>
+<numFmts count="3"><numFmt numFmtId="164" formatCode="#,##0;(#,##0);-"/>
+<numFmt numFmtId="165" formatCode="0.0%;(0.0%);-"/>
+<numFmt numFmtId="166" formatCode="#,##0.00;(#,##0.00);-"/></numFmts>
 <fonts count="2"><font><sz val="11"/><name val="Arial"/></font>
 <font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Arial"/></font></fonts>
 <fills count="3"><fill><patternFill patternType="none"/></fill>
@@ -2038,12 +2041,13 @@ const XL_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <bgColor indexed="64"/></patternFill></fill></fills>
 <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1"
  applyFill="1" applyAlignment="1"><alignment horizontal="center"
  vertical="center" wrapText="1"/></xf>
 <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
 <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -2060,6 +2064,13 @@ function sheetXml(rows, widths) {
       if (v && typeof v === 'object' && v.pct !== undefined) {
         return Number.isFinite(v.pct)
           ? `<c r="${ref}" s="3"><v>${v.pct / 100}</v></c>` : '';
+      }
+      // A price, not an amount. The amounts are whole dollars and read better
+      // for it; a price is quoted to the cent, and 2,344.33 shown as 2,344 is
+      // a figure nobody can tie back to the net and the units it came from.
+      if (v && typeof v === 'object' && v.unit !== undefined) {
+        return Number.isFinite(v.unit)
+          ? `<c r="${ref}" s="4"><v>${v.unit}</v></c>` : '';
       }
       if (typeof v === 'number') {
         return Number.isFinite(v) ? `<c r="${ref}" s="2"><v>${v}</v></c>` : '';
@@ -2176,7 +2187,7 @@ function detailSheets() {
   const months = DATA.months.map(m => m.label);
   const list = [...rows.values()];
 
-  return keep.map(k => {
+  const sheets = keep.map(k => {
     const j = has[k];
     const sign = POS.has(k) ? Math.abs : (x => x);
     const body = list.map(e => {
@@ -2197,6 +2208,104 @@ function detailSheets() {
         r.total, r.n])],
     };
   });
+
+  // Two more, and they are prices rather than amounts: the list price the plan
+  // set, and what was actually collected per unit. Neither column sums - the
+  // summary column is the figure for the whole period, weighted by the units
+  // that earned it, which is why it is headed Weighted and Period rather than
+  // Total. The gap between the two is the discount, so Off RRP % sits beside
+  // the ASP it is read from.
+  //
+  // RRP comes from the promotion plan by SKU, so it is only as complete as the
+  // plan: a product the plan never names has no list price and the cell is
+  // left empty rather than filled with the price charged, which would read as
+  // a product that sold at list.
+  if (has.qty !== undefined && has.net !== undefined && list.length) {
+    const jn = has.net, jq = has.qty;
+    const body = list.map(e => {
+      const asp = [], rrp = [];
+      let net = 0, units = 0, w = 0, wq = 0, wnet = 0;
+      months.forEach((_, m) => {
+        const q = Math.abs(e.v[m * S + jq]);
+        const n = e.v[m * S + jn];
+        asp.push(q ? { unit: n / q } : '');
+        net += n; units += q;
+        const r = rrpAt(m, e.k);
+        rrp.push(r === null ? '' : { unit: r });
+        // Weighted by the units of the month it was the price in, so a price
+        // drop halfway through the period lands where the volume was. The
+        // months with a list price also keep their own net, because the
+        // discount has to be read off the units it covers - a period ASP that
+        // included a month the plan says nothing about would divide one basis
+        // by another.
+        if (r !== null && q) { w += r * q; wq += q; wnet += n; }
+      });
+      const per = units ? net / units : null;
+      const rrpW = wq ? w / wq : null;
+      return { k: e.k, n: e.n, asp, rrp, units, per, rrpW,
+               off: rrpW ? (1 - (wnet / wq) / rrpW) * 100 : null };
+    });
+    body.sort((a, b) => b.units - a.units);
+    const key = r => r.k.map((v, i) => DATA.levels[i].values[v]);
+    const widths = [...names.map(() => 22), ...months.map(() => 14), 14, 10];
+    // Only where the plan priced something: without it the discount column is
+    // a header over an empty column, which reads as every unit having sold at
+    // list rather than as nothing having a list price.
+    const priced = body.some(r => r.rrpW !== null);
+    if (priced) {
+      sheets.push({ name: 'RRP', widths,
+        rows: [[...names, ...months, 'Weighted', 'Units'],
+               ...body.map(r => [...key(r), ...r.rrp,
+                                 r.rrpW === null ? '' : { unit: r.rrpW },
+                                 r.units || ''])] });
+    }
+    sheets.push({ name: 'ASP',
+      widths: priced ? [...widths.slice(0, -1), 14, 10] : widths,
+      rows: [[...names, ...months, 'Period', ...(priced ? ['Off RRP %'] : []),
+              'Units'],
+             ...body.map(r => [...key(r), ...r.asp,
+                               r.per === null ? '' : { unit: r.per },
+                               ...(priced ? [r.off === null
+                                             || !Number.isFinite(r.off)
+                                             ? '' : { pct: r.off }] : []),
+                               r.units || ''])] });
+  }
+  return sheets;
+}
+
+/* The plan's list price for one combination in one month, or null.
+
+   By SKU, because that is what a list price is a property of. A row whose
+   product level is coarser than the SKU - and every detail row carries the SKU,
+   so that is not this page - would have no single answer. */
+function rrpAt(m, k) {
+  const i = DATA.levels.findIndex(lv => lv.name === 'SKU');
+  if (i < 0 || i >= k.length) return null;
+  const v = (DATA.months[m].rrp || {})[DATA.levels[i].values[k[i]]];
+  return Number.isFinite(v) ? v : null;
+}
+
+/* What the whole slice was meant to sell for, weighted by the units that sold.
+
+   The denominator of the discount on the Scope sheet, and it has to be read
+   off the same combinations the detail sheets hold or the two would disagree
+   about the same slice. */
+function sliceRrp() {
+  if (has.qty === undefined || has.net === undefined) return null;
+  let w = 0, q = 0, net = 0;
+  for (const c of DATA.combos) {
+    if (!inSlice(c)) continue;
+    const r = rrpAt(c.m, c.k);
+    if (r === null) continue;
+    const u = Math.abs(c.v[has.qty]);
+    if (!u) continue;
+    w += r * u; q += u; net += c.v[has.net];
+  }
+  // The net of the same units, so the discount is one basis divided by itself:
+  // the slice's own ASP includes whatever the plan never priced, and dividing
+  // that by a list price read off the rest is how a book ends up quoting a
+  // discount nobody ran.
+  return q ? { rrp: w / q, qty: q, asp: net / q } : null;
 }
 
 /* What the sheets hold: the figures behind the chart, the breakdown the table
@@ -2241,7 +2350,8 @@ function exportBook() {
       const m = r.net ? (r.profit / r.net) * 100 : null;
       return [r.name, each(r, 'gross'), ...COSTS.map(k => each(r, k)), costs,
               each(r, 'profit'), pct(m),
-              ...(has.qty === undefined ? [] : [r.qty, r.asp])];
+              ...(has.qty === undefined ? []
+                  : [r.qty, r.asp == null ? '' : { unit: r.asp }])];
     };
     const out = [head, ...rows.map(line)];
     const tot = totals();
@@ -2257,6 +2367,7 @@ function exportBook() {
 
   // 4. what was on screen when it was taken
   const all = totals();
+  const rrpAll = sliceRrp();
   const scope = DATA.levels
     .map((lv, i) => (state.filter[i] >= 0 ? [lv.name, lv.values[state.filter[i]]] : null))
     .filter(Boolean);
@@ -2289,7 +2400,17 @@ function exportBook() {
     ...(has.net === undefined ? [] : [[label('net'), all.net]]),
     [label('profit'), each(all, 'profit')],
     ['Profit %', pct(all.margin)],
-    ...(has.qty === undefined ? [] : [['Qty (net)', all.qty], ['ASP', all.asp]]),
+    ...(has.qty === undefined ? [] : [['Qty (net)', all.qty],
+                                      ['ASP', all.asp == null ? ''
+                                              : { unit: all.asp }]]),
+    // And what it was meant to be. The two together are the discount the slice
+    // actually ran at, which is the figure the detail sheets are read for.
+    ...(rrpAll === null ? [] : [
+      ['RRP (weighted)', { unit: rrpAll.rrp }],
+      ['ASP of those units', { unit: rrpAll.asp }],
+      ['Off RRP %', pct((1 - rrpAll.asp / rrpAll.rrp) * 100)],
+      ['Units with a list price', rrpAll.qty],
+    ]),
   ] });
 
   const stem = (location.pathname.split('/').pop() || 'pnl')

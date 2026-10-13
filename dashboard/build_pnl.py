@@ -23,6 +23,7 @@ import json
 import re
 import sys
 import webbrowser
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
@@ -144,15 +145,91 @@ NO_SECOND = '(no second campaign)'
 PROMO_TOP = 8
 
 
+# The plan, read once per folder and stem set. Two readers ask it different
+# questions - the promotion split asks which campaign a date sat in, the list
+# price asks what the product was meant to sell for - and a build over nine
+# months would otherwise read the same file eighteen times.
+_PLANS: dict = {}
+
+
+def plan_once(folder, stems, say=print) -> tuple:
+    """(plan, meta), or (None, None) when the folder has no plan file."""
+    key = (str(folder), tuple(stems))
+    if key not in _PLANS:
+        try:
+            _PLANS[key] = PM.load_plans(Path(folder), list(stems), say=say)
+        except Exception:
+            _PLANS[key] = (None, None)
+    return _PLANS[key]
+
+
+def month_window(ym: int) -> tuple:
+    """The first and last day of a month, written 2608 or 202608.
+
+    Both spellings are in use - the flags take 2608, the payload carries
+    202608 - and a window built on the wrong one lands two thousand years out,
+    where every plan line reads as expired and every product falls back to
+    whatever price the plan mentions most.
+    """
+    y, m = ym // 100, ym % 100
+    y += 2000 if y < 100 else 0
+    first = date(y, m, 1)
+    return first, date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1)
+
+
+def rrp_by_sku(plan, skus, ym, say=print) -> dict:
+    """{SKU: list price} for this month, read off the promotion plan.
+
+    The plan is the one file in the folder that states what a product was meant
+    to sell for; the profit export states what was collected, which is the
+    question ASP answers. Keeping them apart is the point - the gap between the
+    two is the discount, and a book that carried only one of them cannot show
+    it.
+
+    A line counts when its window touches the month. A product with no line
+    live in the month falls back to whatever else the plan says about it,
+    because a list price does not stop existing between campaigns. Where the
+    lines disagree the commonest value wins: the same product is planned many
+    times over, and one mistyped line should not become the price.
+    """
+    # A folder with no plan in it, or a plan with nothing live in it: there is
+    # no list price to report and no line worth printing about it, because
+    # promo_bander has already said the plan is missing.
+    if plan is None or not getattr(plan, 'rows', None) or not ym:
+        return {}
+    first, last = month_window(ym)
+    out = {}
+    for sku in skus:
+        cands, _ = plan.candidates(PM.code_norm(sku))
+        priced = [(c, v) for c in cands
+                  if (v := (c.get('prices') or {}).get('RRP'))]
+        if not priced:
+            continue
+        live = [v for c, v in priced
+                if (not c['start'] or c['start'] <= last)
+                and (not c['end'] or c['end'] >= first)]
+        pool = live or [v for _, v in priced]
+        tally: dict = {}
+        for v in pool:
+            tally[v] = tally.get(v, 0) + 1
+        # Commonest first, and the higher price where even that ties - a list
+        # price that is wrong high is visible as a discount that is too big,
+        # where one that is wrong low reads as a product sold above list.
+        out[sku] = max(tally, key=lambda v: (tally[v], v))
+    if skus:
+        say(f'  list price: {len(out):,} of {len(skus):,} SKU(s) have an RRP '
+            f'in the plan')
+    return out
+
+
 def promo_bander(folder, stems, say=print):
     """(sku, date) -> which promotion band, or None when there is no plan.
 
     One cache per product and month, because an export asks the same question
     tens of thousands of times and the answer only changes with the window.
     """
-    try:
-        plan, meta = PM.load_plans(Path(folder), list(stems))
-    except Exception:
+    plan, meta = plan_once(folder, stems, say)
+    if plan is None:
         return None
     if not meta or not plan.rows:
         say(f'  no plan file matching {", ".join(stems)}, so the page cannot '
@@ -1219,6 +1296,15 @@ def build_month(folder, target, args):
         print(f'\nopens on: {start}  (set Channel to All to bring '
               f'{", ".join(v for v in levels[0]["values"] if v != start)} back in)')
 
+    # The list price of every SKU the month holds, so the workbook can put what
+    # was meant to be charged beside what was. Read whether or not the
+    # promotion split is on: --no-orders switches the split off because there
+    # are no order dates to band, which says nothing about the list price.
+    skus = next((lv['values'] for lv in levels if lv['name'] == 'SKU'), [])
+    rrp = {}
+    if not args.no_promo:
+        rrp = rrp_by_sku(plan_once(folder, args.plan)[0], skus, ym)
+
     payload = {
         'ym': ym,
         'month': (f'{MONTHS[(ym % 100) - 1]} {ym // 100}' if ym else target.stem),
@@ -1244,6 +1330,10 @@ def build_month(folder, target, args):
         'promoAt': PROMO_AT if banded_any[0] else None,
         'levels': levels,
         'series': series,
+        # By SKU rather than by combination: a list price is a property of the
+        # product, and writing it once per product keeps a page over nine
+        # months and forty thousand combinations the size it is.
+        'rrp': rrp,
         'start': index[levels[0]['name']].get(start, -1) if start else -1,
         # Rounded to whole units: the chart is drawn in millions and the table
         # in whole amounts, so cents would only make the file bigger.

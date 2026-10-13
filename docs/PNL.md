@@ -211,14 +211,15 @@ stack. `--find` and `--where` are what chase them down.
 
 ### The Excel download
 
-**Excel** writes the view on screen to an `.xlsx` named after the page, in three
-sheets:
+**Excel** writes the view on screen to an `.xlsx` named after the page:
 
 | Sheet | What it holds |
 |---|---|
 | `Chart` | the bars as drawn - one row per series, one column per period. The margin lines come with a percent format, so 14.4% is not written beside the amounts as `14` |
 | `Table` | the breakdown under the chart, **every row of it**. The screen stops at twelve because it runs out of room, which is no reason for a workbook to |
 | one per figure | **every combination, month by month** - see below |
+| `RRP` | the list price the promotion plan set, by model and month |
+| `ASP` | what was actually collected per unit, and how far under list that is |
 | `Scope` | what was on screen when it was taken: the source files, the narrowing in force, Stack by, Period, and the totals |
 
 Between the two is a sheet per figure - `Gross Sales`, `Deduction`, `CoGS`,
@@ -241,6 +242,40 @@ quarters where it says months would be the one table in the book that lies.
 
 Each figure's Total column adds to that figure on `Scope`, which is the check
 worth making before anyone builds on it.
+
+#### The two price sheets
+
+`RRP` and `ASP` are the same rows in the same order, and they are **prices, not
+amounts** - so their last column is not a sum. `Weighted` and `Period` hold the
+figure for the whole period, weighted by the units that earned it, which is why
+a price drop halfway through lands where the volume was rather than halfway
+between the two prices.
+
+`RRP`, after the same level columns the other sheets carry:
+
+| ... | SKU | Jul 26 | Aug 26 | Weighted | Units |
+|---|---|---|---|---|---|
+| | SM-F971BLVDATS | 2,899.00 | 2,699.00 | 2,852.85 | 13 |
+
+`ASP`, the same rows in the same order:
+
+| ... | SKU | Jul 26 | Aug 26 | Period | Off RRP % | Units |
+|---|---|---|---|---|---|---|
+| | SM-F971BLVDATS | 2,500.00 | 2,344.33 | 2,464.08 | 13.6% | 13 |
+
+`Off RRP %` is where the two meet: `1 - ASP / RRP`, the discount the slice
+actually ran at. It is read over **the units that have a list price**, not over
+the whole slice - mixing a list price from one set of units with an ASP from
+another is how a book ends up quoting a discount nobody ran. `Scope` carries
+the same three figures for the whole slice, plus how many units they cover.
+
+**RRP comes from the promotion plan** (`--plan`, default `MX_product` /
+`CE_product`), by model and month: the lines whose window touches the month,
+and where they disagree the commonest value. The profit export says what was
+collected, never what was asked - so without a plan there is no `RRP` sheet and
+no discount column, and a model the plan never names is left **empty** rather
+than filled with the price it sold at, which would read as a unit that sold at
+list.
 
 It is the slice the filters leave, not the whole file - a download that quietly
 held more than the page showed would be a different report wearing its name.
