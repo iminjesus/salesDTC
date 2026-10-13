@@ -218,7 +218,29 @@ sheets:
 |---|---|
 | `Chart` | the bars as drawn - one row per series, one column per period. The margin lines come with a percent format, so 14.4% is not written beside the amounts as `14` |
 | `Table` | the breakdown under the chart, **every row of it**. The screen stops at twelve because it runs out of room, which is no reason for a workbook to |
+| one per figure | **every combination, month by month** - see below |
 | `Scope` | what was on screen when it was taken: the source files, the narrowing in force, Stack by, Period, and the totals |
+
+Between the two is a sheet per figure - `Gross Sales`, `Deduction`, `CoGS`,
+`Opex`, `Net Sales`, `Profit`, `Qty` - holding what the chart and the table are
+summaries **of**: one row per customer-and-product combination, **one column per
+month**, then a Total and the row count behind it.
+
+| Channel | Portal Group | Division | Model | Promotion | Jul 26 | Aug 26 | Sep 26 | Total | Rows |
+|---|---|---|---|---|---|---|---|---|---|
+
+One sheet per figure rather than one sheet with them interleaved: months across
+the top is only readable while a row means one thing, and a header of `Aug 26
+Net / Aug 26 Profit / Aug 26 Qty` across nine months is not a sheet anybody
+filters. Biggest first, so it opens on what matters.
+
+The filters apply. Opened on E-STORE, that is the DTC business month by month;
+narrow to a division or a model and the sheet narrows with it. **Period and
+Cumulative do not** - those shape the chart, and a detail sheet quietly holding
+quarters where it says months would be the one table in the book that lies.
+
+Each figure's Total column adds to that figure on `Scope`, which is the check
+worth making before anyone builds on it.
 
 It is the slice the filters leave, not the whole file - a download that quietly
 held more than the page showed would be a different report wearing its name.

@@ -2137,9 +2137,71 @@ function saveXlsx(name, sheets) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-/* What the three sheets hold: the figures behind the chart, the breakdown the
-   table shows, and the narrowing in force - so a workbook sent on says which
-   slice it is of. */
+/* Every combination in the slice, month by month.
+
+   The chart and the table are the page's own summaries; this is what they are
+   summaries of - one row per customer-and-product combination, one column per
+   month, so the whole thing can be pivoted without going back to the export.
+
+   One sheet per figure rather than one sheet with the figures interleaved:
+   months across the top is only readable while a row means one thing, and a
+   header of "Aug 26 Net / Aug 26 Profit / Aug 26 Qty" across nine months is
+   not a sheet anybody filters.
+
+   The filters apply. Narrowed to E-STORE, that is the DTC business month by
+   month; narrowed further, it is whatever is on screen. Period and Cumulative
+   do not: those shape the chart, and a detail sheet that quietly held quarters
+   where it says months would be the one table in the book that lies. */
+function detailSheets() {
+  const S = DATA.series.length;
+  const M = DATA.months.length;
+  const rows = new Map();
+  for (const c of DATA.combos) {
+    if (!inSlice(c)) continue;
+    const key = c.k.join('\u0001');
+    let e = rows.get(key);
+    if (!e) { e = { k: c.k, n: 0, v: new Float64Array(M * S) }; rows.set(key, e); }
+    e.n += c.n;
+    const at = c.m * S;
+    for (let j = 0; j < c.v.length; j++) e.v[at + j] += c.v[j];
+  }
+  if (!rows.size) return [];
+
+  const keep = ['gross', 'deduction', 'cogs', 'opex', 'net', 'profit', 'qty']
+    .filter(k => has[k] !== undefined);
+  // The cost lines are stored signed and the table shows them positive; the
+  // two reading differently about the same number is worse than either.
+  const POS = new Set(['deduction', 'cogs', 'opex', 'qty']);
+  const names = DATA.levels.map(lv => lv.name);
+  const months = DATA.months.map(m => m.label);
+  const list = [...rows.values()];
+
+  return keep.map(k => {
+    const j = has[k];
+    const sign = POS.has(k) ? Math.abs : (x => x);
+    const body = list.map(e => {
+      const cells = months.map((_, m) => sign(e.v[m * S + j]));
+      const total = cells.reduce((a, b) => a + b, 0);
+      return { k: e.k, n: e.n, cells, total };
+    });
+    // Biggest first, so the sheet opens on what matters rather than on
+    // whatever order the combinations happened to be built in.
+    body.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+    const head = [...names, ...months, 'Total', 'Rows'];
+    return {
+      name: label(k),
+      widths: [...names.map(() => 22), ...months.map(() => 14), 14, 8],
+      rows: [head, ...body.map(r => [
+        ...r.k.map((v, i) => DATA.levels[i].values[v]),
+        ...r.cells.map(v => (v === 0 ? '' : v)),
+        r.total, r.n])],
+    };
+  });
+}
+
+/* What the sheets hold: the figures behind the chart, the breakdown the table
+   shows, every combination behind both, and the narrowing in force - so a
+   workbook sent on says which slice it is of. */
 function exportBook() {
   const pct = v => (v == null || !Number.isFinite(v) ? '' : { pct: v });
   const sheets = [];
@@ -2189,7 +2251,11 @@ function exportBook() {
                   widths: [34, ...head.slice(1).map(() => 14)] });
   }
 
-  // 3. what was on screen when it was taken
+  // 3. everything the two above are summaries of
+  const detail = detailSheets();
+  detail.forEach(d => sheets.push(d));
+
+  // 4. what was on screen when it was taken
   const all = totals();
   const scope = DATA.levels
     .map((lv, i) => (state.filter[i] >= 0 ? [lv.name, lv.values[state.filter[i]]] : null))
@@ -2209,11 +2275,18 @@ function exportBook() {
                  : sl === null ? '(none)' : DATA.levels[sl].name],
     ['Scale', state.stkScale === 'pct' ? '% of bar' : 'Amount'],
     [],
+    ['Detail rows', detail.length ? detail[0].rows.length - 1 : 0],
+    ['Detail sheets', detail.map(d => d.name).join(', ') || '(none)'],
+    [],
     ['Filters in force', scope.length ? '' : '(none - the whole file)'],
     ...scope.map(([k, v]) => [k, v]),
     [],
     [label('gross'), each(all, 'gross')],
     ...COSTS.map(k => [label(k), each(all, k)]),
+    // Net is on the detail sheets and on the chart's denominator but not in
+    // the page's KPI strip, and a total the workbook uses has to be in the
+    // workbook's own summary or the two cannot be tied together.
+    ...(has.net === undefined ? [] : [[label('net'), all.net]]),
     [label('profit'), each(all, 'profit')],
     ['Profit %', pct(all.margin)],
     ...(has.qty === undefined ? [] : [['Qty (net)', all.qty], ['ASP', all.asp]]),
