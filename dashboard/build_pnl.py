@@ -199,11 +199,18 @@ def rrp_by_sku(plan, skus, ym, say=print) -> dict:
         return {}
     first, last = month_window(ym)
     out = {}
+    # Two ways to have no list price, and they are not the same finding: a
+    # product the plan has never heard of, and one the plan plans without ever
+    # quoting an RRP. The first is a gap in the plan's coverage, the second a
+    # gap in its RRP column, and only the second is answered by filling a cell
+    # in - so they are counted apart rather than both reading as "no RRP".
+    unknown, unpriced = [], []
     for sku in skus:
         cands, _ = plan.candidates(PM.code_norm(sku))
         priced = [(c, v) for c in cands
                   if (v := (c.get('prices') or {}).get('RRP'))]
         if not priced:
+            (unpriced if cands else unknown).append(sku)
             continue
         live = [v for c, v in priced
                 if (not c['start'] or c['start'] <= last)
@@ -219,7 +226,70 @@ def rrp_by_sku(plan, skus, ym, say=print) -> dict:
     if skus:
         say(f'  list price: {len(out):,} of {len(skus):,} SKU(s) have an RRP '
             f'in the plan')
+        for miss, what in ((unknown, 'not in the plan at all'),
+                           (unpriced, 'planned, but no RRP on the line')):
+            if miss:
+                say(f'    {len(miss):,} {what}: ' + ', '.join(miss[:8])
+                    + (f' ... and {len(miss) - 8} more' if len(miss) > 8 else ''))
+        if unknown or unpriced:
+            say('    a blank RRP cell is the plan saying nothing, not the '
+                'product having no list price - py dashboard\\build_pnl.py '
+                '--rrp <code> says which')
     return out
+
+
+def say_rrp(plan, code: str, ym: int) -> None:
+    """Everything the plan says about one product's price, and nothing else.
+
+    The workbook leaves a cell empty where the plan is silent, and empty reads
+    the same whichever silence it was: a product the plan never lists, a
+    product listed with every price column but RRP, or a product whose only
+    lines expired before the month. This says which, by name, so the answer to
+    "has this really no list price?" is read off the file rather than guessed.
+    """
+    print(f'\nwhat the plan says about {code!r}:')
+    if plan is None or not getattr(plan, 'rows', None):
+        print('  no plan was read, so nothing - pass --plan with the stems of '
+              'the plan files in the folder')
+        return
+    norm = PM.code_norm(code)
+    cands, how = plan.candidates(norm)
+    print(f'  code read as {norm!r}')
+    if cands:
+        print(f'  matched by {how}')
+    if not cands:
+        # The near misses, because a code the plan carries under one spelling
+        # is a different problem from a product the plan never planned.
+        near = sorted({c['sku'] for c in plan.rows
+                       if c['code'][:6] == norm[:6]})[:8]
+        print('  no plan line for it' + (f'  (nearest by code: '
+                                         f'{", ".join(near)})' if near else ''))
+        return
+    first, last = month_window(ym) if ym else (None, None)
+    print(f'  {len(cands)} plan line(s)' + (f', month {first} .. {last}'
+                                            if first else ''))
+    for c in cands:
+        live = (first is None
+                or ((not c['start'] or c['start'] <= last)
+                    and (not c['end'] or c['end'] >= first)))
+        window = (f'{c["start"] or "-"} .. {c["end"] or "-"}')
+        prices = ', '.join(f'{k}={v:,.0f}' for k, v in
+                           sorted((c.get('prices') or {}).items())) or 'none'
+        print(f'    {c["promo"]}  [{window}]'
+              f'{"" if live else "  (outside the month)"}')
+        print(f'      {prices}')
+    rrps = sorted({v for c in cands if (v := (c.get('prices') or {}).get('RRP'))})
+    if not rrps:
+        print('  -> RRP: no line quotes one, so the workbook leaves it empty')
+        return
+    # What the sheet actually writes, through the same function that writes it
+    # - a diagnostic that reasons about the answer separately is a second
+    # implementation, and the two would drift.
+    chose = rrp_by_sku(plan, [code], ym, say=lambda *a: None).get(code)
+    other = [v for v in rrps if v != chose]
+    print(f'  -> RRP on the sheet: {chose:,.0f}'
+          + (f'   (the plan also quotes {", ".join(f"{v:,.0f}" for v in other)}'
+             f' on other lines)' if other else ''))
 
 
 def promo_bander(folder, stems, say=print):
@@ -305,6 +375,12 @@ def main() -> int:
     ap.add_argument('--find', metavar='VALUE',
                     help='say where one code appears - which column of the export '
                          'holds it and what the masters have for it')
+    ap.add_argument('--rrp', metavar='CODE',
+                    help='say what the promotion plan holds for one product '
+                         'code - which lines, which windows, which prices - so '
+                         'an empty RRP cell in the workbook can be read as the '
+                         'plan being silent rather than the product having no '
+                         'list price. e.g. --rrp AC100HEHPKG/SA')
     ap.add_argument('--where', metavar='VALUE',
                     help='say where one filter value sits - which Channel, Type '
                          'and so on carry it, and how many rows. e.g. --where GOV')
@@ -1303,7 +1379,10 @@ def build_month(folder, target, args):
     skus = next((lv['values'] for lv in levels if lv['name'] == 'SKU'), [])
     rrp = {}
     if not args.no_promo:
-        rrp = rrp_by_sku(plan_once(folder, args.plan)[0], skus, ym)
+        plan = plan_once(folder, args.plan)[0]
+        rrp = rrp_by_sku(plan, skus, ym)
+        if args.rrp:
+            say_rrp(plan, args.rrp, ym)
 
     payload = {
         'ym': ym,

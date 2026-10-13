@@ -277,6 +277,33 @@ no discount column, and a model the plan never names is left **empty** rather
 than filled with the price it sold at, which would read as a unit that sold at
 list.
 
+An empty cell is therefore the **plan** being silent, not the product having no
+list price, and the build says which of the two silences it was:
+
+```
+  list price: 412 of 605 SKU(s) have an RRP in the plan
+    181 not in the plan at all: AC100HEHPKG/SA, ...
+     12 planned, but no RRP on the line: ...
+```
+
+`--rrp CODE` reads one product out of the plan - how the code was matched,
+every line it matched, each line's window and price columns, which lines fall
+outside the month, and the value the sheet writes:
+
+```
+py dashboard\build_pnl.py --rrp AC100HEHPKG/SA
+
+what the plan says about 'AC100HEHPKG/SA':
+  code read as 'AC100HEHPKGSA'
+  no plan line for it
+```
+
+A product that never ran a promotion is normally in neither file: accessories,
+bundles and packages are planned separately or not at all, which is why a
+package code comes back empty while the model inside it has a price. That is
+the plan's coverage, not a bug in the lookup - and `--rrp` is how to tell those
+apart before anyone goes looking for a missing price.
+
 It is the slice the filters leave, not the whole file - a download that quietly
 held more than the page showed would be a different report wearing its name.
 Narrow first, then press it.
