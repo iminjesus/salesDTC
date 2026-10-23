@@ -672,17 +672,46 @@ splits the slice rather than the month.
 
 The same split prints on the build, with the export's own total marked.
 
-### ASP
+### ASP, RRP and the discount
+
+Three tiles sit between the menu and the chart, and they answer the narrowing
+like everything else - pick a Div 3, a campaign, a customer, and they are that
+slice's:
+
+| Tile | |
+|---|---|
+| **RRP** | what the promotion plan says the slice was meant to sell for, weighted by the units that sold under it |
+| **ASP** | what it actually sold for: net sales over net quantity |
+| **Average discount %** | `1 - ASP / RRP`, the discount the slice really ran at |
+
+Above the chart rather than inside **Numbers**, because this is the pair of
+figures the page is read for after the profit itself - and because the chart
+cannot draw them: a price is not an amount, and it would be a flat line along
+the bottom of a bar chart in millions.
+
+**The discount is read over the units that have a list price**, which is not
+always all of them: the plan does not price everything. Each tile says what it
+is read over whenever that is not the whole slice, and the discount tile also
+gives those units' own ASP - without it, a list price that reads *lower* than
+the ASP beside it looks like an error rather than two figures over different
+sets. Mixing the two - a list price from one set of units, an ASP from another
+- is how a page comes to quote a discount nobody ran.
+
+Where there is no plan, or nothing picked has a list price, RRP and the
+discount read `-` and say which of the two it is. `--rrp CODE` chases a single
+product down; see **The two price sheets** above for where the list price comes
+from.
 
 There was a **Per unit** mode that divided every bar by the quantity behind it.
-It is one tile now - **ASP**, in the row under the menu - because that was the
-only per-unit figure anyone read off it, and a mode you have to remember you are
-in costs more than the one number it was carrying.
+It is one tile now - **ASP** - because that was the only per-unit figure anyone
+read off it, and a mode you have to remember you are in costs more than the one
+number it was carrying.
 
 ASP is the weighted price: the totals divided, never the average of the rows'
-own prices. It sits in the KPI row and in the table as `ASP`, always on net
-sales over net quantity. The drill runs down to the **SKU**, so a category price
-can be opened until the model behind it shows.
+own prices. It sits in the tile row, in the KPI row under **Numbers**, and in
+the table as `ASP`, always on net sales over net quantity. The drill runs down
+to the **SKU**, so a category price can be opened until the model behind it
+shows.
 
 A group with no net quantity - returns cancelling its sales - has no price, so
 it reads as a blank rather than a zero, which would read as "free".

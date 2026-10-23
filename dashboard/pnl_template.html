@@ -143,6 +143,11 @@ select:disabled { opacity: .5; }
 .kpi .v { font-size: 19px; font-weight: 650; letter-spacing: -.01em;
   font-variant-numeric: tabular-nums; }
 .kpi .v.neg { color: var(--neg); }
+/* The small print under a tile: what the figure is read over. A discount
+   quoted without saying how much of the slice carries a list price is the
+   kind of number that gets repeated and never checked. */
+.kpi .n { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+#priceCard .kpis { margin: 0; }
 /* The month's profit split by where the order behind it came from. A table
    rather than more KPI tiles: the rows add up, and a reader has to be able to
    see that they add up to the export's own total. */
@@ -256,6 +261,17 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <button class="btn" id="resetBtn">Reset</button>
     </div>
     <div class="scope" id="scope"></div>
+  </div>
+
+  <!-- What the slice sold at, beside what it was meant to sell at. Above the
+       chart rather than inside the Numbers card, because it is the pair of
+       figures the page is read for after the profit itself, and because the
+       chart cannot draw it: a price is not an amount and would be a flat line
+       at the bottom of a bar chart in millions. It answers the narrowing like
+       everything else - pick a Div 3, a campaign, a customer, and it is that
+       slice's RRP, ASP and discount. -->
+  <div class="card" id="priceCard" hidden>
+    <div class="kpis" id="priceKpis"></div>
   </div>
 
   <div class="card" id="stkCard">
@@ -1108,6 +1124,7 @@ function render() {
   ].map(([k, v, cls]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`
   ).join('');
+  priceTiles();
 
   splitStrip();
   draw();
@@ -2353,6 +2370,58 @@ function detailSheets() {
                                r.units || ''])] });
   }
   return sheets;
+}
+
+/* RRP, ASP and the gap between them, for whatever is picked.
+
+   The three belong together: a price on its own says nothing, and the one
+   figure anyone wants off them - how far under list the slice actually ran -
+   is only meaningful if the two sides are read over the same units. They are:
+   the discount is the priced units' own ASP over their own list price, and the
+   tile says how much of the slice that is whenever it is not all of it.
+
+   ASP is the whole slice, because that one is a fact about the slice rather
+   than about the plan's coverage. Where the two bases differ the discount tile
+   says so rather than quietly using a different denominator from the tile
+   beside it. */
+function priceTiles() {
+  const card = document.getElementById('priceCard');
+  const on = has.qty !== undefined && has.net !== undefined;
+  card.hidden = !on;
+  if (!on) return;
+  const all = totals();
+  const r = sliceRrp();
+  const qty = Math.abs(all.qty);
+  const share = r && qty ? (r.qty / qty) * 100 : null;
+  // Said once, under whichever tile it qualifies: the plan does not price
+  // everything, and a page built without one prices nothing.
+  const anyPlan = (DATA.months || []).some(
+    m => m.rrp && Object.keys(m.rrp).length);
+  const over = r === null
+    ? (anyPlan ? 'nothing picked has a list price' : 'no promotion plan read')
+    : share !== null && share < 99.5
+      ? `over ${share.toFixed(0)}% of the units`
+      : '';
+  const off = r ? (1 - r.asp / r.rrp) * 100 : null;
+  // With the plan short of a few products the two tiles are over different
+  // sets, and a list price that reads lower than the ASP beside it looks like
+  // an error until you know why. The discount's own ASP is what explains it,
+  // so it is said where the discount is.
+  const basis = r && share !== null && share < 99.5
+    ? `${over}, whose ASP is ${unitFmt(r.asp)}` : over;
+  document.getElementById('priceKpis').innerHTML = [
+    ['RRP', r ? unitFmt(r.rrp) : '-', '', over],
+    ['ASP', all.asp == null ? '-' : unitFmt(all.asp), '',
+     r && share !== null && share < 99.5 ? 'all of the units' : ''],
+    // Below list is the normal direction, so it is not marked; above list is
+    // either a price rise the plan has not caught up with or a mis-keyed line,
+    // and either way it is worth seeing in red.
+    ['Average discount %', off === null ? '-' : off.toFixed(1) + '%',
+     off !== null && off < 0 ? 'neg' : '', basis],
+  ].map(([k, v, cls, note]) =>
+    `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div>`
+    + (note ? `<div class="n">${note}</div>` : '') + '</div>'
+  ).join('');
 }
 
 /* The plan's list price for one combination in one month, or null.
