@@ -43,12 +43,23 @@ ROOT = HERE.parent
 # The drill, top first: the account name only says online or offline, and the
 # detail comes from the levels underneath it. Product sits alongside.
 PRODUCT_LEVELS = [
-    ('Division', 'division', ('Division', 'Division 2')),
-    ('Category', 'category', ('Prod_group', 'Product Group', 'Category')),
-    ('Range',    'range',    ('Range', 'product_range', 'Material Group')),
+    # The product tree as the master itself draws it: a business, then three
+    # divisions, then the range and the model. Division and Category were two
+    # flattenings of the same tree - Div 3 is Category with Aircon split back
+    # into RAC and SAC - so the tree replaces them rather than sitting beside
+    # them. Each keeps the old spellings as fallbacks, so a master written
+    # before the Div columns existed still fills the chain, with the levels it
+    # cannot tell apart holding the same value - which the page then walks
+    # through in one click rather than three.
+    ('Biz',   'biz',   ('Biz', 'Business', 'Business Unit', 'Division')),
+    ('Div 1', 'div1',  ('Div 1', 'Div1', 'Division 1', 'Division')),
+    ('Div 2', 'div2',  ('Div 2', 'Div2', 'Division 2', 'Division')),
+    ('Div 3', 'div3',  ('Div 3', 'Div3', 'Division 3', 'Prod_group',
+                        'Product Group', 'Category')),
+    ('Range', 'range', ('Range', 'product_range', 'Material Group')),
     # The SKU itself, so per-unit prices can be read down to one model. Taken
     # from the export rather than the master, so it works even unjoined.
-    ('SKU',      'sku',      ()),
+    ('SKU',   'sku',   ()),
 ]
 FILTERS = CUST.LEVELS + PRODUCT_LEVELS
 CUST_DEPTH = len(CUST.LEVELS)

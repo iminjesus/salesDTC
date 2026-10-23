@@ -414,6 +414,9 @@ const label = k => (has[k] === undefined ? k : DATA.series[has[k]].label);
 
 /* Everything read off the payload, recomputed when the payload changes. */
 function rebind() {
+  // The payload decides which levels divide, so an answer kept from the last
+  // one is an answer about a different page.
+  divCache = { key: null, at: new Map() };
   has = {};
   DATA.series.forEach((s, i) => { has[s.key] = i; });
   COSTS = ['deduction', 'cogs', 'opex'].filter(k => has[k] !== undefined);
@@ -484,8 +487,46 @@ const state = {
 function splitLevel() {
   const chain = CHAINS[state.stack] || [];
   if (chain.includes(state.dim) && state.filter[state.dim] < 0) return state.dim;
-  const at = chain.find(i => state.filter[i] < 0);
+  // The first level that actually divides what is left, not merely the first
+  // one still open: see divides().
+  const at = chain.find(i => state.filter[i] < 0 && divides(i))
+             ?? chain.find(i => state.filter[i] < 0);
   return at === undefined ? null : at;
+}
+
+/* Does this level cut the slice in two, or does it hold one value for all of
+   it?
+
+   The product tree repeats itself. MX is Biz MX, Div 1 MX and Div 2 MX, and
+   only at Div 3 does it become Mobile, Accessories, Tablet and Wearable; the
+   whole of Memory is Memory four times over. A split by a level that holds one
+   value draws one undivided bar, and clicking it is a step that goes nowhere -
+   three of them, before the tree says anything.
+
+   So the drill steps over them. The level is still there, still in the menu
+   and still in the workbook; it is just not offered as a choice when it has no
+   choice in it, and the bars land on the first level where the slice actually
+   differs. The same rule covers a level the master could not fill at all,
+   which is one value - (blank) - for everything.
+
+   Counted over the slice the filters leave, so it answers for what is on
+   screen: Div 2 divides CE into HA and AC, and holds one value once MX is
+   picked. Two values is all the question needs, so the walk stops there, and
+   the answers are kept until the filters move. */
+let divCache = { key: null, at: new Map() };
+function divides(i) {
+  const key = state.filter.join(',');
+  if (divCache.key !== key) divCache = { key, at: new Map() };
+  const hit = divCache.at.get(i);
+  if (hit !== undefined) return hit;
+  let seen = -1, more = false;
+  for (const c of DATA.combos) {
+    if (!inSlice(c)) continue;
+    if (seen < 0) { seen = c.k[i]; continue; }
+    if (c.k[i] !== seen) { more = true; break; }
+  }
+  divCache.at.set(i, more);
+  return more;
 }
 
 function startHere() {
@@ -861,7 +902,11 @@ function setFilter(i, v) {
   // widening steps back.
   const chain = CHAINS[state.stack] || [];
   if (v >= 0) {
-    const next = chain.find(j => j > i && state.filter[j] < 0);
+    // Past the levels that now hold one value: picking MX at Biz leaves Div 1
+    // and Div 2 saying MX, and stopping on them would make the reader click
+    // twice more to see the same bar.
+    const next = chain.find(j => j > i && state.filter[j] < 0 && divides(j))
+                 ?? chain.find(j => j > i && state.filter[j] < 0);
     if (next !== undefined) state.dim = next;
   } else if (state.dim > i && chain.includes(state.dim)) {
     state.dim = i;
@@ -905,7 +950,10 @@ function levelCell(i) {
                  + (seen.size <= 1 ? ' off' : '');
   name.textContent = lv.name;
   name.title = state.dim === i ? `The bars are split by ${lv.name}`
-                               : `Split each month by ${lv.name}`;
+             : seen.size <= 1
+               ? `${lv.name} is ${lv.values[[...seen][0]] ?? 'one value'} for `
+                 + 'all of this slice, so the drill steps over it'
+               : `Split each month by ${lv.name}`;
   name.onclick = () => {
     state.dim = i;
     // The chart splits by one chain at a time, so asking for a level asks for

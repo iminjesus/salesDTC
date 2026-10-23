@@ -110,6 +110,41 @@ setting Channel to *All* steps up and brings them back for comparison, which is
 also what puts `Channel` on the x axis as two bars side by side.
 `--start-channel ""` opens on everything instead.
 
+### How products are divided
+
+The product master draws its own tree, and the page drills it as it stands:
+
+```
+Biz  ->  Div 1  ->  Div 2  ->  Div 3  ->  Range  ->  SKU
+```
+
+```
+MX      ->  MX  ->  MX  ->  Mobile, Accessories, Tablet, Wearable
+CE      ->  VD  ->  VD  ->  TV, Monitor, AV
+        ->  DA  ->  HA  ->  REF, WM, VC, BIC, MWO, DW
+                ->  AC  ->  RAC, SAC, Air Purifier
+Memory  ->  Memory  ->  Memory  ->  Memory
+```
+
+It replaces `Division` and `Category`, which were two flattenings of this same
+tree - `Div 3` is `Category` with Aircon split back into `RAC` and `SAC`. A
+master written before the `Div` columns existed still fills the chain: each
+level keeps the old spellings as fallbacks, so `Division` lands in all three
+and the page walks through them in one step, which is the next section.
+
+**A level that holds one value is not a choice, so the drill steps over it.**
+MX is `Biz` MX, `Div 1` MX and `Div 2` MX, and only at `Div 3` does it become
+Mobile and Accessories and the rest; the whole of Memory is Memory four times
+over. Clicking **MX** therefore lands the bars on `Div 3` rather than on two
+more bars saying MX, and clicking **CE** lands them on `Div 1`, where DA and VD
+are a real choice. The level is still in the menu, still in the breadcrumb and
+still a column in the workbook - it is greyed, and says so if you hover it.
+
+It is counted over the slice on screen, not over the file, so `Div 2` divides
+CE into HA and AC and holds one value once MX is picked. The same rule covers a
+level the master could not fill at all, and a customer level like Portal Group
+with one value in it: one value is one value, wherever it came from.
+
 ### Time on the x axis
 
 The build draws **every** `profit_*` export in the folder, and the page is one
@@ -127,8 +162,9 @@ everything along.
 
 Narrowing does not change the axis. Click the **MX** band and the same months
 come back with only MX in them - which is the comparison the click was asking
-for. The split then steps down to the level below, so MX becomes Mobile and
-Wearable across the year.
+for. The split then steps down to the next level that divides what is left, so
+MX becomes Mobile, Accessories, Tablet and Wearable across the year - past
+`Div 1` and `Div 2`, which are MX again.
 
 The eight biggest members take a colour **across the whole span**, not per
 month, since a stacked bar on a time axis cannot be read at all if a colour
@@ -153,7 +189,7 @@ and the members are joined into a block so a level reads as one control:
 
 ```
 CUSTOMER  CHANNEL [All|E-STORE|OFF-LINE]  TYPE [All|EPP|S.com]  PORTAL GROUP [All|PG0|PG1] ...
-PRODUCT   DIVISION [All|DA|MX|VD]  CATEGORY [All|FRIDGE|PHONE|TV]  ...  SKU [All (60) v]
+PRODUCT   BIZ [All|CE|MX|Memory]  DIV 1 [All|DA|MX|VD]  ...  DIV 3 [All|Mobile|TV|REF]  SKU [All (60) v]
 ```
 
 The **name** puts the bars on that level; the one they are on is underlined in
@@ -227,8 +263,8 @@ Between the two is a sheet per figure - `Gross Sales`, `Deduction`, `CoGS`,
 summaries **of**: one row per customer-and-product combination, **one column per
 month**, then a Total and the row count behind it.
 
-| Channel | Portal Group | Division | Model | Promotion | Jul 26 | Aug 26 | Sep 26 | Total | Rows |
-|---|---|---|---|---|---|---|---|---|---|
+| Channel | Portal Group | Biz | Div 3 | SKU | Promotion | Jul 26 | Aug 26 | Sep 26 | Total | Rows |
+|---|---|---|---|---|---|---|---|---|---|---|
 
 One sheet per figure rather than one sheet with them interleaved: months across
 the top is only readable while a row means one thing, and a header of `Aug 26
@@ -770,7 +806,7 @@ clears both: a band switched off is as much a narrowing as a filter is.
 
 **A filter is a filter, and only the Stack by buttons change the stack.**
 Narrowing a level that the current stack does not contain says which rows to
-count, not what the bars are split by - so picking Division DA while stacked by
+count, not what the bars are split by - so picking Div 1 DA while stacked by
 Promotion shows *that division's* promotions, which is what the pick was asking
 for. It used to move the page into that level's own chain instead, so the bars
 stopped being promotions and became products.
@@ -782,7 +818,7 @@ bar click is exactly that: a bar is always a level of the current chain.
 first level. Measured against the whole page instead, it stayed alive at the top
 of a chain and widened a narrowing belonging to a different one - which is how
 Back out of Customer landed on Product, and Back out of Promotion landed on
-Division. A SKU picked earlier is still a narrowing; it is just not the one Back
+Biz. A SKU picked earlier is still a narrowing; it is just not the one Back
 was pressed for.
 
 ### How a profit row gets a promotion on it
