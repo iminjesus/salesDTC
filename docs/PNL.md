@@ -589,6 +589,16 @@ is expanded, which is both the moment there is room for them and the reason
 anyone expanded it. A segment too short to hold its text is left alone rather
 than given a number that spills over its neighbours. **Esc** closes.
 
+**And the figures are only there.** The chart on the page says nothing under
+the pointer: a number that appears on hover is read by whoever happens to be
+moving the mouse and by nobody else, and on a page being shown to a room it is
+a figure nobody asked for. Expand is the deliberate step - it labels every
+value at once, for everyone looking at it - and the tooltip belongs to that
+mode, where it carries what the labels cannot: the bar's total, its margin, and
+in **% of bar** the amount behind each share. The caption under the chart says
+so, because a chart that answers nothing on hover otherwise reads as broken.
+Clicking still drills: a click is a choice, a hover is not.
+
 ### Stack by: when ordered
 
 A third way to cut the same revenue, beside Customer and Product: **not by who
@@ -694,9 +704,9 @@ its total is: an **Operating Cost** stack stands up like the others, and a
 member that really does run the other way still points the other way inside it.
 
 **% of bar** normalises each month to its own total, so the mix inside a small
-month reads as clearly as inside a large one. The tooltip keeps the amount
-behind each share: a share with no size behind it is how a rounding error comes
-to look like a trend. It is off the menu in P&L mode, which is not a mix.
+month reads as clearly as inside a large one. Expanded, the tooltip keeps the
+amount behind each share: a share with no size behind it is how a rounding
+error comes to look like a trend. It is off the menu in P&L mode, which is not a mix.
 
 The eight largest members get a colour each, **fixed across the whole span** - a
 ninth folds into **Other** rather than being handed a generated hue. On a time

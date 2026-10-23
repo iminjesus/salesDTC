@@ -264,7 +264,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <div class="tools">
         <button class="ctl" id="stkBack" title="Widen the deepest narrowing">&larr; Back</button>
         <button class="ctl" id="stkLineVals" title="the figure on every point of every line, not only the solid one">Line values</button>
-        <button class="ctl" id="stkZoom" title="Show only this chart, with every value labelled">&#x2921; Expand</button>
+        <button class="ctl" id="stkZoom" title="Show only this chart, with every value labelled - the figures are here, not under the pointer">&#x2921; Expand</button>
       </div>
     </div>
     <div class="chart" id="stkPlot"><canvas id="stkBars"></canvas></div>
@@ -1075,7 +1075,8 @@ function render() {
     lv.disabled = state.zoom !== 'stk';
   }
   zb.title = state.zoom ? 'Back to the whole page'
-                        : 'Show only this chart, with every value labelled';
+                        : 'Show only this chart, with every value labelled - '
+                          + 'the figures are here, not under the pointer';
 
   document.getElementById('numCard').hidden = !state.numbers;
   document.getElementById('numbersBtn').classList.toggle('active', state.numbers);
@@ -1718,6 +1719,7 @@ function drawStack() {
     plugins: [pointLabels, barValues],
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
+      // The pointer still drills: a click is a choice, a hover is not.
       interaction: { mode: 'index', intersect: false },
       datasets: { bar: { categoryPercentage: 0.8, barPercentage: 0.95 } },
       onHover: (e, els) => {
@@ -1775,7 +1777,14 @@ function drawStack() {
       // Expanded, there is room for every line's figures and that is what the
       // room is for; the switch beside the chart takes them away again.
       pointLabels: { all: state.zoom === 'stk' && state.lineVals },
-        tooltip: { backgroundColor: C.surface, titleColor: C.ink,
+        // Nothing on hover while the chart sits on the page. A figure that
+        // appears under the pointer is read by whoever happens to be moving
+        // the mouse and by nobody else, and on a page being shown to a room it
+        // is a number nobody asked for. Expand is the deliberate step: it
+        // gives the chart the window and labels every value at once, for
+        // everyone looking at it. So the tooltip belongs to that mode.
+        tooltip: { enabled: state.zoom === 'stk',
+          backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
           // A span's parsed.y is its top edge, not its size, so what the band
           // is worth comes off `amounts` wherever it has one.
@@ -1839,8 +1848,8 @@ function drawStack() {
                + 'ran under - a drawing, not a different number'
              : '')
           + (pctMode ? `, every ${PER} normalised to its own total - the mix, `
-                       + 'not the size. The tooltip keeps the amount behind '
-                       + 'each share'
+                       + 'not the size. Expand keeps the amount behind each '
+                       + 'share'
                      : '')
           + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
                       + `have a colour of their own, the same colour in every `
@@ -1866,7 +1875,12 @@ function drawStack() {
                 : '')
     // Two gestures on the legend, and neither is guessable, so both are said.
     + ' A legend entry takes its band out of the bars; double-click one to keep'
-    + ' only that band.';
+    + ' only that band.'
+    // The chart says nothing under the pointer, which reads as broken unless
+    // the page says where the figures are instead.
+    + (state.zoom === 'stk' ? ''
+       : ' The bars carry no figures on hover - Expand labels every one of '
+         + 'them.');
 }
 
 /* The two counts side by side, one pair per member of the level the bars are
