@@ -303,33 +303,55 @@ def say_rrp(plan, code: str, ym: int) -> None:
              f' on other lines)' if other else ''))
 
 
-def drop_rules(args) -> dict:
-    """--drop, as {level index: {value, ...}}.
+# What this report is not about, left out of every build unless --add asks
+# for it back. Both were drawing a band on every bar and a dotted margin line
+# across the chart, and neither is the DTC business the page is read for:
+# Memory is another business, and (blank) is where rows the product master
+# could not place end up. A default rather than a flag because it is a
+# property of the report, not of one run - and it is not a silent one: every
+# build prints what went and how much, and the page says so under the menu.
+DROP_DEFAULT = ('Biz=Memory', 'Biz=(blank)')
+
+
+def parse_rules(rules, flag: str) -> dict:
+    """LEVEL=VALUE[,VALUE] strings, as {level index: {VALUE, ...}}.
 
     By level name as the page prints it, ignoring case and spacing, so
-    --drop biz=Memory and --drop "Biz = Memory" are the same instruction. A
-    name that is not a level is a stop rather than a silent no-op: a page built
-    without the exclusion that was asked for is worse than one that would not
-    build.
+    biz=Memory and "Biz = Memory" are the same instruction. A name that is not
+    a level is a stop rather than a silent no-op: a page built without the
+    exclusion that was asked for is worse than one that would not build.
     """
     shown = FILTERS + PROMO_LEVELS
     at = {re.sub(r'[^a-z0-9]', '', lbl.lower()): n
           for n, (lbl, _, _) in enumerate(shown)}
     out: dict = {}
-    for rule in args.drop or []:
+    for rule in rules or []:
         if '=' not in rule:
-            raise SystemExit(f'--drop {rule!r}: write it as LEVEL=VALUE, '
-                             f'e.g. --drop "Biz=Memory,(blank)"')
+            raise SystemExit(f'{flag} {rule!r}: write it as LEVEL=VALUE, '
+                             f'e.g. {flag} "Biz=Memory,(blank)"')
         name, vals = rule.split('=', 1)
         n = at.get(re.sub(r'[^a-z0-9]', '', name.lower()))
         if n is None:
-            raise SystemExit(f'--drop {rule!r}: {name.strip()!r} is not a '
+            raise SystemExit(f'{flag} {rule!r}: {name.strip()!r} is not a '
                              f'level. The levels are: '
                              + ', '.join(lbl for lbl, _, _ in shown))
         for v in vals.split(','):
             if v.strip():
                 out.setdefault(n, set()).add(v.strip().upper())
     return out
+
+
+def drop_rules(args) -> dict:
+    """What this build leaves out: the defaults, plus --drop, less --add."""
+    if getattr(args, 'add_all', False):
+        return {}
+    rules = parse_rules(list(DROP_DEFAULT) + list(args.drop or []), '--drop')
+    for n, vs in parse_rules(args.add, '--add').items():
+        if n in rules:
+            rules[n] -= vs
+            if not rules[n]:
+                del rules[n]
+    return rules
 
 
 def apply_drops(combos, counts, rules, keys, say=print) -> list:
@@ -359,8 +381,9 @@ def apply_drops(combos, counts, rules, keys, say=print) -> list:
     shown = FILTERS + PROMO_LEVELS
     said = [f'{shown[n][0]}: ' + ', '.join(sorted(vs))
             for n, vs in sorted(hit.items())]
-    say('\nleft out of this page (--drop): '
-        + ('; '.join(said) if said else 'nothing matched'))
+    say('\nleft out of this page: '
+        + ('; '.join(said) if said else 'nothing matched')
+        + '   (--add brings one back, --add-all draws the file as it is)')
     if said:
         say(f'  {len(gone):,} combination(s), {rows:,} row(s)'
             + (f', {amount:,.0f} in net sales' if at is not None else '')
@@ -517,12 +540,20 @@ def main() -> int:
                          'never reach the profit file')
     ap.add_argument('--drop', action='append', default=[],
                     metavar='LEVEL=VALUE[,VALUE]',
-                    help='leave whole values out of the page, e.g. '
-                         '--drop "Biz=Memory,(blank)". Out of everything - the '
-                         'bars, the totals, the line and the workbook - '
+                    help='leave more whole values out of the page, e.g. '
+                         '--drop "Div 3=Service,Gift Card". Out of everything '
+                         '- the bars, the totals, the line and the workbook - '
                          'because a value hidden from the bars but kept in the '
                          'totals makes the two disagree. The run says how many '
-                         'rows and how much revenue went with it. Repeatable')
+                         'rows and how much revenue went with it. Repeatable. '
+                         'Left out by default: ' + ', '.join(DROP_DEFAULT))
+    ap.add_argument('--add', action='append', default=[],
+                    metavar='LEVEL=VALUE[,VALUE]',
+                    help='add one of those defaults back into the page, e.g. '
+                         '--add "Biz=(blank)" to see the rows the product '
+                         'master could not place. Repeatable')
+    ap.add_argument('--add-all', action='store_true',
+                    help='add everything back: draw the file as it is')
     ap.add_argument('--no-promo', action='store_true',
                     help='leave out the promotion split')
     ap.add_argument('--promo-bands', choices=('three', 'all'), default='three',

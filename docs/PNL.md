@@ -147,27 +147,42 @@ with one value in it: one value is one value, wherever it came from.
 
 ### Leaving a value out altogether
 
-Some values do not belong on the page at all: a business this report is not
-about, and the `(blank)` that unmatched rows fall into. Hiding them from the
-bars while keeping them in the totals would make the two disagree, so `--drop`
-takes them out of everything.
+Two values are **left out of every build**, because neither is the business
+this report is about:
+
+| Left out | Why |
+|---|---|
+| `Biz=Memory` | another business; it was a band on every bar and a dotted margin line across the chart |
+| `Biz=(blank)` | where rows the product master could not place end up |
 
 ```
-py dashboard\build_pnl.py --drop "Biz=Memory,(blank)"
-```
-
-```
-left out of this page (--drop): Biz: (blank), Memory
+left out of this page: Biz: (blank), Memory   (--add brings one back, --add-all draws the file as it is)
   26 combination(s), 26 row(s), 318,608 in net sales - out of the bars, the
   totals and the workbook alike
 ```
 
-By level name, ignoring case and spacing, and repeatable - `--drop
-"Div 3=Service,Gift Card" --drop "Biz=Memory"`. It is applied **after** every
-source has been merged, so a value dropped from the sales side cannot come back
-through the order side carrying a booking. A name that is not a level stops the
-build; a *value* that matches nothing is only a warning, and the run names it,
-because a typo there leaves the page carrying what was meant to be excluded.
+A default rather than a flag because it is a property of **the report**, not of
+one run - a page that needs a flag to be right is a page that will be wrong the
+first time someone forgets it. It is not a silent default: every build prints
+what went and how much, so a `(blank)` that starts growing is visible rather
+than quietly thrown away.
+
+**Out of everything** - the bars, the totals, the line and the workbook. Hiding
+a value from the bars while keeping it in the totals would leave the stack and
+the line disagreeing about the same slice. It is applied **after** every source
+has been merged, so a value dropped from the sales side cannot come back
+through the order side carrying a booking.
+
+| Flag | |
+|---|---|
+| `--add "Biz=(blank)"` | add one of the defaults back, e.g. to chase down a join that is failing |
+| `--add-all` | add everything back: draw the file as it is |
+| `--drop "Div 3=Service,Gift Card"` | leave more out |
+
+All three take `LEVEL=VALUE[,VALUE]` by level name, ignoring case and spacing,
+and all are repeatable. A name that is not a level stops the build; a *value*
+that matches nothing is only a warning, and the run names it, because a typo
+there leaves the page carrying what was meant to be excluded.
 
 What went is said **on the page** - under the menu, beside the narrowing, and
 on the workbook's `Scope` sheet. Nothing on the page can bring it back, which
