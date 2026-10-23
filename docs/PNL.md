@@ -145,6 +145,38 @@ CE into HA and AC and holds one value once MX is picked. The same rule covers a
 level the master could not fill at all, and a customer level like Portal Group
 with one value in it: one value is one value, wherever it came from.
 
+### Leaving a value out altogether
+
+Some values do not belong on the page at all: a business this report is not
+about, and the `(blank)` that unmatched rows fall into. Hiding them from the
+bars while keeping them in the totals would make the two disagree, so `--drop`
+takes them out of everything.
+
+```
+py dashboard\build_pnl.py --drop "Biz=Memory,(blank)"
+```
+
+```
+left out of this page (--drop): Biz: (blank), Memory
+  26 combination(s), 26 row(s), 318,608 in net sales - out of the bars, the
+  totals and the workbook alike
+```
+
+By level name, ignoring case and spacing, and repeatable - `--drop
+"Div 3=Service,Gift Card" --drop "Biz=Memory"`. It is applied **after** every
+source has been merged, so a value dropped from the sales side cannot come back
+through the order side carrying a booking. A name that is not a level stops the
+build; a *value* that matches nothing is only a warning, and the run names it,
+because a typo there leaves the page carrying what was meant to be excluded.
+
+What went is said **on the page** - under the menu, beside the narrowing, and
+on the workbook's `Scope` sheet. Nothing on the page can bring it back, which
+is exactly why it has to be written where the page is read:
+
+```
+Showing everything else in the file. Not in this page - Biz: (blank), Memory.
+```
+
 ### Time on the x axis
 
 The build draws **every** `profit_*` export in the folder, and the page is one

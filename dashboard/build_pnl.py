@@ -303,6 +303,82 @@ def say_rrp(plan, code: str, ym: int) -> None:
              f' on other lines)' if other else ''))
 
 
+def drop_rules(args) -> dict:
+    """--drop, as {level index: {value, ...}}.
+
+    By level name as the page prints it, ignoring case and spacing, so
+    --drop biz=Memory and --drop "Biz = Memory" are the same instruction. A
+    name that is not a level is a stop rather than a silent no-op: a page built
+    without the exclusion that was asked for is worse than one that would not
+    build.
+    """
+    shown = FILTERS + PROMO_LEVELS
+    at = {re.sub(r'[^a-z0-9]', '', lbl.lower()): n
+          for n, (lbl, _, _) in enumerate(shown)}
+    out: dict = {}
+    for rule in args.drop or []:
+        if '=' not in rule:
+            raise SystemExit(f'--drop {rule!r}: write it as LEVEL=VALUE, '
+                             f'e.g. --drop "Biz=Memory,(blank)"')
+        name, vals = rule.split('=', 1)
+        n = at.get(re.sub(r'[^a-z0-9]', '', name.lower()))
+        if n is None:
+            raise SystemExit(f'--drop {rule!r}: {name.strip()!r} is not a '
+                             f'level. The levels are: '
+                             + ', '.join(lbl for lbl, _, _ in shown))
+        for v in vals.split(','):
+            if v.strip():
+                out.setdefault(n, set()).add(v.strip().upper())
+    return out
+
+
+def apply_drops(combos, counts, rules, keys, say=print) -> list:
+    """Take the dropped values out, and say what went with them.
+
+    At the end, once every source has been merged in, so a value excluded from
+    the sales side cannot come back through the order side carrying a booking
+    - which is exactly what a filter applied earlier would have let happen.
+    """
+    if not rules:
+        return []
+    gone, rows, amount = [], 0, 0.0
+    at = keys.index('net') if 'net' in keys else (
+        keys.index('gross') if 'gross' in keys else None)
+    # The spellings actually taken out, rather than the ones typed at the
+    # flag: "memory" was the instruction, Memory is what left the page.
+    hit: dict = {}
+    for k in [k for k in combos
+              if any(k[n].strip().upper() in vs for n, vs in rules.items()
+                     if n < len(k))]:
+        for n, vs in rules.items():
+            if n < len(k) and k[n].strip().upper() in vs:
+                hit.setdefault(n, set()).add(k[n])
+        rows += counts.pop(k, 0)
+        amount += combos.pop(k)[at] if at is not None else 0
+        gone.append(k)
+    shown = FILTERS + PROMO_LEVELS
+    said = [f'{shown[n][0]}: ' + ', '.join(sorted(vs))
+            for n, vs in sorted(hit.items())]
+    say('\nleft out of this page (--drop): '
+        + ('; '.join(said) if said else 'nothing matched'))
+    if said:
+        say(f'  {len(gone):,} combination(s), {rows:,} row(s)'
+            + (f', {amount:,.0f} in net sales' if at is not None else '')
+            + ' - out of the bars, the totals and the workbook alike')
+    # A value that matched nothing is a typo or a value this month does not
+    # have, and the difference matters: the first leaves the page carrying what
+    # was meant to be excluded, and nothing on the page would say so.
+    for n, vs in sorted(rules.items()):
+        missed = sorted(v for v in vs
+                        if not any(g.strip().upper() == v
+                                   for g in hit.get(n, ())))
+        if missed:
+            say(f'  {shown[n][0]}: nothing to drop for '
+                + ', '.join(repr(v) for v in missed)
+                + ' - no row of this export carries it')
+    return said
+
+
 def promo_bander(folder, stems, say=print):
     """(sku, date) -> which promotion band, or None when there is no plan.
 
@@ -439,6 +515,14 @@ def main() -> int:
                     help='product-code prefixes to leave out of the order side, '
                          'e.g. SMC-AU- for service plans that are ordered but '
                          'never reach the profit file')
+    ap.add_argument('--drop', action='append', default=[],
+                    metavar='LEVEL=VALUE[,VALUE]',
+                    help='leave whole values out of the page, e.g. '
+                         '--drop "Biz=Memory,(blank)". Out of everything - the '
+                         'bars, the totals, the line and the workbook - '
+                         'because a value hidden from the bars but kept in the '
+                         'totals makes the two disagree. The run says how many '
+                         'rows and how much revenue went with it. Repeatable')
     ap.add_argument('--no-promo', action='store_true',
                     help='leave out the promotion split')
     ap.add_argument('--promo-bands', choices=('three', 'all'), default='three',
@@ -1297,6 +1381,11 @@ def build_month(folder, target, args):
             print(f'  carried on to the month after: {goes:,.0f} units'
                   + (f'  ({goes / sold * 100:.0f}% of the month)' if sold else ''))
 
+    dropped = apply_drops(combos, counts, drop_rules(args), keys)
+    if not combos:
+        print('  that is everything this export had. Nothing is left to draw - '
+              'check the --drop values against the levels above')
+
     # ── what the filters ended up holding ──────────────────────────────────
     levels = []
     print('\nfilter values:')
@@ -1420,6 +1509,10 @@ def build_month(folder, target, args):
         'promoAt': PROMO_AT if banded_any[0] else None,
         'levels': levels,
         'series': series,
+        # What --drop took out. Carried into the page because a report that
+        # quietly leaves a business out is the one kind of wrong a reader
+        # cannot see: it says so under the menu and on the Scope sheet.
+        'dropped': dropped,
         # By SKU rather than by combination: a list price is a property of the
         # product, and writing it once per product keeps a page over nine
         # months and forty thousand combinations the size it is.
