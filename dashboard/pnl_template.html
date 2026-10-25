@@ -415,6 +415,10 @@ function fade(colour, a) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
+/* The highest margin the chart will draw. Above it the figure is a denominator
+   problem rather than a result, and one such point rescales the percent axis
+   until nothing else on it can be read. */
+const MARGIN_CAP = 80;
 // A band's own margin line is named after it, so one is found from the other.
 const stripMargin = l => l.replace(/ margin$/, '');
 const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
@@ -1639,9 +1643,23 @@ function drawStack() {
   const axisBottom = Math.min(0, ...(pnlMode ? [0] : whole));
   // How many columns there are decides how tall the plot needs to be.
 
+  // A margin over 80% is not a margin. Operating profit cannot be most of net
+  // sales; what makes the figure is the denominator - a band with a few
+  // thousand in net sales carrying a cost line that landed somewhere else, and
+  // 1,120% comes out. Drawn, it owns the percent axis and flattens every real
+  // line on the chart into the same straight row.
+  //
+  // So the point is left off rather than drawn or clamped: clamping would put
+  // a band at 80% and invite someone to read it. Only the positive side is
+  // cut - a band really can lose more than it sells, and -200% on a clearance
+  // band is a result, not an artefact.
+  let overCap = 0;
   const marginOf = f => {
     const base = f.net || f.gross;
-    return base ? f.profit / base * 100 : null;
+    if (!base) return null;
+    const m = f.profit / base * 100;
+    if (m > MARGIN_CAP) { overCap++; return null; }
+    return m;
   };
   if (hasLine) {
     series.push({
@@ -1879,6 +1897,11 @@ function drawStack() {
                     : '; the dotted lines are the same margin for each band, in '
                       + 'the band\'s own colour - two bands the same size can '
                       + 'be a long way apart on it.') : '')
+    + (overCap ? ` ${overCap} point${overCap > 1 ? 's' : ''} over `
+                 + `${MARGIN_CAP}% ${overCap > 1 ? 'are' : 'is'} left off: `
+                 + 'profit cannot be most of net sales, so a margin that high '
+                 + 'is a tiny base rather than a result, and drawn it would '
+                 + 'own the axis.' : '')
     + (canDrill ? ` Click a band to keep only that ${DATA.levels[sl].name}`
                   + (slNext === null ? '.'
                      // Where the split lands depends on the band: inside MX,

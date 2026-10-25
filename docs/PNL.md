@@ -542,6 +542,16 @@ are read against it rather than off a number. They are drawn faint, and with no
 point markers, for the same reason: at full strength eight of them read as the
 chart and the bars underneath read as the background, which is backwards.
 
+**A margin over 80% is left off the chart.** Operating profit cannot be most of
+net sales: what makes a figure like 1,120% is the denominator - a band with a
+few thousand in net sales carrying a cost line that landed somewhere else. One
+such point rescales the percent axis until every real line on the chart is the
+same flat row, so the point is dropped and the caption says how many went. It
+is dropped rather than clamped, because a band pinned at 80% is a figure
+somebody will read. **Only the positive side is cut**: a band really can lose
+more than it sells, and -200% on a clearance band is a result, not an artefact.
+`MARGIN_CAP` in the template is the number.
+
 Choosing **Qty** gives the units split with the profit line over it and **no
 cost bars**: costs share no scale with a count of units, and the same goes for a
 bar normalised to 100%. Controls that do not apply disappear rather than greying
