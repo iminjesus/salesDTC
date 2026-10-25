@@ -187,9 +187,9 @@ def main() -> int:
                          'Date, which is what says an order carried over '
                          '(default: orders)')
     ap.add_argument('--plan', nargs='+', metavar='STEM',
-                    default=['MX_product', 'ce_product'],
+                    default=list(PM.PLAN_STEMS),
                     help='the promotion plan(s), one per division, '
-                         'read together (default: MX_product '
+                         'read together (default: mx_promo '
                          'ce_product)')
     ap.add_argument('--profit', default=None)
     ap.add_argument('--status', default='COMPLETED', metavar='LIST',

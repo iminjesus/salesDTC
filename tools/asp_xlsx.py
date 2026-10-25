@@ -298,10 +298,10 @@ def main() -> int:
     ap.add_argument('--channel', default=CUST.ONLINE, metavar='NAME',
                     help=f'which channel the second workbook keeps '
                          f'(default: {CUST.ONLINE})')
-    ap.add_argument('--plan', nargs='+', default=['MX_product', 'ce_product'],
+    ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM',
                     help='the promotion plan(s) the RRP is read from, one per '
-                         'division, read together (default: MX_product '
+                         'division, read together (default: mx_promo '
                          'ce_product; a stem that names no file is skipped)')
     ap.add_argument('--gst', type=float, default=1.1, metavar='N',
                     help='what the RRP is divided by before it is compared '

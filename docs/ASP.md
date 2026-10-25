@@ -57,8 +57,9 @@ that goes to stderr, because it would be a fault here and not in the export.
 
 The plans are asked first - they are kept month by month and carry the windows,
 so they know a price that changed in the middle of August - and the product
-master answers where they have nothing. `--plan` defaults to **`MX_product
-ce_product`**, one file per division read together, and a run with more than one
+master answers where they have nothing. `--plan` defaults to **`mx_promo|MX_product
+ce_promo|CE_product`**, one file per division read together - a bar between the
+names a division has gone by, first match wins, newest cut of a dated series, and a run with more than one
 prints where their columns differ before using them (see `docs/PROMO.md`); a
 stem that names no file is skipped. Which one answered is
 counted, not blended:

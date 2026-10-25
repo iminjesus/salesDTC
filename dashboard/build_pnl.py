@@ -561,9 +561,10 @@ def main() -> int:
                          'into "No promotion" (default); all keeps the five '
                          'apart')
     ap.add_argument('--plan', nargs='+', metavar='STEM',
-                    default=['MX_product', 'ce_product'],
+                    default=list(PM.PLAN_STEMS),
                     help='the promotion plan(s) the promotion split is read '
-                         'from (default: MX_product ce_product)')
+                         'from (default: ' + ' '.join(PM.PLAN_STEMS)
+                         + ', a bar between the names one division has gone by)')
     ap.add_argument('--no-orders', action='store_true',
                     help='draw sales only, even when an order export is there')
     ap.add_argument('--shipped', metavar='LIST',
@@ -640,8 +641,8 @@ def main() -> int:
     if not args.no_promo and not any(m.get('promoBands') for m in months):
         print('\nStack by Promo will be OFF on this page: nothing was banded '
               'by promotion.\n  It needs an order source (SAP orders_* or the '
-              'store export) and a plan\n  (--plan, default MX_product '
-              'ce_product) that lists the products sold.')
+              'store export) and a plan\n  (--plan, default '
+              + ' '.join(PM.PLAN_STEMS) + ') that lists the products sold.')
     out = Path(args.out) if args.out else HERE / (
         f'pnl{tag}_{str(months[-1]["ym"])[-4:]}.html' if months[-1].get('ym')
         else f'pnl{tag}.html')

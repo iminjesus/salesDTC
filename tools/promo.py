@@ -42,6 +42,7 @@ import customer as CUST                                         # noqa: E402
 # are one vocabulary layer, and the cross-check needs to put a rule and a plan
 # line on the same family as much as this file does.
 from promo_match import NAMES as PM_NAMES                        # noqa: E402
+from promo_match import PLAN_STEMS, plan_file                    # noqa: E402
 from promo_match import to_date                                 # noqa: E402
 from promo_match import (FAMILIES, MECHANIC, OTHER, families_in,  # noqa: E402
                          family_label, family_of, mechanics_in,
@@ -208,7 +209,7 @@ def main() -> int:
         # The master decides where it knows a code; the plans fill in the codes
         # it has never heard of, which is the only way a store line for a
         # product the master has not caught up with lands anywhere at all.
-        plans = [pick_file(folder, n) for n in ('MX_product', 'ce_product')]
+        plans = [plan_file(folder, n) for n in PLAN_STEMS]
         for cand in pick_series(folder, args.product) + [c for c in plans if c]:
             try:
                 info = master(cand, ('SKU', 'Product Code', 'Material',

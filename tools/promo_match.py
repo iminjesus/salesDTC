@@ -4,8 +4,9 @@
     py tools\\promo_match.py --profile     # describe every file, change nothing
     py tools\\promo_match.py               # attribute, and cross-check the two
 
-The plan arrives as one file per division - MX_product, ce_product - in the same
-shape with a few of the columns spelled differently. Both are read together, and
+The plan arrives as one file per division - MX_promo_<yymm>, ce_product, and
+MX_product before it was dated - in the same shape with a few of the columns
+spelled differently. Both are read together, and
 where they differ from each other is printed before anything is read out of
 them, because a column one file spells differently is a column that reads as
 blank in the other.
@@ -447,6 +448,29 @@ def portal_levels(path: Path, agree: float = 80.0, say=print) -> dict:
 # Every column in the plan that can hold a price, tried nearest-first against
 # what the order actually paid. Which one wins is reported, because "matched
 # T2_Price" says which tier the customer was on.
+# The plan, one file per division. The name has moved - MX_product, then
+# MX_promo_<yymm> as the sheet started carrying its month - so each division is
+# a list of names and the first that matches a file wins; a dated series
+# resolves to its newest cut. Alternatives are written with a bar so the whole
+# thing stays one --plan argument.
+PLAN_STEMS = ('mx_promo|MX_product', 'ce_promo|CE_product')
+
+
+def plan_file(folder, want):
+    """The file one --plan stem names, trying its alternatives in order.
+
+    Each name is resolved whole - an exact stem, then a prefix - before the
+    next is tried, because the names are in preference order. Handing them to
+    pick_file together would run every exact match first, and last month's
+    MX_product would beat this month's MX_promo_2610.
+    """
+    for name in str(want).split('|'):
+        hit = pick_file(Path(folder), name)
+        if hit is not None:
+            return hit
+    return None
+
+
 PRICE_COLS = ('S.COM_Price', 'T1_Price', 'T2_Price', 'T3_Price', 'EDU_Price',
               'RRP', 'Promo Price', 'Promotion Price', 'Price')
 # A plan row in one of these states was never live, so nothing sold under it.
@@ -706,9 +730,11 @@ def load_plans(folder: Path, stems, *, keep_cancelled: bool = False,
     """
     lines, meta = [], []
     for want in stems:
-        path = pick_file(folder, want)
+        path = plan_file(folder, want)
         if path is None:
-            say(f'  no file matching {want!r} - skipped')
+            say('  no file matching '
+                + ' or '.join(repr(n) for n in str(want).split('|'))
+                + ' - skipped')
             continue
         try:
             rows, info = read_any(path)
@@ -1845,11 +1871,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata')
-    ap.add_argument('--plan', nargs='+', default=['MX_product', 'ce_product'],
+    ap.add_argument('--plan', nargs='+', default=list(PLAN_STEMS),
                     metavar='STEM',
                     help='the promotion plan(s), one per division, read '
-                         'together (default: MX_product ce_product; a '
-                         'stem that names no file is skipped)')
+                         'together (default: ' + ' '.join(PLAN_STEMS)
+                         + '; a stem that names no file is skipped, and a '
+                           'bar separates names for the same division)')
     ap.add_argument('--orders', default='26 DTC Aug')
     ap.add_argument('--profile', action='store_true',
                     help='describe both files and stop')

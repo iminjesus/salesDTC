@@ -352,8 +352,8 @@ the whole slice - mixing a list price from one set of units with an ASP from
 another is how a book ends up quoting a discount nobody ran. `Scope` carries
 the same three figures for the whole slice, plus how many units they cover.
 
-**RRP comes from the promotion plan** (`--plan`, default `MX_product` /
-`CE_product`), by model and month: the lines whose window touches the month,
+**RRP comes from the promotion plan** (`--plan`, default
+`mx_promo|MX_product` / `ce_promo|CE_product` — see below), by model and month: the lines whose window touches the month,
 and where they disagree the commonest value. The profit export says what was
 collected, never what was asked - so without a plan there is no `RRP` sheet and
 no discount column, and a model the plan never names is left **empty** rather
@@ -970,8 +970,15 @@ py dashboard\build_pnl.py --no-promo           # -> dashboard/pnl_<yymm>.html, a
 ```
 
 **A different file on purpose.** The promotion split is new and the page being
-read today is not replaced by it. `--plan` names the plan files (default
-`MX_product ce_product`).
+read today is not replaced by it. `--plan` names the plan files.
+
+**One division has gone by several names.** The MX plan was `MX_product` and is
+now `MX_promo_<yymm>`, so the default is written with a bar -
+`mx_promo|MX_product ce_promo|CE_product` - and each division takes the first
+of its names that matches a file in the folder. A dated series resolves to its
+**newest** cut, so `MX_promo_2610` wins over `MX_promo_2609` sitting beside it;
+nothing has to be renamed when next month's lands. `--plan MX_promo_2610`
+still names one file outright.
 
 A disabled button looks exactly like a broken one, so a build that bands nothing
 says so at the end, with what it would need:
@@ -979,5 +986,5 @@ says so at the end, with what it would need:
 ```
 Stack by Promo will be OFF on this page: nothing was banded by promotion.
   It needs an order source (SAP orders_* or the store export) and a plan
-  (--plan, default MX_product ce_product) that lists the products sold.
+  (--plan, default mx_promo|MX_product ce_promo|CE_product) that lists the products sold.
 ```

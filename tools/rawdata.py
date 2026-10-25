@@ -352,9 +352,11 @@ def pick_file(folder: Path, *stems: str):
                       if p.is_file() and norm_stem(p.stem) == norm_stem(stem))
         if hits:
             return hits[0]
+    # A prefix can match a dated series - mx_promo_2609 beside mx_promo_2610 -
+    # and sorting by name would hand back last month's. pick_series ranks by
+    # the numbers in the name, so the newest cut wins, csv ahead of workbook.
     for stem in stems:
-        hits = sorted(p for p in folder.iterdir()
-                      if p.is_file() and norm_stem(p.stem).startswith(norm_stem(stem)))
+        hits = pick_series(folder, stem)
         if hits:
             return hits[0]
     return None

@@ -34,6 +34,7 @@ import re                                                       # noqa: E402
 from rawdata import (find, key_norm, master, month_name,        # noqa: E402
                      norm_stem, parse_number, pick_file, pick_series, read_any)
 from link import order_key                                      # noqa: E402
+from promo_match import PLAN_STEMS, plan_file                    # noqa: E402
 from promo_match import MECHANIC                                # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -199,7 +200,7 @@ def enrich(months, folder: Path, dims, args, say=print) -> set:
                 'division': ('Product Division', 'Division', 'Div'),
                 'category': ('Product Category', 'Category', 'Sub Category')}
         info, src = {}, None
-        plans = [pick_file(folder, n) for n in ('MX_product', 'ce_product')]
+        plans = [plan_file(folder, n) for n in PLAN_STEMS]
         for cand in pick_series(folder, args.product) + [c for c in plans if c]:
             try:
                 info = master(cand, ('SKU', 'Product Code', 'Material',

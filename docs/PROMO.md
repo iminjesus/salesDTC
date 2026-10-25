@@ -741,7 +741,9 @@ keeping.
 
 ### One plan file per division, read together
 
-`--plan` takes several stems and defaults to **`MX_product ce_product`**. An
+`--plan` takes several stems and defaults to **`mx_promo|MX_product
+ce_promo|CE_product`** - a bar between the names one division has gone by, first
+match wins, and a dated series resolves to its newest cut. An
 order does not know which division's file it belongs to, so it is matched
 against all of them at once, and the plan line it matched records which file
 answered. That is the difference between "the plan has no line for this product"
