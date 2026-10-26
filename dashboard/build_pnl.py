@@ -118,8 +118,14 @@ N_ORDER = len(ORDER_SERIES)
 # different - the plan saying nothing is not the plan saying there was no
 # promotion - but three bands is what this is read for, and the distinction is
 # kept rather than thrown away.
+# The bands are a partition, not a nest: every unit is in exactly one of them,
+# and "DTC + Nation-wide" does not contain "DTC only" - it is the DTC units
+# that had a nation-wide campaign running over them as well. Named as a pair
+# so that reads off the legend: all the DTC business is the two together, and
+# the same campaign can appear in both, split by whether a nation-wide one
+# overlapped it.
 PROMO_LABEL = {
-    'pdtc':  'DTC promotion',
+    'pdtc':  'DTC only',
     'pboth': 'DTC + Nation-wide',
     'pnat':  'Nation-wide only',
     'pnone': 'No promotion',

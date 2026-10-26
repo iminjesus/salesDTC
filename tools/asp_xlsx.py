@@ -165,7 +165,7 @@ class ListPrice:
 # PM.plan_state - and --promo-from rule brings the old column back.
 BANDS = {
     'both': 'DTC + Nation-wide',
-    'dtc':  'DTC promotion',
+    'dtc':  'DTC only',
     'nat':  'Nation-wide only',
     'none': 'No promotion',
     'gap':  'Not in the plan',

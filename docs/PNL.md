@@ -893,11 +893,14 @@ Three bands, which is what the page is read for:
 
 | | |
 |---|---|
-| DTC promotion | a plan line covering that product on that date names a DTC campaign only |
-| DTC + Nation-wide | it names both |
+| DTC only | a plan line covering that product on that date names a DTC campaign **and no nationwide one** |
+| DTC + Nation-wide | it names **both** |
 | No promotion | nothing above, **and** what no order could be banded at all - no DTC promotion brought it in either way |
 
-Clicking **DTC promotion** opens it by **DTC campaign 1**, and clicking one of
+The three are **exclusive**: a unit is in one of them. See *The shape* below -
+DTC + Nation-wide does not contain DTC only.
+
+Clicking **DTC only** opens it by **DTC campaign 1**, and clicking one of
 those opens it by **DTC campaign 2** - what ran inside that campaign. The plan's
 two DTC columns are a hierarchy, so they are two levels: joined into a single
 `A + B` value they were neither campaign and there was nothing to open. Names
@@ -922,30 +925,31 @@ and not two.
 
 ### The shape
 
-Bottom to top, always the same order, and each band wider than the one below:
+**The bands are a partition, not a nest.** Every unit is in exactly one of
+them, and neither of the two DTC bands contains the other:
 
-| | drawn |
+| | what it holds |
 |---|---|
-| **DTC promotion** | **narrower**, at the bottom - the band being wrapped |
-| **DTC + Nation-wide** | full width, wrapping it - the nationwide campaign ran over the DTC one |
-| **No promotion** | full width, on top |
+| **DTC + Nation-wide** | the DTC business that had a **nationwide campaign running over it as well** |
+| **DTC only** | the DTC business that did **not** |
+| **No promotion** | everything else |
 
-**Only the inner band is inset.** Narrowing the nationwide band as well gave
-three widths, which reads as three sizes rather than as one band wrapping
-another - the wrap is only visible when what does the wrapping is the same width
-as everything else and the wrapped band is the one that is narrower.
+So **all the DTC business is the two together**, and the same campaign can
+appear in both - `Tech Fest` under DTC + Nation-wide in one month and under
+DTC only in another, split by whether a nationwide campaign overlapped it.
+There is no one control that selects both; *All* at the Promotion level gives
+everything, No promotion included.
 
-The order is fixed rather than sorted by size: a band that moves between months
-cannot be read along a time axis at all.
+Bottom to top, always the same order, each band full width, stacked like any
+other split. The order is fixed rather than sorted by size: a band that moves
+between months cannot be read along a time axis at all.
 
-The widths are **a share of the slot and a pixel cap together**. Each alone is
-wrong - the share alone leaves every band on the cap on a one-month chart, where
-the slot is wide enough that all of them reach it, and the cap alone does
-nothing on a nine-month chart, where none of them do. That is why the first
-attempt drew three bands of identical width.
-
-It is a drawing and nothing else: every band is still its own units and the
-column still comes to the month's own total.
+> They used to be drawn as a **nest** - the DTC band inset inside the
+> nationwide one, to say a DTC sale sat inside the nationwide campaign that ran
+> over it. The drawing said something the data does not, and it read as
+> *DTC + Nation-wide contains DTC*, which is the wrong way round: the wrapped
+> band is the one **without** a nationwide campaign. The nest is gone and the
+> labels carry the distinction instead.
 
 `--promo-bands all` keeps five apart instead of three. The two that fold are
 real and different, and the distinction is kept in the data rather than thrown

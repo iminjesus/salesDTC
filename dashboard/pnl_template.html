@@ -1608,7 +1608,7 @@ function drawStack() {
   // On the promotion band level the order is the drawing's, not the data's: a
   // band sorted by size moves between months, and a bar whose parts change
   // places month to month cannot be read along a time axis at all.
-  const BAND_ORDER = ['DTC promotion', 'DTC + Nation-wide', 'Nation-wide only',
+  const BAND_ORDER = ['DTC only', 'DTC + Nation-wide', 'Nation-wide only',
                       '(no order matched)', 'Not in the plan', 'No promotion'];
   const onBands = sl !== undefined && DATA.promoAt != null
                   && sl === DATA.promoAt;
@@ -1635,72 +1635,36 @@ function drawStack() {
   // In orders mode the two bands mean something fixed, so they keep a fixed
   // pair of colours rather than taking whichever slot they sorted into.
   // The unmatched band takes the palette's neutral slot, which is what it is.
-  const BAND_COLOUR = { 'DTC promotion': 0, 'DTC + Nation-wide': 2,
+  const BAND_COLOUR = { 'DTC only': 0, 'DTC + Nation-wide': 2,
                         'Nation-wide only': 4, 'Not in the plan': 7,
                         '(no order matched)': 7, 'No promotion': 8 };
   const bandColour = (i, g) => (
     ordMode ? [C.stack[0], C.stack[4], C.stack[8]][i]
     : onBands && BAND_COLOUR[g] !== undefined ? C.stack[BAND_COLOUR[g]]
     : C.stack[i]);
-  // The promotion bands nest rather than merely sit on each other: a sale on a
-  // DTC campaign is inside the nationwide one that ran over it, and drawing the
-  // inner band narrower says so without changing a number. Only the drawing
-  // differs - every band is still its own units and the column still comes to
-  // the month's own total.
-  // How wide each band is drawn, as a share of the slot it sits in - the
-  // nationwide band wraps the DTC one it ran over, and what no promotion
-  // brought in sits full width on top. A share rather than a pixel cap because
-  // maxBarThickness only caps: once nine months had made the bars narrower
-  // than the cap, every band came out the same width and nothing was nested.
-  // Only the inner band is inset. Narrowing the nationwide band too gave three
-  // widths, which reads as three sizes rather than as one band wrapping
-  // another: the wrap is only visible when what does the wrapping is the same
-  // width as everything else and the wrapped band is the one that is narrower.
-  const NEST = { 'DTC promotion': 0.52 };
-  // Which band is drawn from zero rather than from the top of the one below.
-  // That is the whole of the wrap: the nationwide band's rectangle runs the
-  // full height of the DTC band it ran over, so it shows past it on both
-  // sides, and the narrower DTC band sits inside it. Every top edge is where a
-  // plain stack would put it, so the totals and the axis do not move - only
-  // the hidden bottom edge of the one band changes.
-  const WRAP = new Set(['DTC + Nation-wide']);
-  // Both the share and the pixel cap, in step. Setting the share alone left
-  // every band on the cap on a one-month chart, where the slot is wide enough
-  // that all of them hit it - and the cap alone did nothing on a nine-month
-  // chart, where none of them reach it.
-  const slotOf = g => (onBands && NEST[g] !== undefined ? NEST[g] : 0.9);
-  // Running tops, in the drawn order, so a band can be given its own span.
-  const tops = [];
-  let run = xs.map(() => 0);
-  named.forEach(g => {
-    run = run.map((v, j) => v + (scale(raw(g))[j] || 0));
-    tops.push([...run]);
-  });
-  const span = (g, i) => scale(raw(g)).map((v, j) =>
-    [WRAP.has(g) ? 0 : (i ? tops[i - 1][j] : 0), tops[i][j]]);
+  // The bands used to be drawn as a nest - the DTC band inset inside the
+  // nationwide one, to say a DTC sale sat inside the nationwide campaign that
+  // ran over it. It said something the data does not: the bands are a
+  // partition. "DTC + Nation-wide" is the DTC units that *also* had a
+  // nationwide campaign, and "DTC only" is the ones that did not, so neither
+  // contains the other and a reader who took the drawing at its word had the
+  // two the wrong way round. They sit on each other like any other stack now,
+  // and the labels carry the distinction instead.
   const band = (g, i) => ({
     label: g,
-    // One stack for all of them, always: datasets on different stacks are laid
-    // out side by side in the slot rather than over each other, which is the
-    // opposite of wrapping. The spans are kept literal by turning the y axis's
-    // own stacking off for this one view instead.
     stack: 'a',
-    data: onBands ? span(g, i) : scale(raw(g)),
+    data: scale(raw(g)),
     amounts: raw(g),
     backgroundColor: bandColour(i, g), borderRadius: 3, borderSkipped: false,
     borderWidth: 1, borderColor: C.surface,
-    barPercentage: slotOf(g),
-    maxBarThickness: 54 * (slotOf(g) / 0.9),
+    barPercentage: 0.9,
+    maxBarThickness: 54,
     categoryPercentage: 0.8,
-    // The room a number may use: the slot, not the band's own narrowed width.
-    labelWidth: onBands ? 54 : undefined,
   });
   // The wrapper goes last in the array, because Chart.js draws the datasets
   // back to front - dataset 0 ends up on top - so last is behind. The legend
   // is built from the logical order further down and is unaffected.
-  const drawOrder = onBands
-    ? named.map((g, i) => [g, i]).sort((a, b) => WRAP.has(a[0]) - WRAP.has(b[0]))
-    : named.map((g, i) => [g, i]);
+  const drawOrder = named.map((g, i) => [g, i]);
   const series = pnlMode ? [] : drawOrder.map(([g, i]) => band(g, i));
   if (folded && !pnlMode) {
     const rest = xs.map(r => named.reduce((a, g) => a - (r.row.get(g) || 0),
@@ -1901,10 +1865,7 @@ function drawStack() {
         x: { stacked: true, offset: true, grid: { display: false },
              border: { display: false },
              ticks: { color: C.ink2, autoSkip: false, maxRotation: 0 } },
-        // Not stacked while the bands are spans: each one already carries the
-        // bottom and top it is to be drawn between, and stacking would add the
-        // one below to it all over again.
-        y: { stacked: !onBands, beginAtZero: true, grid: { color: C.grid },
+        y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
              border: { display: false },
              max: pctMode ? 100 : undefined,
              // Not a hard max: a bar bigger than the slice's own figure - the
@@ -2000,8 +1961,10 @@ function drawStack() {
         : `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}, `
           + `each split by ${DATA.levels[sl].name}`
           + (sl === DATA.promoAt
-             ? '. The DTC band is drawn narrower, inside the nationwide one it '
-               + 'ran under - a drawing, not a different number'
+             ? '. The bands do not contain each other: DTC + Nation-wide is '
+               + 'the DTC business that had a nationwide campaign over it as '
+               + 'well, DTC only is the business that did not, and all of the '
+               + 'DTC business is the two together'
              : '')
           + (pctMode ? `, every ${PER} normalised to its own total - the mix, `
                        + 'not the size. Expand keeps the amount behind each '
