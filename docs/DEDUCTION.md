@@ -79,6 +79,33 @@ does have. Every run says how much of the export the slice kept:
   div1=DA: 41,882 of 214,097 rows
 ```
 
+## Choosing the level, and reading the months
+
+The split is computed over whatever level the question is at. `--by` takes a
+level list, and the default `account,div3,sku` is the finest one:
+
+```powershell
+py tools\deduction.py --column "*Paid Commission" --where "Div 1=DA" --by div2 --grid
+py tools\deduction.py --column "*Paid Commission" --where "Div 1=DA" --by account
+```
+
+`--grid` then prints the rate **month by month for each group**, which is the
+view that separates the two things a two-period split cannot:
+
+```
+paid commission as a share of gross, by div2
+  group                         01      02      03      07      08      09     all
+  WM                         1.02%   1.05%   0.31%   1.22%   0.54%   1.60%   1.05%
+  REF                        0.81%   0.83%   0.24%   1.15%   0.49%   1.42%   0.88%
+```
+
+A group that moved once and **stayed** is a rate - a fee schedule, a programme.
+A group that **spiked and fell back** is a posting: an accrual or a true-up
+landing in the month it was settled. Both read as "the rows themselves
+deepened" in the rate-versus-mix split, and only the months apart tell them
+from each other. A step that lands in the same month across every group is the
+same event seen many times, not many events.
+
 `--channel` picks the side (default the online one). `--was` and `--now` take
 month lists in either spelling (`2606` or `202606`) and accept a **range**,
 `2601..2606`, which matters when the comparison is a half against a quarter

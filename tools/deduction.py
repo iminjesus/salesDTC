@@ -80,6 +80,37 @@ def col_index(head: list, want: str):
     return None, 'not found'
 
 
+def row_key(by: list, c: dict, p: dict, sku: str, chan) -> tuple:
+    """The row the shift-share is computed over, at the asked-for level."""
+    out = []
+    for slot in by:
+        if slot == 'account':
+            out.append(c.get('account') or '(no account)')
+        elif slot == 'channel':
+            out.append(str(chan))
+        elif slot == 'sku':
+            out.append(sku or '(no code)')
+        else:
+            out.append((p.get(slot) or '').strip() or f'(no {slot})')
+    return tuple(out)
+
+
+def by_levels(v: str) -> list:
+    """--by account,div2 - the levels a row is grouped at."""
+    out = []
+    for t in v.split(','):
+        t = t.strip()
+        if not t:
+            continue
+        slot = WHERE_AT.get(re.sub(r'[^a-z0-9]', '', t.lower()))
+        if slot is None:
+            raise SystemExit(f'--by {t!r} is not one of '
+                             + ', '.join(sorted(set(WHERE_AT))))
+        if slot not in out:
+            out.append(slot)
+    return out or ['account', 'div3', 'sku']
+
+
 def col_letter(i: int) -> str:
     """The spreadsheet letter of a 0-based column, so A is 0 and AK is 36."""
     out, n = '', i + 1
@@ -87,6 +118,34 @@ def col_letter(i: int) -> str:
         n, r = divmod(n - 1, 26)
         out = chr(65 + r) + out
     return out
+
+
+def grid(months: list, by: list, channel: str, top: int, label: str,
+         of: str, say=print) -> None:
+    """The rate month by month for each group, so a step and a spike differ.
+
+    A level that moved once and stayed is a rate; a level that spiked and fell
+    back is a posting. Both read as "rate" in a two-period split, and only the
+    months apart tell them from each other.
+    """
+    keys: dict = {}
+    for ym, pots in months:
+        for k, v in pots[channel].by.items():
+            a = keys.setdefault(k, [0.0, 0.0])
+            a[0] += v[1]; a[1] += v[2]
+    order = sorted(keys, key=lambda k: -keys[k][0])[:top]
+    wide = max([24] + [len(' / '.join(k)) for k in order])
+    say(f'\n{label.lower()} as a share of {of}, by ' + ' x '.join(by))
+    say('  ' + 'group'.ljust(wide) + ''.join(f'{m[-2:]:>8}' for m, _ in months)
+        + f'{"all":>8}')
+    for k in order:
+        line = '  ' + ' / '.join(k)[:wide].ljust(wide)
+        for _, pots in months:
+            v = pots[channel].by.get(k)
+            line += (f'{v[2] / v[1] * 100:>7.2f}%' if v and v[1] else
+                     f'{"-":>8}')
+        g, d = keys[k]
+        say(line + (f'{d / g * 100:>7.2f}%' if g else f'{"-":>8}'))
 
 
 def say_headers(path: Path, want: str = '', say=print) -> None:
@@ -189,7 +248,7 @@ class Pot:
 
 def read_month(path: Path, cust: dict, prod: dict, keep_returns: bool,
                column: str = '', of: str = 'gross', rules: dict | None = None,
-               say=print) -> tuple:
+               by: list | None = None, say=print) -> tuple:
     rows, info = read_any(path)
     if not rows:
         raise ValueError('it is empty')
@@ -246,8 +305,7 @@ def read_month(path: Path, cust: dict, prod: dict, keep_returns: bool,
         if rules and not where_match(rules, c, p, sku, chan):
             continue
         note['kept'] += 1
-        key = (c.get('account') or '(no account)',
-               (p.get('div3') or '').strip() or '(no div 3)', sku)
+        key = row_key(by or ['account', 'div3', 'sku'], c, p, sku, chan)
         pot.add(key, qty, num(r, at['base']), sgn * num(r, at['deduct']),
                 num(r, at['net']))
     return ym, pots, info, note
@@ -269,7 +327,8 @@ def trend(months: list, label: str = 'deduction', of: str = 'gross',
 
 
 def compare(months: list, was: list, now: list, channel: str, top: int,
-            label: str = 'deduction', of: str = 'gross', say=print) -> list:
+            label: str = 'deduction', of: str = 'gross',
+            by: list | None = None, say=print) -> list:
     """What changed between two sets of months, split into rate and mix."""
     def gather(which):
         out: dict = {}
@@ -322,13 +381,14 @@ def compare(months: list, was: list, now: list, channel: str, top: int,
         say('\n  Nearly all of it is the mix. The rates held; what sold '
             'changed, so look at what grew rather than at the cost line.')
     rows.sort(key=lambda r: -abs(r['moved']))
+    by = by or ['account', 'div3', 'sku']
+    wide = max(16, min(30, max(len(' / '.join(r['key'])) for r in rows)))
     say(f'\n  the {min(top, len(rows))} rows that moved it most')
-    say(f'    {"account":<24}{"div 3":<14}{"model":<18}'
-        f'{"was":>8}{"now":>8}{"share":>8}{"pp":>8}')
+    say('    ' + ' x '.join(by)[:wide].ljust(wide)
+        + f'{"was":>8}{"now":>8}{"share":>8}{"pp":>8}')
     for r in rows[:top]:
-        acc, div, sku = r['key']
-        say(f'    {acc[:24]:<24}{div[:14]:<14}{sku[:18]:<18}'
-            f'{r["was"] * 100:>7.1f}%{r["now"] * 100:>7.1f}%'
+        say('    ' + ' / '.join(r['key'])[:wide].ljust(wide)
+            + f'{r["was"] * 100:>7.1f}%{r["now"] * 100:>7.1f}%'
             f'{r["share"] * 100:>7.1f}%{r["moved"] * 100:>8.2f}')
     return rows
 
@@ -354,6 +414,12 @@ def main() -> int:
     ap.add_argument('--where', action='append', metavar='LEVEL=VALUE',
                     help='narrow to one slice, e.g. --where "Div 1=DA"; '
                          'repeatable, and a value list is allowed')
+    ap.add_argument('--by', default='account,div3,sku', metavar='LEVELS',
+                    help='the level a row is grouped at for the split, as '
+                         'account,div3,sku (the default) or div2, account, ...')
+    ap.add_argument('--grid', action='store_true',
+                    help='also print the rate month by month for each group, '
+                         'which is what tells a step from a spike')
     ap.add_argument('--channel', default=CUST.ONLINE, metavar='NAME')
     ap.add_argument('--top', type=int, default=20, metavar='N')
     ap.add_argument('--no-returns', dest='returns', action='store_false')
@@ -365,6 +431,7 @@ def main() -> int:
     ap.set_defaults(returns=True)
     args = ap.parse_args()
     rules = where_rules(args.where)
+    by = by_levels(args.by)
 
     folder = Path(args.dir)
     if not folder.is_absolute():
@@ -395,7 +462,7 @@ def main() -> int:
     # an error up front rather than an empty table further down.
     has = {k for k in PROD_COLS
            if any((v.get(k) or '').strip() for v in prod.values())}
-    for slot in (set(rules) & set(PROD_COLS)) - has:
+    for slot in ((set(rules) | set(by)) & set(PROD_COLS)) - has:
         raise SystemExit(f'--where: {pp.name if pp else "the product master"} '
                          f'has no {slot} - it carries '
                          + (', '.join(sorted(has)) or 'none of the levels'))
@@ -414,7 +481,7 @@ def main() -> int:
                        key=lambda q: q.name):
         try:
             ym, pots, info, note = read_month(path, cust, prod, args.returns,
-                                              args.column, args.of, rules)
+                                              args.column, args.of, rules, by)
         except (ValueError, OSError, KeyError, IndexError) as e:
             print(f'  {path.name}: {e} - skipped')
             continue
@@ -453,11 +520,14 @@ def main() -> int:
     if not was or not now:
         print('\nnot enough months to compare')
         return 0
-    rows = compare(months, was, now, args.channel, args.top, label, args.of)
+    if args.grid:
+        grid(months, by, args.channel, args.top, label, args.of)
+    rows = compare(months, was, now, args.channel, args.top, label, args.of,
+                   by)
     if args.out and rows:
         with open(args.out, 'w', newline='', encoding='utf-8') as f:
             w = csv.writer(f)
-            w.writerow(['account', 'div 3', 'model', f'% of {args.of} was',
+            w.writerow([*by, f'% of {args.of} was',
                         f'% of {args.of} now', f'share of {args.of} now',
                         f'{label} was', f'{label} now', 'moved pp'])
             for r in rows:
