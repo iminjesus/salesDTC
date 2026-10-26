@@ -28,6 +28,24 @@ becomes a cost at all. Two channels at the same real discount therefore show
 very different cost stacks, and cost of goods looks like most of the online one
 simply because nothing else is in it.
 
+## The cost stack, which is the other question
+
+"Cost of goods is most of the cost online" is **not** the same question as
+"cost of goods over net sales", and it has a different answer:
+
+```
+the cost stack, which is the other question
+              cost of goods  sales deduction  CoGS share of the two
+  online         12,502,165          554,197                  95.8%
+  offline       154,190,110       47,541,857                  76.4%
+```
+
+Offline pays its channel through **sales deduction** - 19.5% of gross in that
+run - and that is a cost line sitting beside cost of goods. Online takes its
+discount **off the price**, where it never becomes a cost at all: 3.0%. Same
+economics, very different stacks, and cost of goods is most of the online one
+because nothing else is in it.
+
 ## The bridge
 
 The gap on the common models is split the way a price/volume bridge is:
@@ -53,6 +71,40 @@ decides where to look next: a **cost** gap is freight, returns, giveaways and
 cost lines charged to one side only; a **price** gap is the channel mix and the
 stacked offers - EPP, education, staff, always-on vouchers - and nothing in the
 cost ledger will explain it.
+
+## Rows that are not prices
+
+An export carries more than shelf sales. Credits, free-of-charge shipments,
+samples and returns all arrive as a quantity with little or no revenue against
+a full cost, and in a ratio they are not a small error:
+
+```
+1 model(s) left out of the bridge: cost of goods over net sales outside 20-150% on one side or the other
+  24,900 of net sales between the two channels. They are not prices - credits, free goods, samples and returns read this way
+    SMX930NZAAXSA      online     84% offline    2804%   net/unit    1,241 /       36   Galaxy Tab S11 Ultra
+```
+
+The bridge **divides by that price**, so one such model moved the price effect
+by 29pp on a gap of 7. A model is bridged only where both sides land inside
+`--band` (default `0.2 1.5`); what falls outside is counted and the biggest are
+named, because "sold below cost" is a finding of its own rather than noise.
+
+The same shape turns up in the headline as the **unplaced** row - units on a
+customer the master does not have. They are in neither channel and are reported
+rather than folded into one.
+
+## One account, both sides
+
+```
+  64 account(s) the master spells on both sides of the business carry 1,234 unit(s) and 567,890 of net sales here.
+    Which channel they landed in came from the first row of the master, not from the sale - so that much of the split is a coin toss.
+```
+
+`E-STORE_B2B` in one row of the master and `off-line` in another, under the
+same Sold-To. The master fills each column from the first row that has
+anything in it, which is right for a detail column and arbitrary for a channel:
+the first row then decides which side **every** sale of that account lands on.
+Worth knowing how much money is riding on it before reading anything else.
 
 ## The listing
 

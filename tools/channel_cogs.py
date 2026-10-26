@@ -43,8 +43,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
 import promo_match as PM                                       # noqa: E402
 from asp import CUSTOMER_KEYS, PRODUCT_KEYS, QTY_NET           # noqa: E402
-from rawdata import (find, key_norm, master, parse_number,     # noqa: E402
-                     pick_series, read_any)
+from rawdata import (MASTER_RAW, find, key_norm, master,       # noqa: E402
+                     parse_number, pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -115,7 +115,32 @@ def first_readable(folder: Path, prefix: str, read, say=print) -> tuple:
     return None, None
 
 
-def read_export(path: Path, cust: dict, say=print) -> tuple:
+def two_sided(cp: Path) -> dict:
+    """The accounts the master spells both ways - online in one row, offline
+    in another.
+
+    master() fills each column from the first row that has anything in it and
+    reports the disagreements, which is the right rule for a detail column. A
+    channel is not a detail column: the first row decides which side of the
+    business every one of that account's rows lands on, and if the two
+    spellings sit on different sides the split is a coin toss. Worth knowing
+    how much money is riding on it before reading anything else.
+    """
+    head, rows = MASTER_RAW.get(cp.name, ([], []))
+    k = find(head, 'Sold-To', 'sold To', 'sold_to')
+    a = find(head, *CUST.ACCOUNT_NAMES)
+    if k is None or a is None:
+        return {}
+    seen: dict = collections.defaultdict(set)
+    for r in rows:
+        key = key_norm(r[k] if k < len(r) else '')
+        name = (r[a].strip() if a < len(r) else '')
+        if key and name:
+            seen[key].add(CUST.channel_of(name))
+    return {key: v for key, v in seen.items() if len(v) > 1}
+
+
+def read_export(path: Path, cust: dict, risky: dict = None, say=print) -> tuple:
     rows, info = read_any(path)
     if not rows:
         raise ValueError('it is empty')
@@ -134,14 +159,20 @@ def read_export(path: Path, cust: dict, say=print) -> tuple:
 
     sides = {CUST.ONLINE: Side(), CUST.OFFLINE: Side()}
     lost = Side()
+    risk = {'qty': 0.0, 'net': 0.0, 'keys': collections.Counter()}
     cell = lambda r, i: (r[i].strip() if i is not None and i < len(r) else '')
     num = lambda r, i: (parse_number(cell(r, i)) or 0.0) if i is not None else 0.0
     for r in rows[1:]:
         code = PM.code_norm(cell(r, at['sku']))
         if not code:
             continue
-        c = cust.get(key_norm(cell(r, at['cust']))) or {}
+        ckey = key_norm(cell(r, at['cust']))
+        c = cust.get(ckey) or {}
         where = CUST.channel_of(c.get('account'), bool(c))
+        if risky and ckey in risky:
+            risk['qty'] += num(r, at['qty'])
+            risk['net'] += num(r, at['net'])
+            risk['keys'][ckey] += num(r, at['qty'])
         side = sides.get(where, lost)
         # Costs are carried signed in some exports and positive in others; the
         # ratio is about size, and a sign flip halfway down a column would make
@@ -149,6 +180,15 @@ def read_export(path: Path, cust: dict, say=print) -> tuple:
         side.add(code, num(r, at['qty']), num(r, at['net']),
                  abs(num(r, at['cogs'])), num(r, at['gross']),
                  abs(num(r, at['deduct'])))
+    if risk['qty']:
+        say(f'\n  {len(risk["keys"]):,} account(s) the master spells on both '
+            f'sides of the business carry {risk["qty"]:,.0f} unit(s) and '
+            f'{risk["net"]:,.0f} of net sales here.')
+        say('    Which channel they landed in came from the first row of the '
+            'master, not from the sale - so that much of the split is a coin '
+            'toss. Biggest first: '
+            + ', '.join(f'{k} ({v:,.0f}u)'
+                        for k, v in risk['keys'].most_common(5)))
     return sides[CUST.ONLINE], sides[CUST.OFFLINE], lost
 
 
@@ -166,6 +206,21 @@ def headline(on: Side, off: Side, lost: Side, say=print) -> None:
     if lost.qty:
         say(f'  {lost.qty:,.0f} unit(s) sat on a customer the master could not '
             f'place, and are in neither channel')
+
+    # "Cost of goods is most of the cost online" is a different question from
+    # the ratio above, and it has a different answer: offline pays its channel
+    # through sales deduction, which is a cost line sitting beside cost of
+    # goods, and online takes its discount off the price, where it never
+    # becomes a cost at all. Same economics, very different stacks.
+    say('\nthe cost stack, which is the other question')
+    say(f'  {"":<10}{"cost of goods":>15}{"sales deduction":>17}'
+        f'{"CoGS share of the two":>23}')
+    for name, s2 in (('online', on), ('offline', off)):
+        both = s2.cogs + s2.deduct
+        if not both:
+            continue
+        say(f'  {name:<10}{s2.cogs:>15,.0f}{s2.deduct:>17,.0f}'
+            f'{pct(per(s2.cogs, both)):>23}')
     a, b = on.ratio(), off.ratio()
     if a is not None and b is not None:
         say(f'\n  online is {(a - b) * 100:+.1f}pp on cost of goods over net '
@@ -195,6 +250,42 @@ def common(on: Side, off: Side, say=print) -> list:
         qshare = per(sum(x[k[:-3] + 'qty'] for x in out), s.qty)
         say(f'  they are {pct(share)} of {name} net sales, {pct(qshare)} of its units')
     return out
+
+
+def sane(rows: list, low: float, high: float, prod: dict, say=print) -> list:
+    """The models whose figures can be a price on both sides.
+
+    An export carries more than shelf sales: credits, free-of-charge
+    shipments, samples and returns all arrive as a quantity with little or no
+    revenue against a full cost. A tablet that cost 1,003 and shows 36 of net
+    sales per unit is not a tablet sold cheaply, and in a ratio it is not a
+    small error - the bridge divides by that price, so one such model moved
+    the price effect by 29pp on a gap of 7.
+
+    So a model is only compared where both sides' cost of goods over net sales
+    lands inside a band a price can actually produce. What falls outside is
+    not thrown away quietly: it is counted, and the biggest are named, because
+    "sold below cost" is a finding of its own.
+    """
+    keep, drop = [], []
+    for x in rows:
+        (keep if low <= x['on_r'] <= high and low <= x['off_r'] <= high
+         else drop).append(x)
+    if not drop:
+        return keep
+    net = sum(x['on_net'] + x['off_net'] for x in drop)
+    say(f'\n{len(drop):,} model(s) left out of the bridge: cost of goods over '
+        f'net sales outside {low * 100:.0f}-{high * 100:.0f}% on one side or '
+        f'the other')
+    say(f'  {net:,.0f} of net sales between the two channels. They are not '
+        f'prices - credits, free goods, samples and returns read this way')
+    for x in sorted(drop, key=lambda x: -(x['on_net'] + x['off_net']))[:6]:
+        p = prod.get(x['code']) or {}
+        say(f'    {x["code"][:18]:<18} online {x["on_r"] * 100:>6.0f}% '
+            f'offline {x["off_r"] * 100:>7.0f}%   net/unit '
+            f'{x["on_asp"]:>8,.0f} / {x["off_asp"]:>8,.0f}   '
+            f'{(p.get("name") or "")[:26]}')
+    return keep
 
 
 def bridge(rows: list, say=print) -> None:
@@ -293,6 +384,13 @@ def main() -> int:
     ap.add_argument('--product', default='product', metavar='STEM')
     ap.add_argument('--top', type=int, default=20, metavar='N',
                     help='how many models to list (default 20)')
+    ap.add_argument('--band', nargs=2, type=float, default=(0.2, 1.5),
+                    metavar=('LOW', 'HIGH'),
+                    help='the cost of goods over net sales a model has to be '
+                         'inside, on both sides, to be bridged (default '
+                         '0.2 1.5). Outside it the figure is a credit, a free '
+                         'shipment or a return rather than a price, and the '
+                         'bridge divides by it')
     ap.add_argument('--min-units', type=float, default=0.0, metavar='N',
                     help='leave out a model that sold fewer than this on '
                          'either side - one unit each way is a rounding '
@@ -322,8 +420,9 @@ def main() -> int:
           + (f'; products: {pp.name}, {len(prod):,}' if pp is not None
              else '; no product master, so models are listed by code alone'))
 
+    risky = two_sided(cp)
     path, got = first_readable(folder, args.export,
-                               lambda q: read_export(q, cust))
+                               lambda q: read_export(q, cust, risky))
     if got is None:
         print(f'no export named like {args.export!r} could be read')
         return 1
@@ -337,6 +436,10 @@ def main() -> int:
     if not rows:
         print('\nno model was sold on both sides, so there is nothing to '
               'compare like for like')
+        return 0
+    rows = sane(rows, args.band[0], args.band[1], prod)
+    if not rows:
+        print('\nnothing left inside the band, so there is nothing to bridge')
         return 0
     bridge(rows)
     listing(rows, prod, args.top)
