@@ -131,7 +131,8 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
          products: dict, shipped: set | None = None, booked: set | None = None,
          positive: tuple = POSITIVE, negative: tuple = NEGATIVE,
          signed: bool = True, currency: str | None = None,
-         agree: float = 80.0, band_of=None, say=print) -> Orders | None:
+         agree: float = 80.0, band_of=None, watch=None,
+         say=print) -> Orders | None:
     """Read the order export and total it onto the profit file's key.
 
     `cust_levels` and `prod_levels` are the level lists in the order the key is
@@ -267,9 +268,12 @@ def load(path: Path, *, cust_levels, prod_levels, customer_master: Path | None,
         out.add(tuple(key), qty, amt, which)
         # Banded on the units that shipped, which are the ones the profit file
         # is about. An order still in flight has earned nothing to split.
+        made = to_date(cell(r, col['date']))
         if band_of is not None and which == DONE:
-            out.add_band(tuple(key), band_of(sku, to_date(cell(r, col['date']))),
-                         qty)
+            out.add_band(tuple(key), band_of(sku, made), qty)
+        # Every line that shipped, with the day it was ordered - see sap.py.
+        if watch is not None and which == DONE:
+            watch(sku, made, qty, amt)
 
     return out
 

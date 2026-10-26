@@ -355,6 +355,133 @@ def drop_rules(args) -> dict:
     return rules
 
 
+# How long either side of a campaign is worth counting. A month: long enough
+# to be a rate rather than a weekend, short enough that it is still the same
+# product at the same price.
+SHOULDER = 30
+
+
+def campaign_watcher(plan, canon):
+    """A per-line hook that totals each campaign's products day by day.
+
+    Banding cannot answer what a campaign's products did *before* it opened or
+    *after* it closed: outside its window a campaign bands nothing. So this
+    does not follow the band - it follows the **products the campaign names**,
+    and counts them on every day inside the window and for a month either side
+    of it.
+
+    Returns (watch, tally). The tally is {campaign: {'in': {day: [u, a]},
+    'before': [u, a, days], 'after': [u, a, days]}}.
+    """
+    if plan is None or not getattr(plan, 'rows', None):
+        return None, {}
+    spans: dict = {}
+    by_sku: dict = {}
+    for r in plan.rows:
+        if not r['start'] or not r['end']:
+            continue       # a line with no window cannot date a campaign
+        for n in (r.get('camp') or []):
+            if not n:
+                continue
+            name = canon.get(n, n)
+            spans.setdefault(name, []).append((r['start'], r['end']))
+            by_sku.setdefault(r['code'], set()).add(name)
+
+    # A campaign name comes round again: Black Friday ran in 2025 and runs
+    # again in 2026, and taking the first start to the last end would draw a
+    # fourteen-month window nobody ever ran. The lines are folded into runs
+    # instead - overlapping, or within a fortnight of each other - and a day
+    # belongs to the run it falls in.
+    win: dict = {}
+    for name, got in spans.items():
+        runs = []
+        for a, b in sorted(got):
+            if runs and a - runs[-1][1] <= timedelta(days=14):
+                if b > runs[-1][1]:
+                    runs[-1][1] = b
+            else:
+                runs.append([a, b])
+        win[name] = runs
+    tally: dict = {}
+    seen = [None, None]
+
+    def watch(sku, day, qty, amt):
+        if day is None:
+            return
+        if seen[0] is None or day < seen[0]:
+            seen[0] = day
+        if seen[1] is None or day > seen[1]:
+            seen[1] = day
+        for name in by_sku.get(PM.code_norm(sku), ()):
+            for start, end in win.get(name, ()):
+                if (day < start - timedelta(days=SHOULDER)
+                        or day > end + timedelta(days=SHOULDER)):
+                    continue
+                t = tally.setdefault((name, start), {
+                    'in': {}, 'before': [0.0, 0.0], 'after': [0.0, 0.0],
+                    'win': (start, end)})
+                break
+            else:
+                continue
+            if day < start:
+                t['before'][0] += qty
+                t['before'][1] += amt
+            elif day > end:
+                t['after'][0] += qty
+                t['after'][1] += amt
+            else:
+                d = t['in'].setdefault(day.isoformat(), [0.0, 0.0])
+                d[0] += qty
+                d[1] += amt
+
+    tally['\0seen'] = seen
+    return watch, tally
+
+
+def campaign_payload(by_day: dict, folder, args) -> dict:
+    """{campaign: {start, end, days: {day: [units, amount]}}}.
+
+    Only the days inside the campaign's own window: a day after it closed is
+    an order banded on a line whose dates say otherwise, and drawing it would
+    say the campaign was still running.
+    """
+    seen = by_day.pop('\0seen', [None, None]) if by_day else [None, None]
+    out: dict = {}
+    # One entry per campaign name, since that is what the page's level holds:
+    # where a name ran twice, the run that sold the most is the one drawn.
+    best: dict = {}
+    for (name, _), t in (by_day or {}).items():
+        if re.match(r'^\(.*\)$', str(name).strip()):
+            continue            # a placeholder, not a campaign
+        units = sum(v[0] for v in t['in'].values())
+        if name not in best or units > best[name][0]:
+            best[name] = (units, t)
+    for name, (_, t) in best.items():
+        start, end = t['win']
+        days = {d: [round(v[0]), round(v[1])] for d, v in sorted(t['in'].items())}
+        if not days and not t['before'][0] and not t['after'][0]:
+            continue
+        # How many days either side the data actually covers. Dividing a
+        # month's units by thirty days the export never held would quote a
+        # rate the business never ran at.
+        def covered(lo, hi):
+            if seen[0] is None:
+                return 0
+            lo, hi = max(lo, seen[0]), min(hi, seen[1])
+            return max(0, (hi - lo).days + 1)
+        out[name] = {
+            'start': start.isoformat(), 'end': end.isoformat(),
+            'days': days,
+            'before': [round(t['before'][0]), round(t['before'][1]),
+                       covered(start - timedelta(days=SHOULDER),
+                               start - timedelta(days=1))],
+            'after': [round(t['after'][0]), round(t['after'][1]),
+                      covered(end + timedelta(days=1),
+                              end + timedelta(days=SHOULDER))],
+        }
+    return out
+
+
 def apply_drops(combos, counts, rules, keys, say=print) -> list:
     """Take the dropped values out, and say what went with them.
 
@@ -401,6 +528,28 @@ def apply_drops(combos, counts, rules, keys, say=print) -> list:
                 + ', '.join(repr(v) for v in missed)
                 + ' - no row of this export carries it')
     return said
+
+
+def campaign_windows(plan, canon) -> dict:
+    """{campaign: [first day, last day]} over the plan's own lines.
+
+    A campaign is many lines - one per product, often one per tier - and they
+    do not all start together: the window the page draws is the first day any
+    of them opens to the last day any of them closes, which is the campaign as
+    a customer met it.
+    """
+    out: dict = {}
+    for r in (plan.rows if plan else []):
+        for n in (r.get('camp') or []):
+            if not n:
+                continue
+            name = canon.get(n, n)
+            v = out.setdefault(name, [None, None])
+            if r['start'] and (v[0] is None or r['start'] < v[0]):
+                v[0] = r['start']
+            if r['end'] and (v[1] is None or r['end'] > v[1]):
+                v[1] = r['end']
+    return out
 
 
 def promo_bander(folder, stems, say=print):
@@ -1180,6 +1329,13 @@ def build_month(folder, target, args):
               else promo_bander(folder, args.plan))
 
     banded_any = [False]
+    # What each campaign's products did, day by day and either side of the
+    # window. Filled as whichever order source answers is read.
+    _plan = None if args.no_promo else plan_once(folder, args.plan,
+                                                 lambda *a: None)[0]
+    _canon = (PM.canon_campaigns(_plan.rows, say=lambda *a: None)
+              if _plan else {})
+    watch, by_day = campaign_watcher(_plan, _canon)
 
     def merge_bands(src):
         """Make the promotion two more levels of the key.
@@ -1199,6 +1355,9 @@ def build_month(folder, target, args):
         nonlocal keys, series
         if bander is None:
             return
+        # The day-by-day tally rides out of the order source untouched: it is
+        # not part of the key and is not split or spread, it is what the
+        # campaign sold on each day it ran.
         tokens, by_band = (src.band_rows() if getattr(src, 'band_at', None)
                            else ([], {}))
         if not tokens:
@@ -1295,7 +1454,7 @@ def build_month(folder, target, args):
                 currency=args.currency,
                 skip_sku=tuple(t.strip().upper()
                                for t in args.skip_sku.split(',') if t.strip()),
-                band_of=bander)
+                band_of=bander, watch=watch)
             if got_sap:
                 SAP.report(got_sap, ym)
                 carry_in_known = any(
@@ -1364,6 +1523,8 @@ def build_month(folder, target, args):
                              if t.strip()} if args.booked else None))
         if bander is not None:
             load = dict(load, band_of=bander)
+        if watch is not None:
+            load = dict(load, watch=watch)
         this = ORD.load(op, **load)
         before = ORD.load(bp, **load) if bp is not None else None
         if bp is None:
@@ -1589,6 +1750,10 @@ def build_month(folder, target, args):
         # product, and writing it once per product keeps a page over nine
         # months and forty thousand combinations the size it is.
         'rrp': rrp,
+        # What each campaign sold on each day it ran, and the window it ran
+        # between. Not part of the key and not split by anything: the month chart
+        # is the month, and this is the campaign.
+        'campaigns': campaign_payload(by_day, folder, args),
         'start': index[levels[0]['name']].get(start, -1) if start else -1,
         # Rounded to whole units: the chart is drawn in millions and the table
         # in whole amounts, so cents would only make the file bigger.

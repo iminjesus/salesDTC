@@ -121,7 +121,7 @@ class Months:
 
 def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
          products: dict, skip_sku: tuple = (), currency: str | None = None,
-         band_of=None, say=print) -> Months | None:
+         band_of=None, watch=None, say=print) -> Months | None:
     """Read every SAP export and total the month onto the profit file's key.
 
     `month` is the month being drawn, as YYYYMM. A line counts when it left in
@@ -214,6 +214,13 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
             # alone - it is next month's revenue and has earned nothing here.
             if band_of is not None and which != CARRIED_OUT:
                 out.add_band(tuple(key), band_of(sku, made), qty)
+            # Every line that counted, with the day it came in: what the
+            # caller makes of that is the caller's business. The campaign
+            # sheet uses it to count a product's days before and after its
+            # promotion as well as during it, which no banding can answer -
+            # outside its window a campaign bands nothing at all.
+            if watch is not None:
+                watch(sku, made, qty, amt)
     return out if out.files else None
 
 

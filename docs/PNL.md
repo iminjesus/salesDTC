@@ -974,6 +974,42 @@ Back out of Customer landed on Product, and Back out of Promotion landed on
 Biz. A SKU picked earlier is still a narrowing; it is just not the one Back
 was pressed for.
 
+### One campaign, day by day
+
+**Pick a campaign and its own days open over the page.** The month chart says
+how big a campaign was; this says how it went - the shape of a launch, whether
+a pre-order built or spiked, whether the last week was worth running.
+
+```
+FF8 Pre-Order
+Launched 16 Jul · ended 13 Aug · 29 days · 36 units ordered · 81,408 · 1.2 a day
+
+  ▍30d before │ ▍ ▍▍ ▍ ▍ ▍▍▍ ▍ ▍ ▍ ... one bar a day ... │ 30d after
+```
+
+- **Between the two dates, one bar a day.** A day with nothing sold is a gap
+  in the run, not a day the chart skipped, and **nothing is drawn past the end
+  date** - a bar there would say the campaign was still running.
+- **Either side, one averaged bar**: the same products' **units a day** over
+  the month before it opened and the month after it closed. Those days are not
+  the campaign's and are not worth a bar each; the question they answer is
+  whether the campaign moved the rate, and the footer says by how much.
+- The outer bars are a **different measure on the same axis** - units a day,
+  not units - so they are drawn in another colour and named for what they are.
+  Where the export does not cover those days, they are not drawn at all.
+
+It follows **the products the campaign named**, not the banding: outside its
+window a campaign bands nothing, so a before and an after could not exist. And
+it counts on **the day the order came in**, which is the day the promotion was
+live - not the day it shipped.
+
+A campaign name comes round again - Black Friday ran last year and runs this
+year - so the plan's lines are folded into **runs**, overlapping or within a
+fortnight of each other, and the run with the most units is the one drawn.
+
+**Campaign days** on the chart's own row reopens it; Escape, the veil or
+Close puts it away. The button is live only while one campaign is picked.
+
 ### How a profit row gets a promotion on it
 
 The profit file has no promotion. Each combination is split across the

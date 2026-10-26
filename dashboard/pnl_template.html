@@ -209,6 +209,20 @@ body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
   overflow: auto; box-shadow: 0 10px 40px rgba(0,0,0,.18); }
 .card.zoom .chart { height: calc(100vh - 160px) !important; }
 .hint { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
+/* The campaign's own days, over the page. A sheet rather than another card:
+   it answers a question asked of one band and is done with, and the page
+   underneath should still be visible behind it. */
+.veil { position: fixed; inset: 0; z-index: 60; background: rgba(15,23,42,.38);
+  display: flex; align-items: center; justify-content: center; padding: 20px; }
+.sheet { background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: 0 20px 60px rgba(15,23,42,.22);
+  width: min(960px, 100%); max-height: 90vh; overflow: auto; padding: 16px 18px; }
+.sheet h3 { margin: 0 0 2px; font-size: 16px; }
+.sheet .when { font-size: 12px; color: var(--ink-3); margin-bottom: 12px; }
+.sheet .when b { color: var(--ink-2); font-weight: 600; }
+.sheet .plot { height: 320px; }
+.sheet .foot { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
+.sheet .x { float: right; }
 table { border-collapse: collapse; width: 100%; font-size: 13px;
   font-variant-numeric: tabular-nums; }
 th, td { padding: 7px 10px; border-bottom: 1px solid var(--grid);
@@ -280,6 +294,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <div class="tools">
         <button class="ctl" id="stkBack" title="Widen the deepest narrowing">&larr; Back</button>
         <button class="ctl" id="stkLineVals" title="the figure on every point of every line, not only the solid one">Line values</button>
+        <button class="ctl" id="dayBtn" title="the campaign's own days, between the dates it ran">Campaign days</button>
         <button class="ctl" id="stkZoom" title="Show only this chart, with every value labelled - the figures are here, not under the pointer">&#x2921; Expand</button>
       </div>
     </div>
@@ -296,6 +311,19 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   </div>
 
   <div class="card" id="tableCard" hidden><div id="tableBox"></div></div>
+</div>
+
+<!-- One campaign, day by day, between the dates it ran. Opened by picking a
+     campaign; it has nothing to say about any other narrowing, so it is a
+     sheet over the page rather than a card in it. -->
+<div class="veil" id="dayVeil" hidden>
+  <div class="sheet">
+    <button class="ctl x" id="dayClose">&#x2715; Close</button>
+    <h3 id="dayName"></h3>
+    <div class="when" id="dayWhen"></div>
+    <div class="plot"><canvas id="dayBars"></canvas></div>
+    <div class="foot" id="dayFoot"></div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -366,6 +394,28 @@ function unify(months) {
     custDepth: shape.custDepth,
     // What the build left out, said once however many months say it.
     dropped: [...new Set(months.flatMap(m => m.dropped || []))],
+    // One campaign's days, gathered from whichever months carry them. A
+    // campaign runs across month ends, and each month's payload holds only
+    // its own part of it.
+    campaigns: (() => {
+      const all = {};
+      months.forEach(m => Object.entries(m.campaigns || {}).forEach(([k, v]) => {
+        const c = all[k] || (all[k] = { start: v.start, end: v.end, days: {},
+                                        before: [0, 0, 0], after: [0, 0, 0] });
+        if (v.start && (!c.start || v.start < c.start)) c.start = v.start;
+        if (v.end && (!c.end || v.end > c.end)) c.end = v.end;
+        Object.entries(v.days || {}).forEach(([d, u]) => {
+          const q = c.days[d] || (c.days[d] = [0, 0]);
+          q[0] += u[0]; q[1] += u[1];
+        });
+        // The shoulders add up across months: each month's payload holds the
+        // part of them its own export covered, units, money and days alike.
+        ['before', 'after'].forEach(side => {
+          (v[side] || []).forEach((n, i) => { c[side][i] += n; });
+        });
+      }));
+      return all;
+    })(),
     // Where the promotion chain starts, carried up from the months the same
     // way custDepth is. Left off, the chain came out empty and the button sat
     // disabled on a page whose data had the levels in it.
@@ -919,6 +969,12 @@ const chainOf = j => (j < DATA.custDepth ? 'customer'
 
 function setFilter(i, v) {
   state.filter[i] = v;
+  // Picking a campaign asks a question about that campaign, and the answer is
+  // its own days rather than another month on the bar chart. The narrowing
+  // happens either way; the sheet is what the pick was for.
+  if (v >= 0 && campaignLevels().includes(i)) {
+    openCampaign(DATA.levels[i].values[v]);
+  }
   // Narrowing a level outside the stack being looked at is a filter and only a
   // filter: it says which rows to count, not what the bars are split by. It
   // used to move the page into that level's own chain, so picking a Division
@@ -1091,6 +1147,14 @@ function render() {
   const atTop = backLevel() < 0;
   document.getElementById('backBtn').disabled = atTop;
   document.getElementById('stkBack').disabled = atTop;
+  // The sheet needs a campaign picked and days to draw for it.
+  const dayAt = campaignLevels().find(j => state.filter[j] >= 0
+    && (DATA.campaigns || {})[DATA.levels[j].values[state.filter[j]]]);
+  const db = document.getElementById('dayBtn');
+  db.disabled = dayAt === undefined;
+  db.title = dayAt === undefined
+    ? 'pick one campaign and this shows its own days'
+    : `${DATA.levels[dayAt].values[state.filter[dayAt]]}, day by day`;
   const zb = document.getElementById('stkZoom');
   zb.innerHTML = state.zoom ? '&#x2715; Close' : '&#x2921; Expand';
   // Only expanded does the chart have room for them, so the switch is only
@@ -2053,6 +2117,155 @@ document.getElementById('numbersBtn').onclick = () => {
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
 
+/* One campaign, day by day, between the dates the plan says it ran.
+
+   The month chart answers "how big was it"; this answers "how did it go" -
+   the shape of a launch, whether a pre-order built or spiked, whether the
+   last week was worth running. Both are the same orders, counted on the day
+   they came in.
+
+   Nothing is drawn outside the window. A day after the campaign closed is an
+   order banded on a line whose dates say otherwise, and a bar there would say
+   the campaign was still running. */
+let dayChart = null;
+
+function campaignDays(name) {
+  const c = (DATA.campaigns || {})[name];
+  if (!c) return null;
+  const start = c.start, end = c.end;
+  if (!start || !end) return null;
+  // Every day between the two, so a gap reads as a day with no sales rather
+  // than as a day the chart skipped.
+  const days = [];
+  for (let d = new Date(start + 'T00:00:00');
+       d <= new Date(end + 'T00:00:00'); d.setDate(d.getDate() + 1)) {
+    const key = d.toISOString().slice(0, 10);
+    const v = (c.days || {})[key] || [0, 0];
+    days.push({ key, units: v[0], amount: v[1] });
+  }
+  // Either side, a rate rather than a run of days: what the same products did
+  // per day in the month before it opened and the month after it closed. The
+  // days outside the window are not the campaign's and are not drawn one by
+  // one - the question they answer is whether the campaign moved the rate.
+  const rate = v => (v && v[2] ? { units: v[0] / v[2], amount: v[1] / v[2],
+                                   total: v[0], days: v[2] } : null);
+  const inside = days.reduce((a, d) => a + d.units, 0);
+  return {
+    start, end, days,
+    before: rate(c.before), after: rate(c.after),
+    during: days.length ? { units: inside / days.length, total: inside,
+                            days: days.length } : null,
+  };
+}
+
+const dayLabel = iso => {
+  const d = new Date(iso + 'T00:00:00');
+  return `${d.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
+    'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]}`;
+};
+
+function openCampaign(name) {
+  const got = campaignDays(name);
+  if (!got) return false;
+  readColours();
+  const { start, end, days, before, after, during } = got;
+  const units = days.reduce((a, d) => a + d.units, 0);
+  const amount = days.reduce((a, d) => a + d.amount, 0);
+  const sold = days.filter(d => d.units).length;
+  const best = days.reduce((a, d) => (d.units > (a ? a.units : 0) ? d : a), null);
+  const perDay = v => (v == null ? '-' : v.toFixed(v >= 10 ? 0 : 1));
+  const lift = (a, b) => (a && b && a.units ? ((b.units / a.units - 1) * 100) : null);
+  document.getElementById('dayName').textContent = name;
+  document.getElementById('dayWhen').innerHTML =
+    `Launched <b>${dayLabel(start)}</b> &middot; ended <b>${dayLabel(end)}</b>`
+    + ` &middot; ${days.length} day${days.length > 1 ? 's' : ''}`
+    + ` &middot; <b>${fmt(units)}</b> unit${units === 1 ? '' : 's'} ordered`
+    + (amount ? ` &middot; <b>${fmt(amount)}</b>` : '')
+    + (during ? ` &middot; <b>${perDay(during.units)}</b> a day` : '');
+  const up = lift(before, during);
+  document.getElementById('dayFoot').textContent =
+    'Counted on the day the order came in, which is the day the promotion was '
+    + `live - not the day it shipped. ${sold} of ${days.length} days sold `
+    + 'anything'
+    + (best && best.units ? `; the biggest was ${dayLabel(best.key)} with `
+                            + `${fmt(best.units)}. ` : '. ')
+    + (before || after
+       ? 'The two outer bars are the same products on the days either side - a '
+         + 'rate per day over the month before and the month after, not the '
+         + 'campaign. '
+         + (up !== null ? `Through the campaign they ran ${up >= 0 ? 'up' : 'down'} `
+                          + `${Math.abs(up).toFixed(0)}% a day on the month before.`
+                        : '')
+       : '');
+  document.getElementById('dayVeil').hidden = false;
+  if (dayChart) dayChart.destroy();
+  // The window day by day, with a single averaged bar on either side. Those
+  // two are a different measure on the same axis - units a day, not units -
+  // so they are drawn in another colour and named for what they are.
+  const cols = [];
+  if (before) {
+    cols.push({ label: `${before.days}d before`, units: before.units,
+                amount: before.amount, rate: true });
+  }
+  days.forEach(d => cols.push({ label: dayLabel(d.key), units: d.units,
+                                amount: d.amount }));
+  if (after) {
+    cols.push({ label: `${after.days}d after`, units: after.units,
+                amount: after.amount, rate: true });
+  }
+  dayChart = new Chart(document.getElementById('dayBars'), {
+    type: 'bar',
+    data: {
+      labels: cols.map(c => c.label),
+      datasets: [{
+        label: 'Units ordered', data: cols.map(c => c.units),
+        amounts: cols.map(c => c.amount), rates: cols.map(c => !!c.rate),
+        backgroundColor: cols.map(c => (c.rate ? C.ink3 : C.gross)),
+        borderRadius: 3, borderSkipped: false, maxBarThickness: 26,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 200 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: C.surface, titleColor: C.ink, bodyColor: C.ink2,
+          borderColor: C.grid, borderWidth: 1, padding: 10,
+          callbacks: {
+            label: c => {
+              const r = c.dataset.rates[c.dataIndex];
+              const n = c.parsed.y;
+              const amt = c.dataset.amounts[c.dataIndex];
+              return (r ? `${n.toFixed(n >= 10 ? 0 : 1)} unit(s) a day`
+                        : `${fmt(n)} unit(s)`)
+                     + (amt ? `  (${fmt(amt)}${r ? ' a day' : ''})` : '');
+            },
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, border: { display: false },
+             ticks: { color: C.ink3, autoSkip: true, maxRotation: 0,
+                      maxTicksLimit: 16 } },
+        y: { beginAtZero: true, grid: { color: C.grid },
+             border: { display: false },
+             ticks: { color: C.ink3, precision: 0 } },
+      },
+    },
+  });
+  return true;
+}
+
+function closeCampaign() {
+  document.getElementById('dayVeil').hidden = true;
+  if (dayChart) { dayChart.destroy(); dayChart = null; }
+}
+
+/* Which levels name a campaign, so picking one can open its days. */
+const campaignLevels = () => (DATA.promoAt == null ? []
+  : [DATA.promoAt + 1, DATA.promoAt + 2].filter(i => i < DATA.levels.length));
+
 /* Expanding hands one chart the window. Chart.js sizes to its container, and
    the container only changes once the class is on, so the redraw waits a frame
    rather than measuring the old box. */
@@ -2066,6 +2279,10 @@ document.getElementById('stkZoom').onclick = () => setZoom('stk');
 document.getElementById('stkBack').onclick = () =>
   document.getElementById('backBtn').click();
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !document.getElementById('dayVeil').hidden) {
+    closeCampaign();
+    return;
+  }
   if (e.key === 'Escape' && state.zoom) setZoom(state.zoom);
 });
 document.getElementById('stkLineVals').onclick = () => {
@@ -2651,6 +2868,15 @@ function exportBook() {
 }
 
 document.getElementById('xlsBtn').onclick = exportBook;
+document.getElementById('dayClose').onclick = closeCampaign;
+document.getElementById('dayVeil').onclick = e => {
+  // Only the veil itself: a click inside the sheet is a click on the chart.
+  if (e.target.id === 'dayVeil') closeCampaign();
+};
+document.getElementById('dayBtn').onclick = () => {
+  const i = campaignLevels().find(j => state.filter[j] >= 0);
+  if (i !== undefined) openCampaign(DATA.levels[i].values[state.filter[i]]);
+};
 
 rebind();
 startHere();
