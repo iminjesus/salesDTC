@@ -194,21 +194,23 @@ Showing everything else in the file. Not in this page - Biz: (blank), Memory.
 
 ### Returns
 
-**Goods that came back are left out of every build.** A credit is a real
-movement and the export's own total carries it, but it is the one row that
-makes a ratio nonsense: its units and its money go out negative while the cost
-does not always follow them, so a month with a credit in it reads as a month
-that sold less at a higher cost. `--returns` keeps them.
+**Goods that came back are in.** A credit is a real movement and the export's
+own total carries it, and a page that quietly differs from the file it names is
+worse than one with an awkward month in it.
+
+`--no-returns` takes them out for a run where a ratio has to be read cleanly -
+a credit is the one row that makes one hard, because its units and its money go
+out negative while the cost does not always follow them. Then the run prints
+what went and the page says it under the menu beside anything `--drop` removed,
+because from that point the totals are no longer the file's own:
 
 ```
-returns left out: 412 row(s), -1,207 unit(s), -1,884,350 in net sales   (--returns keeps them)
+returns left out: 412 row(s), -1,207 unit(s), -1,884,350 in net sales   (--no-returns asked for that)
 ```
 
 A return is **negative units**, and where a row has no units, negative money -
 one definition, in `rawdata.is_return`, so the page, `channel_cogs.py` and
-`order_lag.py` all draw the same line. It is not a silent default: the run
-prints what went, and the page says it under the menu beside anything `--drop`
-removed.
+`order_lag.py` all draw the same line.
 
 ### Time on the x axis
 
@@ -589,6 +591,14 @@ is dropped rather than clamped, because a band pinned at 80% is a figure
 somebody will read. **Only the positive side is cut**: a band really can lose
 more than it sells, and -200% on a clearance band is a result, not an artefact.
 `MARGIN_CAP` in the template is the number.
+
+**And a band too small to read loses its line, not its bar.** Two units of an
+accessory are a real band and belong in the bar; a margin read off them is a
+ratio over almost nothing that swings by hundreds of points between months
+while saying nothing about the business. A band under **0.5%** of its own
+month (`LINE_FLOOR`) keeps its bar and drops that month's point from its dotted
+line - the line simply has nothing to say that month - and the caption counts
+how many went.
 
 Choosing **Qty** gives the units split with the profit line over it and **no
 cost bars**: costs share no scale with a count of units, and the same goes for a

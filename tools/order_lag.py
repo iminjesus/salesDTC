@@ -133,7 +133,7 @@ def read_lines(folder: Path, stem: str, month: int, bander,
             })
     if sent_back:
         say(f'  returns left out: {sent_back:,} line(s)   '
-            f'(--returns keeps them)')
+            f'(--no-returns asked for that)')
     return out
 
 
@@ -192,9 +192,10 @@ def main() -> int:
     ap.add_argument('--least', type=int, default=2, metavar='N',
                     help='how many months a line has to have waited to count '
                          'as a tail (default 2 - a month of lag is ordinary)')
-    ap.add_argument('--returns', action='store_true',
-                    help='keep the lines that came back as a credit. They are '
-                         'left out by default')
+    ap.add_argument('--no-returns', dest='returns', action='store_false',
+                    help='leave out the lines that came back as a credit. '
+                         'They are in by default')
+    ap.set_defaults(returns=True)
     ap.add_argument('--campaign', metavar='NAME',
                     help='only the lines whose campaign contains this')
     ap.add_argument('--out', metavar='FILE', help='write the lines read')

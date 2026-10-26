@@ -74,10 +74,11 @@ cost ledger will explain it.
 
 ## Returns
 
-Credits for goods that came back are **left out by default** (`--returns`
-keeps them): negative units against a cost that does not always follow them is
-exactly the row that makes a per-unit figure meaningless. The run says what
-went.
+Credits for goods that came back are **in**, so the figures tie to the export.
+`--no-returns` takes them out for a reading where the per-unit figures have to
+be clean - negative units against a cost that does not always follow them is
+the row that makes one hard - and the run then says what went, because from
+that point the totals are not the file's own.
 
 The cost columns are read by **the column's own sign**, decided once from
 where its weight sits, rather than by taking each row's absolute value. Some

@@ -555,12 +555,14 @@ def main() -> int:
                          'master could not place. Repeatable')
     ap.add_argument('--add-all', action='store_true',
                     help='add everything back: draw the file as it is')
-    ap.add_argument('--returns', action='store_true',
-                    help='keep the credits for goods that came back. They are '
-                         'left out by default: a credit is the one row that '
-                         'makes a ratio nonsense, because its units and money '
-                         'go out negative while the cost does not always '
-                         'follow. The run and the page both say what went')
+    ap.add_argument('--no-returns', dest='returns', action='store_false',
+                    help='leave out the credits for goods that came back. '
+                         'They are in by default, because the export\'s own '
+                         'total carries them and a page that quietly differs '
+                         'from the file it names is worse than one with an '
+                         'awkward month in it. Taking them out makes a ratio '
+                         'easier to read and the totals no longer tie')
+    ap.set_defaults(returns=True)
     ap.add_argument('--no-promo', action='store_true',
                     help='leave out the promotion split')
     ap.add_argument('--promo-bands', choices=('three', 'all'), default='three',
@@ -998,11 +1000,11 @@ def build_month(folder, target, args):
     matched_c = matched_p = 0
     from_master = [0] * len(FILTERS)
     from_export = [0] * len(FILTERS)
-    # Goods that came back, left out unless --returns asks for them. A credit
-    # is a real movement and the file's own total carries it; it is also the
-    # one row that makes a ratio nonsense, because the units and the money go
-    # out negative while the cost does not always follow them. The run says
-    # what went, and the page says it too.
+    # Goods that came back are in, because the file's own total carries them
+    # and a page that quietly differs from the export it names is worse than
+    # one with an awkward month in it. --no-returns takes them out for a run
+    # where a ratio has to be read cleanly; then the run says what went, and
+    # the page says it under the menu, because those totals no longer tie.
     sent_back = {'rows': 0, 'qty': 0.0, 'net': 0.0}
     q_at = pos_of.get('qty')
     n_at = pos_of.get('net', pos_of.get('gross'))
@@ -1050,7 +1052,7 @@ def build_month(folder, target, args):
     if sent_back['rows']:
         print(f'\nreturns left out: {sent_back["rows"]:,} row(s), '
               f'{sent_back["qty"]:,.0f} unit(s), {sent_back["net"]:,.0f} in net '
-              f'sales   (--returns keeps them)')
+              f'sales   (--no-returns asked for that; the default keeps them)')
     print(f'\njoined: {matched_c:,} of {len(body):,} rows matched a customer, '
           f'{matched_p:,} matched a product')
 

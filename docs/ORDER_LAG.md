@@ -45,8 +45,8 @@ campaign's lines, and `--out` writes every line read, with its order number,
 both dates, the lag, the units, the money and the campaign - which is the file
 to send when someone asks what a band is made of.
 
-Lines that came back as a credit are **left out by default**, the same as
-everywhere else; `--returns` keeps them.
+Lines that came back as a credit are **in**, the same as everywhere else;
+`--no-returns` takes them out.
 
 ## What it does not cover
 

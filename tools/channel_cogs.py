@@ -141,10 +141,12 @@ def two_sided(cp: Path) -> dict:
     return {key: v for key, v in seen.items() if len(v) > 1}
 
 
-# Goods that came back are left out of every reading here unless the caller
-# asks for them: a credit is negative units against a cost that does not always
-# follow, which is exactly the row that makes a per-unit figure meaningless.
-KEEP_RETURNS = [False]
+# Goods that came back are in by default, so the figures tie to the export.
+# --no-returns takes them out: a credit is negative units against a cost that
+# does not always follow, which is the row that makes a per-unit figure hard to
+# read - and the run says what went, because the totals then stop being the
+# file's own.
+KEEP_RETURNS = [True]
 
 
 def read_export(path: Path, cust: dict, risky: dict = None, say=print) -> tuple:
@@ -221,7 +223,7 @@ def read_export(path: Path, cust: dict, risky: dict = None, say=print) -> tuple:
     if sent_back['rows']:
         say(f'  returns left out: {sent_back["rows"]:,} row(s), '
             f'{sent_back["qty"]:,.0f} unit(s), {sent_back["net"]:,.0f} in net '
-            f'sales   (--returns keeps them)')
+            f'sales   (--no-returns asked for that)')
     if risk['qty']:
         say(f'\n  {len(risk["keys"]):,} account(s) the master spells on both '
             f'sides of the business carry {risk["qty"]:,.0f} unit(s) and '
@@ -518,11 +520,12 @@ def main() -> int:
                          'has not landed yet')
     ap.add_argument('--top', type=int, default=20, metavar='N',
                     help='how many models to list (default 20)')
-    ap.add_argument('--returns', action='store_true',
-                    help='keep the credits for goods that came back. They are '
-                         'left out by default: negative units against a cost '
-                         'that does not always follow them is the row that '
-                         'makes a per-unit figure meaningless')
+    ap.add_argument('--no-returns', dest='returns', action='store_false',
+                    help='leave out the credits for goods that came back. '
+                         'They are in by default, so the figures tie to the '
+                         'export; taking them out makes a per-unit figure '
+                         'easier to read and no longer the file\'s own')
+    ap.set_defaults(returns=True)
     ap.add_argument('--band', nargs=2, type=float, default=(0.2, 1.5),
                     metavar=('LOW', 'HIGH'),
                     help='the cost of goods over net sales a model has to be '

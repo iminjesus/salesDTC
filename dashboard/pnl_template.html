@@ -419,6 +419,12 @@ function fade(colour, a) {
    problem rather than a result, and one such point rescales the percent axis
    until nothing else on it can be read. */
 const MARGIN_CAP = 80;
+/* And the smallest slice of a month a band can be and still have its margin
+   drawn. Two units of an accessory are a real band and belong in the bar; a
+   margin read off them is a ratio over almost nothing, and it swings by
+   hundreds of points between months while saying nothing about the business.
+   The bar keeps them - only the line goes. */
+const LINE_FLOOR = 0.005;
 // A band's own margin line is named after it, so one is found from the other.
 const stripMargin = l => l.replace(/ margin$/, '');
 const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
@@ -1684,6 +1690,7 @@ function drawStack() {
   // cut - a band really can lose more than it sells, and -200% on a clearance
   // band is a result, not an artefact.
   let overCap = 0;
+  let tooSmall = 0;
   const marginOf = f => {
     const base = f.net || f.gross;
     if (!base) return null;
@@ -1712,9 +1719,20 @@ function drawStack() {
         // Faint on purpose: the solid line is the answer, and these are the
         // spread around it. At full strength eight of them read as the chart
         // and the bars underneath read as the background, which is backwards.
+        // A month where the band is a sliver of the bar gets no point: the
+        // margin is a ratio over almost nothing. The band's bar is untouched,
+        // and the line simply has nothing to say that month.
+        const share = (f, i) => {
+          const base = Math.abs(fin[i].net || fin[i].gross || 0);
+          const mine = Math.abs((f || {}).net || (f || {}).gross || 0);
+          return base ? mine / base : 0;
+        };
         series.push({
           type: 'line', label: `${g} margin`, yAxisID: 'y1',
-          data: xs.map(r => marginOf(a[r.mi])),
+          data: xs.map(r => {
+            if (share(a[r.mi], r.mi) < LINE_FLOOR) { tooSmall++; return null; }
+            return marginOf(a[r.mi]);
+          }),
           borderColor: fade(bandColour(i, g), .75),
           backgroundColor: fade(bandColour(i, g), .75),
           borderWidth: 1.4, borderDash: [4, 3],
@@ -1934,6 +1952,10 @@ function drawStack() {
                  + 'profit cannot be most of net sales, so a margin that high '
                  + 'is a tiny base rather than a result, and drawn it would '
                  + 'own the axis.' : '')
+    + (tooSmall ? ` A band under ${(LINE_FLOOR * 100).toFixed(1)}% of its `
+                  + `${PER} keeps its bar and loses its margin point - `
+                  + `${tooSmall} of them - because a ratio over almost nothing `
+                  + 'swings by hundreds of points and says nothing.' : '')
     + (canDrill ? ` Click a band to keep only that ${DATA.levels[sl].name}`
                   + (slNext === null ? '.'
                      // Where the split lands depends on the band: inside MX,
