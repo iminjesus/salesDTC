@@ -1332,6 +1332,14 @@ def build_month(folder, target, args):
     want_was = args.orders_before or (month_name(month_before(ym)) if ym else None)
     op = (None if args.no_orders or got_sap or not want_now
           else pick_file(folder, want_now))
+    # The store export is the fallback, and a fallback that is sitting in the
+    # folder unread is worth saying out loud: otherwise the only way to know
+    # which source a page was built on is to read this file.
+    if got_sap and want_now:
+        spare = pick_file(folder, want_now)
+        if spare is not None:
+            print(f'  {spare.name} is in the folder and was not read - SAP '
+                  f'answered. --no-sap builds off the store export instead')
     bp = (None if args.no_orders or got_sap or not want_was
           else pick_file(folder, want_was))
     if not args.no_orders and not got_sap and op is None and want_now:

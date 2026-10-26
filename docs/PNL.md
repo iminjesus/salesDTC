@@ -419,6 +419,15 @@ be summed.
 
 ### Orders, and the month they belong to
 
+> **Is the store export still needed?** Not by this page, while `orders_*` is
+> there: SAP wins and `26 DTC <Mon>` is never opened. The run says so -
+> `26 DTC Sep.csv is in the folder and was not read - SAP answered`. It is
+> still the only file carrying the store's own `promotion_rule`, the voucher
+> codes, the portal and tier, and the discount the store applied, so
+> `promo_match.py`, `promo_profit.py` and `rulegram.py` read it directly.
+> `cohort.py` is the one tool SAP makes unnecessary: it exists to work out
+> which orders became a month's sales, which SAP answers off its own dates.
+
 The page needs to know which month a unit's revenue fell in. There are two ways
 to find that out, and it prefers the one that does not guess.
 
