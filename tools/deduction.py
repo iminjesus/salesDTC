@@ -80,6 +80,30 @@ def col_index(head: list, want: str):
     return None, 'not found'
 
 
+def col_letter(i: int) -> str:
+    """The spreadsheet letter of a 0-based column, so A is 0 and AK is 36."""
+    out, n = '', i + 1
+    while n:
+        n, r = divmod(n - 1, 26)
+        out = chr(65 + r) + out
+    return out
+
+
+def say_headers(path: Path, want: str = '', say=print) -> None:
+    """Every column of the export with its letter, so a letter can be checked.
+
+    Counting to AK by hand in a 60-column export is how the wrong column gets
+    quoted, and the quote is usually what a question arrives as.
+    """
+    rows, _ = read_any(path)
+    head = [h.strip() for h in (rows[0] if rows else [])]
+    say(f'\n{path.name}: {len(head)} columns')
+    hit = [t.strip().lower() for t in want.split(',') if t.strip()]
+    for i, h in enumerate(head):
+        mark = ' <--' if hit and any(t in h.lower() for t in hit) else ''
+        say(f'  {col_letter(i):>3}  {i + 1:>3}  {h or "(blank)"}{mark}')
+
+
 def where_rules(args_where) -> dict:
     """--where LEVEL=VALUE, as {slot: {value, ...}}."""
     out: dict = {}
@@ -334,6 +358,10 @@ def main() -> int:
     ap.add_argument('--top', type=int, default=20, metavar='N')
     ap.add_argument('--no-returns', dest='returns', action='store_false')
     ap.add_argument('--out', metavar='FILE')
+    ap.add_argument('--headers', nargs='?', const=' ', metavar='WORD',
+                    help='list the export\'s columns with their spreadsheet '
+                         'letters and stop; a word marks the ones that '
+                         'contain it, e.g. --headers commission')
     ap.set_defaults(returns=True)
     args = ap.parse_args()
     rules = where_rules(args.where)
@@ -342,6 +370,13 @@ def main() -> int:
     if not folder.is_absolute():
         folder = ROOT / folder
     print(f'reading {folder}')
+    if args.headers:
+        found = sorted(pick_series(folder, args.export), key=lambda q: q.name)
+        if not found:
+            print(f'no {args.export} export in the folder')
+            return 1
+        say_headers(found[-1], args.headers.strip())
+        return 0
     cp, cust = first_readable(
         folder, args.customer,
         lambda q: master(q, ('Sold-To', 'sold To', 'sold_to'),
