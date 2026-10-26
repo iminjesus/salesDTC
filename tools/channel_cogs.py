@@ -44,8 +44,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
 import promo_match as PM                                       # noqa: E402
 from asp import CUSTOMER_KEYS, PRODUCT_KEYS, QTY_NET           # noqa: E402
-from rawdata import (MASTER_RAW, find, key_norm, master,       # noqa: E402
-                     month_of, parse_number, pick_series, read_any)
+from rawdata import (MASTER_RAW, find, is_return, key_norm,    # noqa: E402
+                     master, month_of, parse_number, pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -141,6 +141,12 @@ def two_sided(cp: Path) -> dict:
     return {key: v for key, v in seen.items() if len(v) > 1}
 
 
+# Goods that came back are left out of every reading here unless the caller
+# asks for them: a credit is negative units against a cost that does not always
+# follow, which is exactly the row that makes a per-unit figure meaningless.
+KEEP_RETURNS = [False]
+
+
 def read_export(path: Path, cust: dict, risky: dict = None, say=print) -> tuple:
     rows, info = read_any(path)
     if not rows:
@@ -158,14 +164,45 @@ def read_export(path: Path, cust: dict, risky: dict = None, say=print) -> tuple:
         raise ValueError('no ' + ', no '.join(missing)
                          + ' column, so there is nothing to compare')
 
+    # Which way the cost columns are carried. Some exports write a cost as a
+    # negative number throughout and some as a positive one, and taking the
+    # absolute value row by row reads a credit - whose cost is reversed on
+    # purpose - as another cost. So the column decides once, by where its
+    # weight sits, and every row is then read the same way.
+    def sign_of(i):
+        if i is None:
+            return 1
+        neg = pos = 0.0
+        for r in rows[1:]:
+            v = parse_number(r[i].strip()) if i < len(r) else None
+            if v is None:
+                continue
+            if v < 0:
+                neg -= v
+            else:
+                pos += v
+        return -1 if neg > pos else 1
+
+    sgn = {k: sign_of(at[k]) for k in ('cogs', 'deduct')}
+    for k, v in sgn.items():
+        if v < 0:
+            say(f'  {k} is carried negative in this export, so it is read '
+                f'that way throughout')
+
     sides = {CUST.ONLINE: Side(), CUST.OFFLINE: Side()}
     lost = Side()
     risk = {'qty': 0.0, 'net': 0.0, 'keys': collections.Counter()}
     cell = lambda r, i: (r[i].strip() if i is not None and i < len(r) else '')
     num = lambda r, i: (parse_number(cell(r, i)) or 0.0) if i is not None else 0.0
+    sent_back = {'rows': 0, 'qty': 0.0, 'net': 0.0}
     for r in rows[1:]:
         code = PM.code_norm(cell(r, at['sku']))
         if not code:
+            continue
+        if not KEEP_RETURNS[0] and is_return(num(r, at['qty']), num(r, at['net'])):
+            sent_back['rows'] += 1
+            sent_back['qty'] += num(r, at['qty'])
+            sent_back['net'] += num(r, at['net'])
             continue
         ckey = key_norm(cell(r, at['cust']))
         c = cust.get(ckey) or {}
@@ -179,8 +216,12 @@ def read_export(path: Path, cust: dict, risky: dict = None, say=print) -> tuple:
         # ratio is about size, and a sign flip halfway down a column would make
         # a channel look like it sold its goods for nothing.
         side.add(code, num(r, at['qty']), num(r, at['net']),
-                 abs(num(r, at['cogs'])), num(r, at['gross']),
-                 abs(num(r, at['deduct'])))
+                 sgn['cogs'] * num(r, at['cogs']), num(r, at['gross']),
+                 sgn['deduct'] * num(r, at['deduct']))
+    if sent_back['rows']:
+        say(f'  returns left out: {sent_back["rows"]:,} row(s), '
+            f'{sent_back["qty"]:,.0f} unit(s), {sent_back["net"]:,.0f} in net '
+            f'sales   (--returns keeps them)')
     if risk['qty']:
         say(f'\n  {len(risk["keys"]):,} account(s) the master spells on both '
             f'sides of the business carry {risk["qty"]:,.0f} unit(s) and '
@@ -379,17 +420,36 @@ def one_model(folder: Path, stem: str, cust: dict, code: str, prod: dict,
         cell = lambda r, i: (r[i].strip() if i is not None and i < len(r) else '')
         num = lambda r, i: ((parse_number(cell(r, i)) or 0.0)
                             if i is not None else 0.0)
+
+        def sign_of(i):
+            if i is None:
+                return 1
+            neg = pos = 0.0
+            for q in rows[1:]:
+                v = parse_number(cell(q, i))
+                if v is None:
+                    continue
+                if v < 0:
+                    neg -= v
+                else:
+                    pos += v
+            return -1 if neg > pos else 1
+
+        sgn = {k: sign_of(at[k]) for k in ('cogs', 'deduct')}
         sides = {CUST.ONLINE: Side(), CUST.OFFLINE: Side()}
         for r in rows[1:]:
             if PM.code_norm(cell(r, at['sku'])) != want:
+                continue
+            if not KEEP_RETURNS[0] and is_return(num(r, at['qty']),
+                                                 num(r, at['net'])):
                 continue
             c = cust.get(key_norm(cell(r, at['cust']))) or {}
             side = sides.get(CUST.channel_of(c.get('account'), bool(c)))
             if side is None:
                 continue
             side.add(want, num(r, at['qty']), num(r, at['net']),
-                     abs(num(r, at['cogs'])), num(r, at['gross']),
-                     abs(num(r, at['deduct'])))
+                     sgn['cogs'] * num(r, at['cogs']), num(r, at['gross']),
+                     sgn['deduct'] * num(r, at['deduct']))
         for label, side in (('online', sides[CUST.ONLINE]),
                             ('offline', sides[CUST.OFFLINE])):
             if not side.qty:
@@ -458,6 +518,11 @@ def main() -> int:
                          'has not landed yet')
     ap.add_argument('--top', type=int, default=20, metavar='N',
                     help='how many models to list (default 20)')
+    ap.add_argument('--returns', action='store_true',
+                    help='keep the credits for goods that came back. They are '
+                         'left out by default: negative units against a cost '
+                         'that does not always follow them is the row that '
+                         'makes a per-unit figure meaningless')
     ap.add_argument('--band', nargs=2, type=float, default=(0.2, 1.5),
                     metavar=('LOW', 'HIGH'),
                     help='the cost of goods over net sales a model has to be '
@@ -475,6 +540,7 @@ def main() -> int:
     folder = Path(args.dir)
     if not folder.is_absolute():
         folder = ROOT / folder
+    KEEP_RETURNS[0] = args.returns
 
     # The customer master first: without it no row can be placed in a channel,
     # and there is nothing to compare.

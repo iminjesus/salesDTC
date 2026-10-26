@@ -72,6 +72,19 @@ cost lines charged to one side only; a **price** gap is the channel mix and the
 stacked offers - EPP, education, staff, always-on vouchers - and nothing in the
 cost ledger will explain it.
 
+## Returns
+
+Credits for goods that came back are **left out by default** (`--returns`
+keeps them): negative units against a cost that does not always follow them is
+exactly the row that makes a per-unit figure meaningless. The run says what
+went.
+
+The cost columns are read by **the column's own sign**, decided once from
+where its weight sits, rather than by taking each row's absolute value. Some
+exports carry a cost as a negative number throughout; taking the absolute value
+row by row read a credit - whose cost is reversed on purpose - as another cost,
+and added it.
+
 ## Rows that are not prices
 
 An export carries more than shelf sales. Credits, free-of-charge shipments,

@@ -412,6 +412,19 @@ def pick_series(folder: Path, prefix: str) -> list:
     return sorted(hits, key=rank)
 
 
+# What a return looks like in a sales row, in one place so every tool draws
+# the same line. Goods that came back are booked as a credit: the units go out
+# negative and the money with them. Nothing else in these exports is negative
+# by design - a cost line is carried signed in some files and positive in
+# others, which is why the units decide and the money only answers where there
+# are no units.
+def is_return(qty, amt=None) -> bool:
+    """Is this row a credit for goods that came back?"""
+    if qty is not None and qty != 0:
+        return qty < 0
+    return amt is not None and amt < 0
+
+
 def parse_number(v) -> float | None:
     """The number a cell holds, or None if it does not hold one.
 

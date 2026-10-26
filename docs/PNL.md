@@ -192,6 +192,24 @@ is exactly why it has to be written where the page is read:
 Showing everything else in the file. Not in this page - Biz: (blank), Memory.
 ```
 
+### Returns
+
+**Goods that came back are left out of every build.** A credit is a real
+movement and the export's own total carries it, but it is the one row that
+makes a ratio nonsense: its units and its money go out negative while the cost
+does not always follow them, so a month with a credit in it reads as a month
+that sold less at a higher cost. `--returns` keeps them.
+
+```
+returns left out: 412 row(s), -1,207 unit(s), -1,884,350 in net sales   (--returns keeps them)
+```
+
+A return is **negative units**, and where a row has no units, negative money -
+one definition, in `rawdata.is_return`, so the page, `channel_cogs.py` and
+`order_lag.py` all draw the same line. It is not a silent default: the run
+prints what went, and the page says it under the menu beside anything `--drop`
+removed.
+
 ### Time on the x axis
 
 The build draws **every** `profit_*` export in the folder, and the page is one

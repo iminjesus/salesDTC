@@ -32,7 +32,8 @@ import customer as CUST                                        # noqa: E402
 import orders as ORD                                           # noqa: E402
 import promo_match as PM                                       # noqa: E402
 import sap as SAP                                              # noqa: E402
-from rawdata import (MASTER_RAW as RAW, find, key_norm, master,  # noqa: E402
+from rawdata import (MASTER_RAW as RAW, find, is_return,        # noqa: E402
+                     key_norm, master,
                      month_before, month_name, month_of, parse_number,
                      pick_file, pick_latest, pick_series, read_any)
 
@@ -554,6 +555,12 @@ def main() -> int:
                          'master could not place. Repeatable')
     ap.add_argument('--add-all', action='store_true',
                     help='add everything back: draw the file as it is')
+    ap.add_argument('--returns', action='store_true',
+                    help='keep the credits for goods that came back. They are '
+                         'left out by default: a credit is the one row that '
+                         'makes a ratio nonsense, because its units and money '
+                         'go out negative while the cost does not always '
+                         'follow. The run and the page both say what went')
     ap.add_argument('--no-promo', action='store_true',
                     help='leave out the promotion split')
     ap.add_argument('--promo-bands', choices=('three', 'all'), default='three',
@@ -991,7 +998,23 @@ def build_month(folder, target, args):
     matched_c = matched_p = 0
     from_master = [0] * len(FILTERS)
     from_export = [0] * len(FILTERS)
+    # Goods that came back, left out unless --returns asks for them. A credit
+    # is a real movement and the file's own total carries it; it is also the
+    # one row that makes a ratio nonsense, because the units and the money go
+    # out negative while the cost does not always follow them. The run says
+    # what went, and the page says it too.
+    sent_back = {'rows': 0, 'qty': 0.0, 'net': 0.0}
+    q_at = pos_of.get('qty')
+    n_at = pos_of.get('net', pos_of.get('gross'))
     for r in body:
+        if not args.returns and q_at is not None:
+            q = parse_number(cell(r, q_at))
+            n = parse_number(cell(r, n_at)) if n_at is not None else None
+            if is_return(q, n):
+                sent_back['rows'] += 1
+                sent_back['qty'] += q or 0.0
+                sent_back['net'] += n or 0.0
+                continue
         c = cust.get(key_norm(cell(r, c_key))) or {}
         p = prod.get(key_norm(cell(r, p_key))) or {}
         matched_c += bool(c)
@@ -1024,6 +1047,10 @@ def build_month(folder, target, args):
             n = parse_number(cell(r, pos_of[k]))
             if n is not None:
                 vals[j] += n
+    if sent_back['rows']:
+        print(f'\nreturns left out: {sent_back["rows"]:,} row(s), '
+              f'{sent_back["qty"]:,.0f} unit(s), {sent_back["net"]:,.0f} in net '
+              f'sales   (--returns keeps them)')
     print(f'\njoined: {matched_c:,} of {len(body):,} rows matched a customer, '
           f'{matched_p:,} matched a product')
 
@@ -1414,6 +1441,9 @@ def build_month(folder, target, args):
                   + (f'  ({goes / sold * 100:.0f}% of the month)' if sold else ''))
 
     dropped = apply_drops(combos, counts, drop_rules(args), keys)
+    if sent_back['rows']:
+        dropped = dropped + [f'returns ({sent_back["rows"]:,} row(s), '
+                             f'{abs(sent_back["qty"]):,.0f} unit(s))']
     if not combos:
         print('  that is everything this export had. Nothing is left to draw - '
               'check the --drop values against the levels above')

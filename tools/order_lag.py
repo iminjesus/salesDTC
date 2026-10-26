@@ -29,7 +29,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import promo_match as PM                                       # noqa: E402
 import sap as SAP                                              # noqa: E402
-from rawdata import (find, parse_number, pick_series, read_any)  # noqa: E402
+from rawdata import (find, is_return, parse_number,             # noqa: E402
+                     pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -74,8 +75,9 @@ def months_between(a: int, b: int) -> int:
     return (b // 100 - a // 100) * 12 + (b % 100 - a % 100)
 
 
-def read_lines(folder: Path, stem: str, month: int, bander, say=print) -> list:
-    out = []
+def read_lines(folder: Path, stem: str, month: int, bander,
+               keep_returns: bool = False, say=print) -> list:
+    out, sent_back = [], 0
     files = pick_series(folder, stem)
     if not files:
         say(f'no SAP export named like {stem!r} in {folder}')
@@ -109,15 +111,19 @@ def read_lines(folder: Path, stem: str, month: int, bander, say=print) -> list:
             made = SAP.to_date(cell(r, col['made']))
             if SAP.month_of_date(gi) != month:
                 continue
+            qty = parse_number(cell(r, col['qty'])) or 0.0
+            amt = ((parse_number(cell(r, amt_i)) or 0.0)
+                   if amt_i is not None else 0.0)
+            if not keep_returns and is_return(qty, amt):
+                sent_back += 1
+                continue
             band = bander(cell(r, col['sku']), made) if bander else None
             out.append({
                 'ref': cell(r, col['ref']), 'sku': cell(r, col['sku']),
                 'payer': cell(r, col['payer']),
                 'made': made, 'gi': gi,
                 'made_m': SAP.month_of_date(made),
-                'qty': parse_number(cell(r, col['qty'])) or 0.0,
-                'amt': (parse_number(cell(r, amt_i)) or 0.0)
-                       if amt_i is not None else 0.0,
+                'qty': qty, 'amt': amt,
                 'status': cell(r, col['dstat']),
                 'band': (band or ('', '', ''))[0],
                 'camp1': (band or ('', '', ''))[1],
@@ -125,6 +131,9 @@ def read_lines(folder: Path, stem: str, month: int, bander, say=print) -> list:
                 'lag': (months_between(SAP.month_of_date(made), month)
                         if made else None),
             })
+    if sent_back:
+        say(f'  returns left out: {sent_back:,} line(s)   '
+            f'(--returns keeps them)')
     return out
 
 
@@ -183,6 +192,9 @@ def main() -> int:
     ap.add_argument('--least', type=int, default=2, metavar='N',
                     help='how many months a line has to have waited to count '
                          'as a tail (default 2 - a month of lag is ordinary)')
+    ap.add_argument('--returns', action='store_true',
+                    help='keep the lines that came back as a credit. They are '
+                         'left out by default')
     ap.add_argument('--campaign', metavar='NAME',
                     help='only the lines whose campaign contains this')
     ap.add_argument('--out', metavar='FILE', help='write the lines read')
@@ -197,7 +209,7 @@ def main() -> int:
     print(f'reading {folder} for what left in {month}')
     bander = plan_bander(folder, args.plan)
 
-    lines = read_lines(folder, args.sap, month, bander)
+    lines = read_lines(folder, args.sap, month, bander, args.returns)
     if not lines:
         print('no line left in that month - check --sap and --month')
         return 1
