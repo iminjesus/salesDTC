@@ -149,6 +149,13 @@ NO_CAMPAIGN = '(no campaign)'
 # A blank second column is the plan saying there was no second campaign, which
 # is a different statement from the first one being blank as well.
 NO_SECOND = '(no second campaign)'
+# And a blank *first* column over a filled second one is a third statement
+# again: there is a campaign, the plan wrote it in the other column. CE does
+# that for whole programmes - Tech Upgrade, BOOST WEEK, SECRET SALE - and 3,374
+# lines across the two plans are like it. Reading that as "(no campaign)" said
+# the opposite of what the plan holds; this says where to look, and clicking
+# the band drills to the column that names it.
+ONLY_SECOND = '(named in campaign 2)'
 
 
 # How many campaign names the drill carries. Bounded on purpose: one series per
@@ -601,7 +608,8 @@ def promo_bander(folder, stems, say=print):
         # inventing a precedence the plan does not state.
         one = PM.campaign_names(live, canon, 1)
         two = PM.campaign_names(live, canon, 2)
-        cache[k] = hit = (hit, one or NO_CAMPAIGN,
+        cache[k] = hit = (hit,
+                          one or (ONLY_SECOND if two else NO_CAMPAIGN),
                           two or (NO_SECOND if one else NO_CAMPAIGN))
         return hit
 

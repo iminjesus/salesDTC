@@ -904,9 +904,21 @@ two DTC columns are a hierarchy, so they are two levels: joined into a single
 are folded to one spelling each, so `DTC Boost week` and `DTC Boost Week` are
 one bar.
 
-A blank second column reads as **`(no second campaign)`** - the plan saying
-there was not one - which is a different statement from `(no campaign)`, where
-the first column is blank too.
+Three blanks, three different statements:
+
+| on the page | what the plan holds |
+|---|---|
+| `(no second campaign)` | the first column names a campaign and the second is blank - there was not one |
+| `(named in campaign 2)` | the **first** column is blank and the second names a campaign. There is a campaign; the plan wrote it in the other column. Clicking the band drills to the column that holds it |
+| `(no campaign)` | both columns blank. The line is live and names nothing, which is what puts the band in **No promotion** |
+
+The middle one is not an edge case: **3,374 lines** across the two plans are
+like it, and whole programmes live there - CE's `Tech Upgrade`, `BOOST WEEK`,
+`SECRET SALE` and `FLASH SALE`, MX's `SmartThings`, `W9U2 Launch` and `Aging`.
+Reading those as "no campaign" said the opposite of what the plan holds, which
+is why the label names the column instead. Where a product is in two campaigns
+at once the names are joined with `+`, so `Aging + SmartThings` is one value
+and not two.
 
 ### The shape
 
