@@ -1004,8 +1004,17 @@ it counts on **the day the order came in**, which is the day the promotion was
 live - not the day it shipped.
 
 A campaign name comes round again - Black Friday ran last year and runs this
-year - so the plan's lines are folded into **runs**, overlapping or within a
-fortnight of each other, and the run with the most units is the one drawn.
+year - so the plan's lines are folded into **runs** and the run with the most
+units is the one drawn. Only overlapping lines merge, with two days of slack
+for a weekend: a fortnight of slack chained a quarter of short bursts into one
+run, taking the real plans from 131 runs to 94 and the 90th percentile from
+112 days to 176, which is a campaign nobody ran.
+
+Some names are used **all year** rather than for a campaign - the plans carry
+a `Tech Fest` line running fifteen months - and a run over **70 days** is
+drawn **a week at a time** instead, labelled `w/c 2 Oct`. The header says the
+run's real length and that it is weekly, and where a run crosses a new year
+the dates carry it.
 
 **Campaign days** on the chart's own row reopens it; Escape, the veil or
 Close puts it away. The button is live only while one campaign is picked.

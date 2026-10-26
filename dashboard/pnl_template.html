@@ -475,6 +475,13 @@ const MARGIN_CAP = 80;
    hundreds of points between months while saying nothing about the business.
    The bar keeps them - only the line goes. */
 const LINE_FLOOR = 0.005;
+/* How long a campaign can run and still be drawn a day at a time. Past it the
+   bars are hairlines and the labels collide, so the days are gathered into
+   weeks - the shape is still the campaign's, read a week at a time. Most
+   campaigns are nowhere near it: on the real plans the median run is under a
+   month, and the ones that are not are a name used all year rather than a
+   campaign. */
+const DAY_MAX = 70;
 // A band's own margin line is named after it, so one is found from the other.
 const stripMargin = l => l.replace(/ margin$/, '');
 const esc = v => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
@@ -2150,43 +2157,76 @@ function campaignDays(name) {
   const rate = v => (v && v[2] ? { units: v[0] / v[2], amount: v[1] / v[2],
                                    total: v[0], days: v[2] } : null);
   const inside = days.reduce((a, d) => a + d.units, 0);
+  // A run too long to read a day at a time is read a week at a time. The
+  // first bucket starts on the day the campaign opened, so the weeks are the
+  // campaign's own and not the calendar's.
+  let cols = days, weekly = false;
+  if (days.length > DAY_MAX) {
+    weekly = true;
+    cols = [];
+    for (let i = 0; i < days.length; i += 7) {
+      const week = days.slice(i, i + 7);
+      cols.push({
+        key: week[0].key, span: week.length,
+        units: week.reduce((a, d) => a + d.units, 0),
+        amount: week.reduce((a, d) => a + d.amount, 0),
+      });
+    }
+  }
   return {
-    start, end, days,
+    start, end, days: cols, weekly,
     before: rate(c.before), after: rate(c.after),
     during: days.length ? { units: inside / days.length, total: inside,
                             days: days.length } : null,
   };
 }
 
-const dayLabel = iso => {
+const dayLabel = (iso, year) => {
   const d = new Date(iso + 'T00:00:00');
   return `${d.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
-    'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]}`;
+    'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]}`
+    // A run that crosses a new year says which: "2 Oct to 31 Dec" over
+    // fifteen months reads as a quarter.
+    + (year ? ` ${String(d.getFullYear()).slice(2)}` : '');
 };
 
 function openCampaign(name) {
   const got = campaignDays(name);
   if (!got) return false;
   readColours();
-  const { start, end, days, before, after, during } = got;
+  const { start, end, days, weekly, before, after, during } = got;
   const units = days.reduce((a, d) => a + d.units, 0);
   const amount = days.reduce((a, d) => a + d.amount, 0);
   const sold = days.filter(d => d.units).length;
-  const best = days.reduce((a, d) => (d.units > (a ? a.units : 0) ? d : a), null);
-  const perDay = v => (v == null ? '-' : v.toFixed(v >= 10 ? 0 : 1));
+  // Counted in whatever the bars are: weeks where the run is drawn weekly,
+  // days where it is not. "11 of 29 days" and "4 of 10 weeks" are both true
+  // of the same campaign and only one of them matches what is on screen.
+  const soldOf = weekly ? `${sold} of ${days.length} weeks`
+                        : `${sold} of ${during ? during.days : 0} days`;
+  const best = weekly ? null
+    : days.reduce((a, d) => (d.units > (a ? a.units : 0) ? d : a), null);
+  // A rate under a tenth is still a rate: 6 units over a year is 0.01 a day,
+  // and printing 0.0 there says the campaign sold nothing.
+  const perDay = v => (v == null ? '-'
+    : v.toFixed(v >= 10 ? 0 : v >= 0.1 || v === 0 ? 1 : 2));
   const lift = (a, b) => (a && b && a.units ? ((b.units / a.units - 1) * 100) : null);
+  const yr = start.slice(0, 4) !== end.slice(0, 4);
   document.getElementById('dayName').textContent = name;
   document.getElementById('dayWhen').innerHTML =
-    `Launched <b>${dayLabel(start)}</b> &middot; ended <b>${dayLabel(end)}</b>`
-    + ` &middot; ${days.length} day${days.length > 1 ? 's' : ''}`
+    `Launched <b>${dayLabel(start, yr)}</b> &middot; ended `
+    + `<b>${dayLabel(end, yr)}</b>`
+    // The run's own length, which is not the number of bars once a long run
+    // is drawn a week at a time.
+    + ` &middot; ${during ? during.days : days.length} day`
+    + `${(during ? during.days : days.length) === 1 ? '' : 's'}`
     + ` &middot; <b>${fmt(units)}</b> unit${units === 1 ? '' : 's'} ordered`
     + (amount ? ` &middot; <b>${fmt(amount)}</b>` : '')
-    + (during ? ` &middot; <b>${perDay(during.units)}</b> a day` : '');
+    + (during ? ` &middot; <b>${perDay(during.units)}</b> a day` : '')
+    + (weekly ? ' &middot; drawn a week at a time' : '');
   const up = lift(before, during);
   document.getElementById('dayFoot').textContent =
     'Counted on the day the order came in, which is the day the promotion was '
-    + `live - not the day it shipped. ${sold} of ${days.length} days sold `
-    + 'anything'
+    + `live - not the day it shipped. ${soldOf} sold anything`
     + (best && best.units ? `; the biggest was ${dayLabel(best.key)} with `
                             + `${fmt(best.units)}. ` : '. ')
     + (before || after
@@ -2207,8 +2247,9 @@ function openCampaign(name) {
     cols.push({ label: `${before.days}d before`, units: before.units,
                 amount: before.amount, rate: true });
   }
-  days.forEach(d => cols.push({ label: dayLabel(d.key), units: d.units,
-                                amount: d.amount }));
+  days.forEach(d => cols.push({
+    label: weekly ? `w/c ${dayLabel(d.key)}` : dayLabel(d.key),
+    units: d.units, amount: d.amount }));
   if (after) {
     cols.push({ label: `${after.days}d after`, units: after.units,
                 amount: after.amount, rate: true });

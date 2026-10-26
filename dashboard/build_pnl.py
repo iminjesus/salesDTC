@@ -390,13 +390,17 @@ def campaign_watcher(plan, canon):
     # A campaign name comes round again: Black Friday ran in 2025 and runs
     # again in 2026, and taking the first start to the last end would draw a
     # fourteen-month window nobody ever ran. The lines are folded into runs
-    # instead - overlapping, or within a fortnight of each other - and a day
-    # belongs to the run it falls in.
+    # instead and a day belongs to the run it falls in.
+    #
+    # Only overlapping lines merge, with two days of slack for a weekend. A
+    # fortnight of slack chained a quarter's worth of short bursts into one
+    # run: on the real plans it took 131 runs down to 94 and pushed the 90th
+    # percentile from 112 days to 176, which is a campaign nobody ran.
     win: dict = {}
     for name, got in spans.items():
         runs = []
         for a, b in sorted(got):
-            if runs and a - runs[-1][1] <= timedelta(days=14):
+            if runs and (a - runs[-1][1]).days <= 2:
                 if b > runs[-1][1]:
                     runs[-1][1] = b
             else:
