@@ -44,7 +44,7 @@ import customer as CUST                                        # noqa: E402
 import promo_match as PM                                       # noqa: E402
 from asp import CUSTOMER_KEYS, PRODUCT_KEYS, QTY_NET           # noqa: E402
 from rawdata import (find, key_norm, master, parse_number,     # noqa: E402
-                     pick_file, pick_latest, read_any)
+                     pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -88,10 +88,37 @@ class Side:
         return per(self.cogs, self.net)
 
 
+def first_readable(folder: Path, prefix: str, read, say=print) -> tuple:
+    """The newest file of a series that actually reads, and what it read.
+
+    A folder holds the same export several ways - a csv, a workbook, an .xlsb
+    that needs a module nobody installed - and the newest name is not always
+    the one that opens. Each candidate is tried in turn and the reason it was
+    skipped is printed, because "no customer master" and "the newest customer
+    master is an .xlsb" are different problems with different fixes.
+    """
+    tried = []
+    for cand in pick_series(folder, prefix):
+        tried.append(cand.name)
+        try:
+            got = read(cand)
+        except (ValueError, OSError, KeyError, IndexError) as e:
+            say(f'  {cand.name}: {e}')
+            say(f'    - trying the next {prefix} file')
+            continue
+        if got:
+            return cand, got
+        say(f'  {cand.name}: nothing could be read out of it'
+            f' - trying the next {prefix} file')
+    if tried:
+        say(f'  none of {", ".join(tried)} could be read')
+    return None, None
+
+
 def read_export(path: Path, cust: dict, say=print) -> tuple:
     rows, info = read_any(path)
     if not rows:
-        raise SystemExit(f'{path.name} is empty')
+        raise ValueError('it is empty')
     head = [h.strip() for h in rows[0]]
     at = {k: find(head, *names) for k, names in
           (('sku', PRODUCT_KEYS), ('cust', CUSTOMER_KEYS), ('qty', QTY_NET),
@@ -100,9 +127,10 @@ def read_export(path: Path, cust: dict, say=print) -> tuple:
     for k in ('sku', 'cust', 'qty', 'net', 'cogs', 'gross', 'deduct'):
         i = at[k]
         say(f'  {k:<7} ' + (repr(head[i]) if i is not None else '-- not found --'))
-    for k in ('sku', 'cust', 'qty', 'net', 'cogs'):
-        if at[k] is None:
-            raise SystemExit(f'  without {k} there is nothing to compare')
+    missing = [k for k in ('sku', 'cust', 'qty', 'net', 'cogs') if at[k] is None]
+    if missing:
+        raise ValueError('no ' + ', no '.join(missing)
+                         + ' column, so there is nothing to compare')
 
     sides = {CUST.ONLINE: Side(), CUST.OFFLINE: Side()}
     lost = Side()
@@ -275,26 +303,31 @@ def main() -> int:
     folder = Path(args.dir)
     if not folder.is_absolute():
         folder = ROOT / folder
-    path = pick_latest(folder, args.export) or pick_file(folder, args.export)
-    if path is None:
-        print(f'no export named like {args.export!r} in {folder}')
-        return 1
-    cp = pick_file(folder, args.customer) or pick_latest(folder, args.customer)
-    if cp is None:
-        print(f'no customer master named like {args.customer!r} - without it '
-              f'no row can be placed in a channel')
-        return 1
-    cust = master(cp, ('Sold-To', 'sold To', 'sold_to'),
-                  {'account': CUST.ACCOUNT_NAMES})
-    pp = pick_file(folder, args.product) or pick_latest(folder, args.product)
-    prod = {}
-    if pp is not None:
-        raw = master(pp, PRODUCT_KEYS, PROD_COLS)
-        prod = {PM.code_norm(k): v for k, v in raw.items()}
-    print(f'customers: {cp.name}, {len(cust):,} account(s)'
-          + (f'; products: {pp.name}, {len(prod):,}' if pp is not None else ''))
 
-    on, off, lost = read_export(path, cust)
+    # The customer master first: without it no row can be placed in a channel,
+    # and there is nothing to compare.
+    print(f'reading {folder}')
+    cp, cust = first_readable(
+        folder, args.customer,
+        lambda q: master(q, ('Sold-To', 'sold To', 'sold_to'),
+                         {'account': CUST.ACCOUNT_NAMES}))
+    if not cust:
+        print(f'no customer master named like {args.customer!r} could be read '
+              f'- without it no row can be placed in a channel')
+        return 1
+    pp, raw = first_readable(folder, args.product,
+                             lambda q: master(q, PRODUCT_KEYS, PROD_COLS))
+    prod = {PM.code_norm(k): v for k, v in (raw or {}).items()}
+    print(f'  customers: {cp.name}, {len(cust):,} account(s)'
+          + (f'; products: {pp.name}, {len(prod):,}' if pp is not None
+             else '; no product master, so models are listed by code alone'))
+
+    path, got = first_readable(folder, args.export,
+                               lambda q: read_export(q, cust))
+    if got is None:
+        print(f'no export named like {args.export!r} could be read')
+        return 1
+    on, off, lost = got
     headline(on, off, lost)
     rows = common(on, off)
     if args.min_units:
