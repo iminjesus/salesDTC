@@ -39,6 +39,31 @@ the rates (rate). The run says in words which of the two it is when one
 dominates, and lists the rows that moved it most - with `--out` for all of
 them.
 
+## A ratio has two sides
+
+A share of sales rises when the amount grows **or** when sales fall, and the
+two call for opposite responses. So before the rate-versus-mix split, both
+sides are put on a monthly footing - the periods are rarely the same length -
+and the gap is divided between them:
+
+```
+E-STORE: paid commission 0.93% of gross -> 1.21%  (+0.28pp)
+  145,377 over 6 month(s)  ->  71,576 over 3 month(s)
+  a month of it                    was           now
+  the paid commission           24,230        23,859      -1.5%
+  the gross                  2,612,879     1,978,259     -24.3%
+  the units                      3,410         2,543     -25.4%
+  the base shrank               +0.30pp  107%
+  the amount itself             -0.02pp   -7%
+```
+
+**A cost that does not flex with sales reads as a deepening rate when sales
+fall, with nothing having been decided anywhere** - and it does that in every
+market at once, which is the tell. An allocated pool, a committed fee, a
+headcount-driven charge: all of them behave this way. When the base carries
+the gap, the rate-versus-mix verdict says so too, because "every row deepened
+together" is precisely what one number over a smaller number looks like.
+
 ## Picking the column
 
 `--column` takes a header name (`--column "Paid Commission"`) or a

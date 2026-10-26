@@ -351,13 +351,44 @@ def compare(months: list, was: list, now: list, channel: str, top: int,
     ra, rb = ad / ag, bd / bg
     say(f'\n{channel}: {label.lower()} {pct(ra)} of {of} -> {pct(rb)}  '
         f'({(rb - ra) * 100:+.2f}pp)')
-    say(f'  {ad:,.0f} over {", ".join(sorted(was))}  ->  '
-        f'{bd:,.0f} over {", ".join(sorted(now))}')
+    say(f'  {ad:,.0f} over {len(was)} month(s)  ->  {bd:,.0f} over '
+        f'{len(now)} month(s)')
+    # A ratio can rise because the top grew or because the bottom shrank, and
+    # the two call for opposite responses. The periods are rarely the same
+    # length, so both sides are put on a monthly footing first.
+    na, nb = max(1, len(was)), max(1, len(now))
+    da, db = ad / na, bd / nb
+    ga, gb = ag / na, bg / nb
+    qa, qb = aq / na, bq / nb
+    grew = lambda x, y: (f'{(y / x - 1) * 100:+9.1f}%' if x else
+                         f'{"-":>10}')
+    say(f'  {"a month of it":<22}{"was":>14}{"now":>14}')
+    say(f'  {"the " + label.lower()[:17]:<22}{da:>14,.0f}{db:>14,.0f}'
+        f'{grew(da, db)}')
+    say(f'  {"the " + of:<22}{ga:>14,.0f}{gb:>14,.0f}{grew(ga, gb)}')
+    say(f'  {"the units":<22}{qa:>14,.0f}{qb:>14,.0f}{grew(qa, qb)}')
+    base_wins = False
+    if gb and ga:
+        base = da / gb - da / ga        # the base moved, the amount held
+        amt = db / gb - da / gb         # and then the amount moved too
+        gap = rb - ra
+        shr = lambda v: f'{v / gap * 100:>5.0f}%' if gap else '     '
+        say(f'  {"the base shrank" if base > 0 else "the base grew":<22}'
+            f'{base * 100:>+13.2f}pp{shr(base)}')
+        say(f'  {"the amount itself":<22}{amt * 100:>+13.2f}pp{shr(amt)}')
+        base_wins = abs(base) > abs(amt) * 3
+        if base_wins:
+            say(f'\n  The {label.lower()} per month barely moved; what moved is '
+                f'the {of} it is\n  divided by. A cost that does not flex with '
+                f'sales reads as a deepening\n  rate when sales fall, with '
+                f'nothing having been decided anywhere - and\n  it does that '
+                f'in every market at once.')
     # Shift-share on the rows: the same rates with the new weights, then the
     # new rates with the new weights. Mix is what moved because the business
     # moved; rate is what moved because the rows themselves deepened.
     mix = rate = 0.0
     rows = []
+    say('')
     for k in set(a) | set(b):
         va, vb = a.get(k, [0, 0, 0]), b.get(k, [0, 0, 0])
         wa = va[1] / ag if ag else 0
@@ -373,7 +404,13 @@ def compare(months: list, was: list, now: list, channel: str, top: int,
     say(f'  {"the business moved (mix)":<40}{mix * 100:>8.2f}pp')
     say(f'  {"":<40}{"-" * 8}')
     say(f'  {"the change":<40}{(rate + mix) * 100:>8.2f}pp')
-    if abs(rate) > abs(mix) * 2:
+    if abs(rate) > abs(mix) * 2 and base_wins:
+        say('\n  Nearly all of it is the rows themselves - which is exactly '
+            'what an amount\n  spread over a smaller base looks like. Every '
+            'row deepens together because\n  the base under every row '
+            'shrank, not because any rate was raised. Read it\n  as one '
+            'number divided by a smaller one, not as 453 rows getting worse.')
+    elif abs(rate) > abs(mix) * 2:
         say('\n  Nearly all of it is the rows themselves. That is a rate: an '
             'accrual, a programme that applies to all of it, or a mechanic '
             'that moved out of the price and into this line.')
