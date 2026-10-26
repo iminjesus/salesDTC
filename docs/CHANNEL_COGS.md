@@ -121,6 +121,34 @@ when someone asks which models drive it.
 `--min-units N` leaves out a model that sold fewer than N on either side: one
 unit each way is a rounding difference wearing a percentage.
 
+## One model, month by month
+
+```powershell
+py tools\channel_cogs.py --model SM-F971BZGDATS
+```
+
+```
+  month   channel      units  gross/unit  deduct/unit   net/unit  cost/unit   CoGS %
+  202607  offline      1,000       1,900            0      1,900      1,280    67.4%
+  202608  online         200       1,870          170      1,700      1,280    75.3%
+  202608  offline        400       1,900            0      1,900      1,280    67.4%
+  202609  online         500       1,804          164      1,640      1,280    78.0%
+  202609  offline        300       1,900          300      1,600      1,280    80.0%
+```
+
+A month answers nothing on its own when the two channels buy at different
+times. Offline takes a launch allocation and pays the launch dealer price;
+online sells the same model for the next six months through whatever promotion
+is live. And the money that brings the retailer's price down - price
+protection, co-op, a retro credit - is often booked in a later month than the
+sale it belongs to, and sometimes against the account rather than against the
+model.
+
+That is why **deduction per unit is printed beside the price**: a dealer price
+that looks higher than the online one, with nothing in its deduction column,
+is a price whose discount has not landed on that line yet. The channel total in
+the headline carries it; the model does not.
+
 ## What it will not tell you
 
 - **Coverage.** The run says what share of each channel's net sales the common

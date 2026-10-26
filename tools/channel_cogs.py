@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import re
 import sys
 from pathlib import Path
 
@@ -44,7 +45,7 @@ import customer as CUST                                        # noqa: E402
 import promo_match as PM                                       # noqa: E402
 from asp import CUSTOMER_KEYS, PRODUCT_KEYS, QTY_NET           # noqa: E402
 from rawdata import (MASTER_RAW, find, key_norm, master,       # noqa: E402
-                     parse_number, pick_series, read_any)
+                     month_of, parse_number, pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -337,6 +338,73 @@ def bridge(rows: list, say=print) -> None:
             'decide it.')
 
 
+def one_model(folder: Path, stem: str, cust: dict, code: str, prod: dict,
+              say=print) -> None:
+    """One model, both channels, month by month.
+
+    A month's figure answers nothing on its own when the two channels buy at
+    different times. Offline takes a launch allocation and pays the launch
+    dealer price; online sells the same model for the next six months through
+    whatever promotion is live, and the rebate that brings the retailer's
+    price down - price protection, co-op, a retro credit - is often booked in
+    a later month than the sale it belongs to.
+
+    So the whole series is printed, with the deduction per unit beside the
+    price: a dealer price that looks high until the credit lands shows up as
+    a deduction that arrives a month or two after the units did.
+    """
+    want = PM.code_norm(code)
+    name = (prod.get(want) or {}).get('name') or ''
+    say(f'\n{code} {("- " + name) if name else ""}, month by month')
+    say(f'  {"month":<8}{"channel":<9}{"units":>9}{"gross/unit":>12}'
+        f'{"deduct/unit":>13}{"net/unit":>11}{"cost/unit":>11}{"CoGS %":>9}')
+    seen = False
+    for path in sorted(pick_series(folder, stem),
+                       key=lambda q: [int(n) for n in re.findall(r'\d+', q.stem)]):
+        try:
+            rows, _ = read_any(path)
+        except (ValueError, OSError) as e:
+            say(f'  {path.name}: {e}')
+            continue
+        if not rows:
+            continue
+        head = [h.strip() for h in rows[0]]
+        at = {k: find(head, *names) for k, names in
+              (('sku', PRODUCT_KEYS), ('cust', CUSTOMER_KEYS), ('qty', QTY_NET),
+               ('net', NET), ('cogs', COGS), ('gross', GROSS),
+               ('deduct', DEDUCT))}
+        if at['sku'] is None or at['qty'] is None:
+            continue
+        ym = month_of(head, rows[1:], path.stem, say=lambda *a: None)
+        cell = lambda r, i: (r[i].strip() if i is not None and i < len(r) else '')
+        num = lambda r, i: ((parse_number(cell(r, i)) or 0.0)
+                            if i is not None else 0.0)
+        sides = {CUST.ONLINE: Side(), CUST.OFFLINE: Side()}
+        for r in rows[1:]:
+            if PM.code_norm(cell(r, at['sku'])) != want:
+                continue
+            c = cust.get(key_norm(cell(r, at['cust']))) or {}
+            side = sides.get(CUST.channel_of(c.get('account'), bool(c)))
+            if side is None:
+                continue
+            side.add(want, num(r, at['qty']), num(r, at['net']),
+                     abs(num(r, at['cogs'])), num(r, at['gross']),
+                     abs(num(r, at['deduct'])))
+        for label, side in (('online', sides[CUST.ONLINE]),
+                            ('offline', sides[CUST.OFFLINE])):
+            if not side.qty:
+                continue
+            seen = True
+            say(f'  {str(ym or path.stem):<8}{label:<9}{side.qty:>9,.0f}'
+                f'{(per(side.gross, side.qty) or 0):>12,.0f}'
+                f'{(per(side.deduct, side.qty) or 0):>13,.0f}'
+                f'{(per(side.net, side.qty) or 0):>11,.0f}'
+                f'{(per(side.cogs, side.qty) or 0):>11,.0f}'
+                f'{pct(side.ratio()):>9}')
+    if not seen:
+        say(f'  no export in the folder has a row for {code}')
+
+
 def listing(rows: list, prod: dict, top: int, say=print) -> None:
     rows = sorted(rows, key=lambda x: -abs(x.get('contrib', 0)))[:top]
     say(f'\nthe {len(rows)} models that move the gap most')
@@ -382,6 +450,12 @@ def main() -> int:
                          'profit_*)')
     ap.add_argument('--customer', default='customer', metavar='STEM')
     ap.add_argument('--product', default='product', metavar='STEM')
+    ap.add_argument('--model', metavar='CODE',
+                    help='one model, both channels, month by month - every '
+                         'profit export in the folder, with the deduction per '
+                         'unit beside the price. This is what says whether a '
+                         'dealer price is really higher or whether its credit '
+                         'has not landed yet')
     ap.add_argument('--top', type=int, default=20, metavar='N',
                     help='how many models to list (default 20)')
     ap.add_argument('--band', nargs=2, type=float, default=(0.2, 1.5),
@@ -421,6 +495,10 @@ def main() -> int:
              else '; no product master, so models are listed by code alone'))
 
     risky = two_sided(cp)
+    if args.model:
+        one_model(folder, args.export.split('_')[0], cust, args.model, prod)
+        return 0
+
     path, got = first_readable(folder, args.export,
                                lambda q: read_export(q, cust, risky))
     if got is None:
