@@ -963,6 +963,32 @@ the percentage before reading the margins: it says how much of the page that
 assumption touches. The order line carries its own amount, so that share could
 be split by money rather than by units; it is not today.
 
+#### Why a campaign that ended in April still has revenue in June
+
+**The band follows the order; the bar follows the revenue.** A line is banded
+on the day it was *ordered* - the promotion was live when the customer bought,
+not when the warehouse got to it - and it sits in the month it was *earned*,
+which is the month it left. The two are the same month for most of a DTC book
+and not for the tail:
+
+- an order taken inside the campaign that **ships later** - a backorder, a
+  launch allocation, a corporate order with a delivery date,
+- a **return or a credit** against one of those orders, which lands whenever it
+  is settled and carries the band of the order it reverses.
+
+So `S26 Launch` ending on 8 April does not mean its row is empty from 9 April.
+A tail two or three months long is the shape to expect, and it is usually
+**small and often negative**: a band whose margin goes to -19% and -28% in the
+months after a campaign is credits, not selling. Check it by narrowing to that
+campaign and switching **Figure** to **Qty** - a tail with money but barely any
+units is the allocation, not a sale.
+
+And it *is* an allocation: a combination's whole month is split across the
+bands its orders came in on, by units. One carried-in order from March in May's
+order set therefore pulls a slice of that combination's May profit onto the
+March campaign, in proportion to its units. The slice is right in aggregate and
+is not a claim about those particular units.
+
 ### Either order source, not just one
 
 The page takes its orders from SAP where `orders_*` exports are there, and falls
