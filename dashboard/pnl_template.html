@@ -2124,6 +2124,71 @@ document.getElementById('numbersBtn').onclick = () => {
 document.getElementById('tableBtn').onclick = () => {
   state.table = !state.table; render(); };
 
+/* The campaign's own window, drawn on the chart rather than only written over
+   it: a tinted band behind the bars that are inside it, a rule at each edge,
+   and the two dates on the rules. The outer bars - the month either side - sit
+   outside the tint, which is the whole point of drawing it: what the campaign
+   did and what the same products did around it should not need a caption to
+   be told apart. */
+const campaignWindow = {
+  id: 'campaignWindow',
+  beforeDatasetsDraw(c) {
+    const o = c.options.plugins.campaignWindow;
+    if (!o || o.from == null) return;
+    const meta = c.getDatasetMeta(0);
+    const a = meta.data[o.from], b = meta.data[o.to];
+    if (!a || !b) return;
+    const { ctx, chartArea } = c;
+    const x0 = a.x - a.width / 2 - 2;
+    const x1 = b.x + b.width / 2 + 2;
+    ctx.save();
+    ctx.fillStyle = fade(C.gross, .07);
+    ctx.fillRect(x0, chartArea.top, x1 - x0, chartArea.bottom - chartArea.top);
+    ctx.restore();
+  },
+  afterDatasetsDraw(c) {
+    const o = c.options.plugins.campaignWindow;
+    if (!o || o.from == null) return;
+    const meta = c.getDatasetMeta(0);
+    const a = meta.data[o.from], b = meta.data[o.to];
+    if (!a || !b) return;
+    const { ctx, chartArea } = c;
+    const x0 = a.x - a.width / 2 - 2;
+    const x1 = b.x + b.width / 2 + 2;
+    ctx.save();
+    ctx.strokeStyle = fade(C.profit, .55);
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    [x0, x1].forEach(x => {
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    ctx.font = '600 11px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textBaseline = 'middle';
+    // Each label hugs its own rule and leans into the window, so neither can
+    // be read as belonging to the month outside it.
+    const plate = (text, x, align) => {
+      const w = ctx.measureText(text).width;
+      const left = align === 'left' ? x + 5 : x - w - 5;
+      ctx.fillStyle = C.surface;
+      ctx.globalAlpha = .9;
+      ctx.beginPath();
+      ctx.roundRect(left - 4, chartArea.top + 1, w + 8, 17, 4);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = C.profit;
+      ctx.textAlign = 'left';
+      ctx.fillText(text, left, chartArea.top + 10);
+    };
+    plate(o.startLabel, x0, 'left');
+    plate(o.endLabel, x1, 'right');
+    ctx.restore();
+  },
+};
+
 /* One campaign, day by day, between the dates the plan says it ran.
 
    The month chart answers "how big was it"; this answers "how did it go" -
@@ -2256,6 +2321,7 @@ function openCampaign(name) {
   }
   dayChart = new Chart(document.getElementById('dayBars'), {
     type: 'bar',
+    plugins: [campaignWindow],
     data: {
       labels: cols.map(c => c.label),
       datasets: [{
@@ -2270,6 +2336,12 @@ function openCampaign(name) {
       animation: { duration: 200 },
       plugins: {
         legend: { display: false },
+        campaignWindow: {
+          from: before ? 1 : 0,
+          to: cols.length - 1 - (after ? 1 : 0),
+          startLabel: `Launch ${dayLabel(start, yr)}`,
+          endLabel: `End ${dayLabel(end, yr)}`,
+        },
         tooltip: {
           backgroundColor: C.surface, titleColor: C.ink, bodyColor: C.ink2,
           borderColor: C.grid, borderWidth: 1, padding: 10,
@@ -2285,11 +2357,14 @@ function openCampaign(name) {
           },
         },
       },
+      // The window's labels sit along the top of the plot, so the tallest bar
+      // needs somewhere to stop short of them.
+      layout: { padding: { top: 4 } },
       scales: {
         x: { grid: { display: false }, border: { display: false },
              ticks: { color: C.ink3, autoSkip: true, maxRotation: 0,
                       maxTicksLimit: 16 } },
-        y: { beginAtZero: true, grid: { color: C.grid },
+        y: { beginAtZero: true, grace: '12%', grid: { color: C.grid },
              border: { display: false },
              ticks: { color: C.ink3, precision: 0 } },
       },

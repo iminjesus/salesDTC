@@ -997,6 +997,11 @@ Launched 16 Jul · ended 13 Aug · 29 days · 36 units ordered · 81,408 · 1.2 
 - The outer bars are a **different measure on the same axis** - units a day,
   not units - so they are drawn in another colour and named for what they are.
   Where the export does not cover those days, they are not drawn at all.
+- **The window is drawn, not just written.** A tint sits behind the bars
+  inside it, a dashed rule marks each edge, and the two dates ride on the
+  rules - `Launch 16 Jul` and `End 13 Aug`. The outer bars fall outside the
+  tint, which is the point of drawing it: what the campaign did and what the
+  same products did around it should not need a caption to be told apart.
 
 It follows **the products the campaign named**, not the banding: outside its
 window a campaign bands nothing, so a before and an after could not exist. And
