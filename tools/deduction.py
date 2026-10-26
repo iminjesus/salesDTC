@@ -210,7 +210,7 @@ def read_month(path: Path, cust: dict, prod: dict, keep_returns: bool,
         raise ValueError('no ' + ', no '.join(
             {'base': of}.get(k, k) for k in missing))
     note = {'label': (head[at['deduct']] or column or 'deduction').strip(),
-            'how': how, 'seen': 0, 'kept': 0}
+            'how': how, 'at': at['deduct'], 'seen': 0, 'kept': 0}
     cell = lambda r, i: (r[i].strip() if i is not None and i < len(r) else '')
     num = lambda r, i: ((parse_number(cell(r, i)) or 0.0)
                         if i is not None else 0.0)
@@ -419,11 +419,17 @@ def main() -> int:
             print(f'  {path.name}: {e} - skipped')
             continue
         if not months:
-            label = note['label']
+            label, sat = note['label'], note['at']
             # A letter is positional. Say which header it landed on, because
             # a re-cut export moves it and nothing else would show that.
-            print(f'  column: {label!r} ({note["how"]})'
+            print(f'  column: {label!r} ({note["how"]}, {col_letter(sat)})'
                   + (f', as a share of {args.of}' if args.column else ''))
+        elif (note['at'], note['label']) != (sat, label):
+            # The months are separate exports and they are not always cut the
+            # same way. By name each file is still right; by letter one of them
+            # is not, and either way it is worth knowing which month differs.
+            print(f'  {path.name}: this one carries {note["label"]!r} in '
+                  f'{col_letter(note["at"])}, not {col_letter(sat)}')
         kept += note['kept']; seen += note['seen']
         months.append((str(ym or path.stem), pots))
     if not months:
