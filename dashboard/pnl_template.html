@@ -1177,7 +1177,9 @@ const barValues = {
   id: 'barValues',
   afterDatasetsDraw(c) {
     const o = c.options.plugins.barValues;
-    if (!o || !o.on) return;
+    // `on` is the expanded chart's amounts; `share` is the P&L percentage,
+    // which is drawn whether or not the chart has the window.
+    if (!o || (!o.on && !o.share)) return;
     const { ctx } = c;
     ctx.save();
     ctx.font = '600 10px -apple-system, "Segoe UI", Roboto, sans-serif';
@@ -1193,8 +1195,18 @@ const barValues = {
         if (v == null || !v) return;
         const h = Math.abs((el.base ?? el.y) - el.y);
         if (h < 15) return;                 // no room: a number here would lie
-        const text = o.pct ? `${v.toFixed(1)}%` : fmt(v);
-        const w = ctx.measureText(text).width;
+        // P&L carries the share on every block, whether or not the chart is
+        // expanded - it is the figure the statement is read in. Expanding
+        // adds the amount under it where the block is tall enough for two
+        // lines; where it is not, the share is the one that stays.
+        const share = o.share && d.shares ? d.shares[j] : null;
+        const hasShare = share != null && Number.isFinite(share);
+        const lines = hasShare
+          ? (o.on && h >= 32 ? [`${share.toFixed(1)}%`, fmt(v)]
+                             : [`${share.toFixed(1)}%`])
+          : [o.pct ? `${v.toFixed(1)}%` : fmt(v)];
+        const text = lines[0];
+        const w = Math.max(...lines.map(t => ctx.measureText(t).width));
         // A little overhang is fine - the plate sits over the bar either way.
         // Twice the bar's width is not: that would read as the neighbour's.
         // An inset band is drawn over a wider one and has that one's room to
@@ -1202,14 +1214,22 @@ const barValues = {
         // its own 31px it lost its number the moment it was narrowed.
         if (w > (d.labelWidth || el.width || 0) + 12) return;
         const y = (el.y + (el.base ?? el.y)) / 2;
+        const tall = lines.length > 1;
         ctx.globalAlpha = .88;
         ctx.fillStyle = C.surface;
         ctx.beginPath();
-        ctx.roundRect(el.x - w / 2 - 4, y - 8, w + 8, 16, 4);
+        ctx.roundRect(el.x - w / 2 - 4, y - (tall ? 15 : 8), w + 8,
+                      tall ? 30 : 16, 4);
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.fillStyle = C.ink;
-        ctx.fillText(text, el.x, y + 1);
+        if (tall) {
+          ctx.fillText(lines[0], el.x, y - 6);
+          ctx.fillStyle = C.ink2;
+          ctx.fillText(lines[1], el.x, y + 8);
+        } else {
+          ctx.fillText(text, el.x, y + 1);
+        }
       });
     });
     ctx.restore();
@@ -1618,15 +1638,25 @@ function drawStack() {
 
   const at = (i, k) => (k === 'gross' ? (fin[i].gross || 0)
                                       : Math.abs(fin[i][k] || 0));
+  // What each block is worth as a share of net sales - the same denominator
+  // the profit line is read on, so the bar and the line say one thing. Over
+  // gross would have been the bar's own 100%, but nobody quotes cost of goods
+  // over gross: the ratio that gets repeated in a meeting is over net, and a
+  // chart that prints a different one invites the two to be compared.
+  const shareOf = k => xs.map(r => {
+    const base = fin[r.mi].net || fin[r.mi].gross;
+    return base ? (at(r.mi, k) / base) * 100 : null;
+  });
   if (pnlMode) {
     series.push({
       label: label('gross'), stack: 'in',
-      data: xs.map(r => at(r.mi, 'gross')),
+      data: xs.map(r => at(r.mi, 'gross')), shares: shareOf('gross'),
       backgroundColor: C.gross, borderRadius: 4, borderSkipped: false,
       borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
     });
     COSTS.forEach(k => series.push({
       label: label(k), stack: 'out', data: xs.map(r => at(r.mi, k)),
+      shares: shareOf(k),
       backgroundColor: C[k], borderRadius: 4, borderSkipped: false,
       borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
     }));
@@ -1808,7 +1838,7 @@ function drawStack() {
       },
       plugins: {
         legend: { display: false },
-        barValues: { on: state.zoom === 'stk', pct: pctMode },
+        barValues: { on: state.zoom === 'stk', pct: pctMode, share: pnlMode },
       // Expanded, there is room for every line's figures and that is what the
       // room is for; the switch beside the chart takes them away again.
       pointLabels: { all: state.zoom === 'stk' && state.lineVals },
@@ -1871,7 +1901,9 @@ function drawStack() {
           })()
       : pnlMode
       ? `${label('gross')} beside what it went out on, by ${PER}. Costs are `
-        + 'drawn as amounts.'
+        + 'drawn as amounts, and each block carries what it is worth as a '
+        + `share of ${denom} - the same denominator as the line, so the bar `
+        + 'and the line are read together. Expand adds the amount under it.'
       : sl === undefined
         ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}. `
           + `Every ${state.stack} level is narrowed to one value, so there is `

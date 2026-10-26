@@ -514,6 +514,26 @@ down to. Drill into MX and press it and you get **MX's** P&L, not the file's.
 Operating profit is not in the Figure row for the same reason: it is already a
 band of this view.
 
+**Every block carries its percentage**, on the same denominator as the line -
+net sales - so the bar and the line are read together:
+
+```
+  Gross Sales      104.7%        Sales Deduction   4.7%
+                                 COGS             71.8%
+                                 Operating Cost   10.0%
+                                 line             18.2%
+```
+
+The two stacks then settle against 100% from either side: gross less deduction
+is 100% of net sales, and cost of goods plus operating cost plus the profit
+line is the same 100%. Over **gross** would have been each bar's own total, but
+nobody quotes cost of goods over gross - the ratio repeated in a meeting is
+over net, and a chart printing a different one invites the two to be compared.
+
+A block too short for a label is left alone, as everywhere else on the page.
+**Expand** adds the amount on a second line under the percentage, where the
+block is tall enough to hold both.
+
 Stack by and Figure stay on the menu while it is on, and **picking one leaves
 the P&L** - which is what pressing a control that is plainly there should do.
 They were hidden for one commit, which meant a page that opens on P&L opened
