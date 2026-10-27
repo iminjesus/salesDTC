@@ -484,7 +484,8 @@ def day_watcher(basis: str = 'gi'):
     return daily, tally
 
 
-def day_payloads(tally: dict, basis: str, source: str, say=print) -> list:
+def day_payloads(tally: dict, basis: str, ym: int, source: str,
+                 say=print) -> list:
     """One payload per day, in the shape a month payload has.
 
     The page unifies the two sets together and then splits them, so a day has
@@ -522,7 +523,7 @@ def day_payloads(tally: dict, basis: str, source: str, say=print) -> list:
             'd': y * 10000 + m * 100 + d,
             'ym': y * 100 + m,
             'month': f'{d} {MONTHS[m - 1]}',
-            'title': f'{d} {MONTHS[m - 1]} {y} Orders',
+            'title': f'{MONTHS_LONG[m - 1]} {y} Orders, by day',
             'file': source,
             'rows': len(rows),
             'custDepth': CUST_DEPTH,
@@ -545,6 +546,60 @@ def day_payloads(tally: dict, basis: str, source: str, say=print) -> list:
             else 'the day each order was placed')
     say(f'\n  by day, on {what}: {len(out)} day(s), {lo} .. {hi}, '
         f'{sum(len(r) for r in by_day.values()):,} combination(s)')
+    return out
+
+
+def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
+    """The daily chart, read off the order export on its own terms.
+
+    Not a finer cut of a month the profit exports closed: the orders run ahead
+    of them - October's orders are there while October's P&L is not - so the
+    day chart is built for the month the order export covers and stands beside
+    the monthly chart rather than inside it.
+    """
+    if args.no_days or args.no_sap:
+        return []
+    files = sorted(pick_series(folder, args.sap), key=lambda q: q.name)
+    seen: set = set()
+    files = [f for f in files
+             if not (f.stem.lower() in seen or seen.add(f.stem.lower()))]
+    if not files:
+        return []
+    months = {}
+    for f in files:
+        m = month_of([], [], f.stem, say=lambda *a: None)
+        if m:
+            months.setdefault(m, []).append(f)
+    if args.day_month:
+        want = int(args.day_month)
+        want = want if want > 9999 else 202000 + want % 10000
+        want = (want // 100) * 100 + want % 100
+        if want not in months:
+            say(f'\n--day-month {args.day_month} is not in the order export - '
+                f'it carries ' + ', '.join(str(m) for m in sorted(months)))
+            return []
+    elif months:
+        want = max(months)                      # the latest month it carries
+    else:
+        say('\nno month could be read off the order export, so no daily chart')
+        return []
+    say(f'\nthe daily chart, off {", ".join(f.name for f in months[want])} '
+        f'({want}):')
+    daily, tally = day_watcher(args.day_basis)
+    got = SAP.load(
+        months[want], month=want, cust_levels=CUST.LEVELS,
+        prod_levels=PRODUCT_LEVELS, customers=cust, products=prod,
+        currency=args.currency,
+        skip_sku=tuple(t.strip().upper()
+                       for t in args.skip_sku.split(',') if t.strip()),
+        daily=daily, say=lambda *a: None)
+    if got is None:
+        say('  the order export could not be read as orders')
+        return []
+    out = day_payloads(tally, args.day_basis, want,
+                       ', '.join(f.name for f in months[want]), say=say)
+    say(f'  {got.counted:,} of {got.lines:,} line(s) counted - the rest are '
+        'another month, a marketplace, or rejected')
     return out
 
 
@@ -838,6 +893,10 @@ def main() -> int:
                     help='leave the daily chart out. It is built from the '
                          'order export, so a build with no order source has '
                          'none anyway')
+    ap.add_argument('--day-month', default=None, metavar='YYMM',
+                    help='which month the daily chart covers (default: the '
+                         'latest month the order export carries, which is '
+                         'usually the open one the P&L has not closed)')
     ap.add_argument('--day-basis', choices=('gi', 'made'), default='gi',
                     metavar='WHICH',
                     help='which day an order line counts on: gi, the day it '
@@ -928,10 +987,12 @@ def main() -> int:
     # The days come out of the months that read them and go in beside them:
     # the page unifies both sets together so a member is the same number in
     # each, then splits them back into two views of one payload.
-    days = [d for m in months for d in m.pop('days', [])]
-    if days:
-        print(f'\nthe daily chart: {len(days)} day(s) from the order export, '
-              f'{sum(len(d["combos"]) for d in days):,} combination(s)')
+    masters = next((m.pop('_masters') for m in reversed(months)
+                    if m.get('_masters')), (None, None))
+    for m in months:
+        m.pop('_masters', None)
+    days = (day_chart(folder, args, masters[0], masters[1])
+            if masters[0] is not None else [])
     html = template.replace('/*__DATA__*/null',
                             json.dumps({'months': months, 'days': days},
                                        ensure_ascii=False,
@@ -1568,12 +1629,6 @@ def build_month(folder, target, args):
                      for t in args.skip_sku.split(',') if t.strip())
 
     got_sap = None
-    # The same order lines the month is modelled from, totalled a second way:
-    # by day, on the chart's own key. Nothing is read twice for it.
-    day_tally: dict = {}
-    daily = None
-    if not args.no_days:
-        daily, day_tally = day_watcher(args.day_basis)
     if not args.no_orders and not args.no_sap and ym:
         sap_files = pick_series(folder, args.sap)
         seen_stem = set()
@@ -1588,7 +1643,7 @@ def build_month(folder, target, args):
                 currency=args.currency,
                 skip_sku=tuple(t.strip().upper()
                                for t in args.skip_sku.split(',') if t.strip()),
-                band_of=bander, watch=watch, daily=daily)
+                band_of=bander, watch=watch)
             if got_sap:
                 SAP.report(got_sap, ym)
                 carry_in_known = any(
@@ -1888,11 +1943,10 @@ def build_month(folder, target, args):
         # between. Not part of the key and not split by anything: the month chart
         # is the month, and this is the campaign.
         'campaigns': campaign_payload(by_day, folder, args),
-        # One payload per day of the order export, in the shape a month has.
-        # Hoisted out of here when the page is written: they are a second set
-        # of columns for the same chart, not part of this month's own.
-        'days': day_payloads(day_tally, args.day_basis,
-                             ', '.join(got_sap.files) if got_sap else ''),
+        # The masters this month was joined on, so the daily chart can be read
+        # on the same key without reading them again. Popped before the payload
+        # is written - they are not part of the page.
+        '_masters': (cust, prod),
         'start': index[levels[0]['name']].get(start, -1) if start else -1,
         # Rounded to whole units: the chart is drawn in millions and the table
         # in whole amounts, so cents would only make the file bigger.

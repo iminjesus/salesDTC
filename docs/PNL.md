@@ -614,44 +614,63 @@ cost bars**: costs share no scale with a count of units, and the same goes for a
 bar normalised to 100%. Controls that do not apply disappear rather than greying
 out, since a dead button still costs a row of a menu that is already tall.
 
-### Day
+### The open month, day by day
 
-**Day** sits at the front of the Period row and is the same chart one width
-narrower: one bar a day, the same slice, the same split, the same figure, the
-same percent scale, the same running total, the same drill. Clicking a band
-still narrows to it and steps the split down.
+Above the monthly chart, its own card: **one bar a day** for the month the
+order export covers. October's orders exist while October's P&L does not, so
+it is a chart of its own rather than a narrower setting of the one below it -
+the monthly chart keeps the closed months and nothing about it changes.
 
-It is the same chart but **not the same export**. The monthly chart is the
-profit export - gross sales, deduction, COGS, operating cost, operating
-profit. A profit export is a month with no day in it, so a daily chart cannot
-come from it; it comes from the order export (`orders_*`, SAP), which has a
-date on every line. So in day view the Figure row offers **Order Value** and
-**Order Qty** and nothing else, P&L hides itself, and the hint under the chart
-names the file the days came out of. The button is not there at all when the
-build had no order source.
+It is **a different export**, which is why it is a different chart. The
+monthly chart is the profit export: gross sales, deduction, COGS, operating
+cost, operating profit. A profit export is a month with no day in it, so a
+daily chart cannot come from one. This comes from the order export (`orders_*`,
+SAP), which carries a date on every line - so its figures are **Order Value**
+and **Order Qty**, and there is no cost and no margin line on it.
 
-Which day a line counts on is the question that decides whether the two charts
-agree, and `--day-basis` answers it:
+What it shares with the page is the **narrowing and the split**: pick a Div 3,
+a customer, a channel, and both charts answer it; set Stack by to Product and
+both cut by the same level. What it keeps to itself is the **figure** and
+**Cumulative**, because an order's value and net sales are not the same number
+and one control moving both would be claiming they were. **Values** puts the
+figure on every bar - as everywhere else on this page, nothing appears on
+hover.
+
+The heading carries the month to date (the sum, not the last bar, so it does
+not move when Cumulative is pressed) and how many of the days have sold.
+
+#### Which day a line counts on
+
+`--day-basis` decides it, and it is the difference between the two charts
+agreeing and not:
 
 | | a day is | the days add up to |
 |---|---|---|
-| `gi` (default) | the day the order left - its Goods Issue date | the month beside it |
-| `made` | the day the order was placed - Created On | nothing: an order placed on the 30th that ships in November is in the day chart and not in the month's |
+| `gi` (default) | the day the order left - its Goods Issue date | the month's revenue, once that month closes |
+| `made` | the day the order was placed - Created On | nothing: an order placed on the 30th that ships in November is here and not in that month |
 
-`gi` is the default because the month chart's bar is the revenue that left in
-the month, so despatch days are the days that sum to it. `made` asks the other
-question - order intake, demand as it arrived - and the hint says which one is
+`gi` is the default because the monthly bar is the revenue that left in the
+month, so despatch days are the days that sum to it. `made` asks the other
+question - demand as it arrived. The hint under the chart says which is
 showing rather than leaving it to be assumed.
 
-**The two views share one index.** The months and the days are unified
-together and then split, so a member is the same number in both: narrow to
-MX on months, switch to Day, and it is the same MX. Unified separately,
-index 7 of Biz would be two different businesses and switching would
-silently redraw someone else's chart.
+`--day-month YYMM` picks the month; the default is the latest month the order
+export carries, which is normally the open one. `--no-days` leaves the card
+out, and it is absent anyway when the build had no order source.
 
-A day carries no promotion chain and no carry-in - both are answers about a
-month - so **Stack by Promo** and **When ordered** switch themselves off in
-day view, the same way they do on any build whose payload lacks them.
+#### The two sets share one index
+
+The months and the days are **unified together and then split into two
+views**. That sharing is the whole trick: a member is the same number in both,
+so narrowing to MX on the page narrows the daily chart to the same MX.
+Unified separately, index 7 of Biz would be two different businesses and the
+daily chart would quietly be about someone else.
+
+Each view also carries only **the figures its own export declared**. Left
+holding the union, a day has a column for Operating Profit full of zeroes -
+a P&L saying the day made nothing, rather than a day that was never asked -
+and each view titles itself from its own exports, or a page with closed months
+through September comes out called "Aug 2026 - 3 Oct Profit".
 
 ### Month, quarter, year
 

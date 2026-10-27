@@ -209,6 +209,11 @@ body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
   overflow: auto; box-shadow: 0 10px 40px rgba(0,0,0,.18); }
 .card.zoom .chart { height: calc(100vh - 160px) !important; }
 .hint { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
+/* The daily card. Shorter than the monthly chart: it is the month being
+   watched, not the thing the page is about, and a reader should take it in
+   without scrolling past it to reach the chart underneath. */
+#dayCard .plot { height: 260px; }
+#dayCard .legend .t { font-weight: 600; font-size: 13px; color: var(--ink-2); }
 /* The campaign's own days, over the page. A sheet rather than another card:
    it answers a question asked of one band and is done with, and the page
    underneath should still be visible behind it. */
@@ -263,8 +268,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         <span class="vals" id="stkFig"></span></label>
       <button class="btn apart" id="pnlBtn" title="the whole statement for whatever is picked above: what came in beside what it went out on">P&amp;L</button>
       <label class="f" id="periodBox"><span>Period</span><span class="seg">
-        <button class="btn" id="perDay" title="one bar a day, off the order export - the same chart at a narrower width">Day</button
-        ><button class="btn" id="perMonth">Month</button
+        <button class="btn" id="perMonth">Month</button
         ><button class="btn" id="perQtr">Quarter</button></span></label>
       <button class="btn" id="cumulBtn" title="each bar is the running total up to and including it, so the last bar is the whole span">Cumulative</button>
       <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
@@ -287,6 +291,23 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
        slice's RRP, ASP and discount. -->
   <div class="card" id="priceCard" hidden>
     <div class="kpis" id="priceKpis"></div>
+  </div>
+
+  <!-- The open month, day by day. Its own chart rather than another width of
+       the one below it, because it is a different export: the orders run ahead
+       of the P&L, so October's days are here while October's profit is not.
+       It answers the same narrowing as everything else on the page. -->
+  <div class="card" id="dayCard" hidden>
+    <div class="chartHead">
+      <div class="legend"><span class="t" id="dayTitle"></span></div>
+      <div class="tools">
+        <span class="seg" id="dayFig"></span>
+        <button class="ctl" id="dayCumul" title="each bar is the running total up to and including it, so the last bar is the month to date">Cumulative</button>
+        <button class="ctl" id="dayVals" title="the figure on every bar - they are here, not under the pointer">Values</button>
+      </div>
+    </div>
+    <div class="plot"><canvas id="dayTrendBars"></canvas></div>
+    <div class="hint" id="dayHint"></div>
   </div>
 
   <div class="card" id="stkCard">
@@ -464,9 +485,10 @@ function viewOf(all, src, want) {
   // series are the union of both sets, and a day left holding a column for
   // Operating Profit draws the whole statement as zeroes - a P&L that says
   // the day made nothing, rather than a day that was never asked.
+  const own = src.filter(m => !!m.d === want);
   const mine = new Map();
-  src.forEach(m => { if (!!m.d === want) m.series.forEach(
-    s => { if (!mine.has(s.key)) mine.set(s.key, s.label); }); });
+  own.forEach(m => m.series.forEach(
+    s => { if (!mine.has(s.key)) mine.set(s.key, s.label); }));
   const take = all.series.map((s, i) => i).filter(i => mine.has(all.series[i].key));
   return { ...all, months: keep,
            // Each view names its own figures too: the order export's money is
@@ -490,14 +512,20 @@ function viewOf(all, src, want) {
                      + `${keep[keep.length - 1].label}, ${keep[0].file}`
                    : `${keep.length} exports, ${keep[0].file} .. `
                      + `${keep[keep.length - 1].file}`,
-           title: want
-             ? `${keep[0].label} - ${keep[keep.length - 1].label} Orders`
-             : all.title };
+           // Each view is titled by its own exports. Taken off the unified
+           // payload, the page came out "Aug 2026 - 3 Oct Profit": the last
+           // thing read was a day of the month that has no profit yet.
+           title: one ? own[0].title
+                  : want
+                    ? `${keep[0].label} - ${keep[keep.length - 1].label} Orders`
+                    : `${keep[0].label} - ${keep[keep.length - 1].label} Profit` };
 }
 const ALL_SRC = (ALL.months || []).concat(ALL.days || []);
 const ALL_ONE = unify(ALL_SRC);
 const VIEWS = { month: viewOf(ALL_ONE, ALL_SRC, false),
                 day: viewOf(ALL_ONE, ALL_SRC, true) };
+// The page is the monthly chart. The days are a chart of their own above it,
+// off a different export, and they never take the page's own payload over.
 let DATA = VIEWS.month || VIEWS.day;
 
 /* Chart.js cannot resolve a custom property, so the series colours are read off
@@ -620,6 +648,12 @@ const state = {
   // Which chart, if any, has the window to itself. Expanding is also what
   // turns the per-bar numbers on: that is the room they need.
   zoom: null,
+  // The daily chart above, which has its own figure and its own running total
+  // because it is a different export asking a different question. The split
+  // and the narrowing it shares with the page.
+  dayFig: 'gross',
+  dayCumul: false,
+  dayVals: false,
 };
 
 /* Where the drill starts: one channel - the online business - with everything
@@ -1202,8 +1236,7 @@ function render() {
     });
   });
   const sl = splitLevel();
-  const per = DATA === VIEWS.day ? 'day'
-              : state.period === 'quarter' ? 'quarter' : 'month';
+  const per = state.period === 'quarter' ? 'quarter' : 'month';
   const run = state.cumul ? ' cumulative' : '';
   step(state.stack === 'orders' ? `by ${per}${run}, split by when ordered`
        : sl === null ? `by ${per}${run}`
@@ -1437,6 +1470,7 @@ function draw() {
   // to stop there too.
   lastTable = { rows, dimName: lv.name };
   renderTable(top, lv.name, rows.length);
+  drawDayTrend();
   drawStack();
 }
 
@@ -1457,12 +1491,157 @@ function draw() {
    switching never loses it. */
 let stkChart = null;
 let lastTable = null;
+/* The open month, day by day, off the order export.
+
+   Its own chart rather than another width of the one below it, because it is a
+   different measurement: the orders run ahead of the P&L, so October's days
+   are drawn while October's profit does not exist yet. What it shares with the
+   page is the narrowing and the split - pick a Div 3 or a customer and both
+   charts answer it - and what it keeps to itself is the figure and the running
+   total, because an order's value and net sales are not the same number and a
+   control that moved both would be claiming they were. */
+let dayTrend = null;
+function drawDayTrend() {
+  const D = VIEWS.day;
+  const card = document.getElementById('dayCard');
+  if (!D || !D.months.length) { card.hidden = true; return; }
+  card.hidden = false;
+
+  // Its figures are the order export's own, under the names it gave them.
+  const figs = D.series.map((x, i) => ({ key: x.key, label: x.label, at: i }));
+  const f = figs.find(x => x.key === state.dayFig) || figs[0];
+  state.dayFig = f.key;
+  const box = document.getElementById('dayFig');
+  box.innerHTML = '';
+  figs.forEach(x => {
+    const b = document.createElement('button');
+    b.className = 'ctl' + (x.key === state.dayFig ? ' active' : '');
+    b.textContent = x.label;
+    b.onclick = () => { state.dayFig = x.key; defer(render); };
+    box.appendChild(b);
+  });
+  document.getElementById('dayCumul').classList.toggle('active', state.dayCumul);
+  document.getElementById('dayVals').classList.toggle('active', state.dayVals);
+
+  // The same level the chart below is cut by, so the two read together. The
+  // levels are shared, so a narrowing set on one applies to both unchanged.
+  const sl = splitLevel() ?? null;
+  const xs = D.months.map(m => ({ name: m.label, row: new Map(), total: 0 }));
+  const tot = new Map();
+  for (const c of D.combos) {
+    if (!inSlice(c)) continue;
+    const v = c.v[f.at] || 0;
+    const g = sl === null ? label(f.key) : D.levels[sl].values[c.k[sl]];
+    const x = xs[c.m];
+    x.row.set(g, (x.row.get(g) || 0) + v);
+    x.total += v;
+    tot.set(g, (tot.get(g) || 0) + v);
+  }
+  const members = [...tot.entries()]
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
+  const named = members.slice(0, 8);
+  const folded = members.length > 8;
+  // Applied to the columns, as it is below: every bar is itself plus every
+  // bar before it, so the last one is the month to date.
+  const run = v => { let a = 0; return v.map(x => (a += x)); };
+  const of = g => {
+    const d = xs.map(x => x.row.get(g) || 0);
+    return state.dayCumul ? run(d) : d;
+  };
+  const skin = (g, i) => ({
+    label: g, stack: 'a', data: of(g),
+    backgroundColor: C.stack[i], borderRadius: 3, borderSkipped: false,
+    borderWidth: 1, borderColor: C.surface, maxBarThickness: 40,
+  });
+  const datasets = named.map(skin);
+  if (folded) {
+    const rest = xs.map(x => named.reduce((a, g) => a - (x.row.get(g) || 0),
+                                         x.total));
+    datasets.push({ ...skin(`Other (${members.length - 8})`, 8),
+                    data: state.dayCumul ? run(rest) : rest });
+  }
+  const totals = state.dayCumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
+  const num = v => (f.key === 'qty' ? fmt(v) : fmt(v));
+
+  const sold = xs.filter(x => x.total).length;
+  // The month to date, which is the sum and not the last bar: with Cumulative
+  // off the last bar is one day, and a heading that changed with a drawing
+  // switch would be reporting the control rather than the month.
+  const sum = xs.reduce((a, x) => a + x.total, 0);
+  document.getElementById('dayTitle').textContent =
+    `${D.months[0].label} - ${D.months[D.months.length - 1].label}`
+    + `  \u00b7  ${f.label} ${num(sum)}`
+    + `  \u00b7  ${sold} of ${xs.length} day${xs.length === 1 ? '' : 's'} sold`;
+
+  if (dayTrend) dayTrend.destroy();
+  dayTrend = new Chart(document.getElementById('dayTrendBars'), {
+    type: 'bar', data: { labels: xs.map(x => x.name), datasets },
+    plugins: [{
+      // The totals over the bars, when they are asked for. Nothing on hover
+      // here either: a figure that appears under the pointer is read by
+      // whoever is moving the mouse and by nobody else.
+      id: 'dayTotals',
+      afterDatasetsDraw(ch) {
+        if (!state.dayVals) return;
+        const g = ch.ctx;
+        const last = ch.getDatasetMeta(ch.data.datasets.length - 1);
+        g.save();
+        g.fillStyle = C.ink2;
+        g.font = '600 10px ui-sans-serif, system-ui, sans-serif';
+        g.textAlign = 'center';
+        last.data.forEach((bar, i) => {
+          if (!totals[i]) return;
+          const top = Math.min(...ch.data.datasets
+            .map((_, d) => ch.getDatasetMeta(d).data[i].y));
+          g.fillText(num(totals[i]), bar.x, top - 4);
+        });
+        g.restore();
+      },
+    }],
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { stacked: true, offset: true, grid: { display: false },
+             border: { display: false },
+             ticks: { color: C.ink3, autoSkip: true, maxRotation: 0,
+                      maxTicksLimit: 16 } },
+        y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
+             border: { display: false },
+             ticks: { color: C.ink3,
+                      callback: v => Number(v).toLocaleString() } },
+      },
+      plugins: {
+        legend: { display: datasets.length > 1, position: 'bottom',
+                  labels: { color: C.ink2, boxWidth: 10, boxHeight: 10,
+                            usePointStyle: true, pointStyle: 'rect',
+                            font: { size: 11 } } },
+        tooltip: { enabled: false },
+      },
+    },
+  });
+
+  document.getElementById('dayHint').textContent =
+    `${f.label} a day, off ${D.file.split(', ').pop()}`
+    + (sl === null ? '' : `, split by ${D.levels[sl].name}`)
+    + '. This is the order export, not the profit one, so it has order value '
+    + 'and units and no cost: the month below it is closed sales, this is the '
+    + 'month being watched. '
+    + (D.dayBasis === 'made'
+       ? 'A day is the day each order was placed - demand as it arrived - so '
+         + 'these days do not add up to a month of revenue: an order placed on '
+         + 'the last day and shipped later is here and not in that month.'
+       : 'A day is the day each order left, so once the month closes these '
+         + 'days add up to its revenue.')
+    + ' It answers the same narrowing as the chart below, and Values puts the '
+    + 'figure on every bar - they are not under the pointer.';
+}
+
 function drawStack() {
   // "When ordered" is not a level of the key: it cuts the same revenue by the
   // month the order behind it was placed. It needs the order export and the
   // month before's, or there is nothing to call carried in. Decided first,
   // because what the bars are split by depends on it.
-  const dayView = DATA === VIEWS.day;
   const canOrd = hasOrders() && DATA.carryIn;
   // The promotion split needs the band series on the cells; a build run
   // without a plan has none, and the button stays off rather than drawing an
@@ -1501,15 +1680,9 @@ function drawStack() {
   // The same three in every stack mode, which is what keeps the y axis still
   // when Stack by changes: there is no figure that one mode has and another
   // does not, so nothing has to be swapped out underneath the reader.
-  // The money and the units. Each takes the name its own view's export gave
-  // it: on months that is net sales, on days it is what the order was worth,
-  // and a button reading "Net Amount" over order values would be a figure
-  // nobody asked for.
   const MEASURES = [
-    [has.net !== undefined ? 'net' : 'gross',
-     dayView ? label(has.net !== undefined ? 'net' : 'gross')
-             : 'Net Amount (AUD)'],
-    ['qty', dayView ? label('qty') : 'Qty'],
+    [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
+    ['qty', 'Qty'],
   ];
   const figBox = document.getElementById('stkFig');
   figBox.className = 'vals seg';
@@ -1541,11 +1714,9 @@ function drawStack() {
   // the menu, and this menu is already tall.
   const pctMode = state.stkScale === 'pct' && !pnlMode;
   document.getElementById('scaleBox').hidden = pnlMode;
-  [['perDay', 'day'], ['perMonth', 'month'], ['perQtr', 'quarter']]
+  [['perMonth', 'month'], ['perQtr', 'quarter']]
     .forEach(([id, v]) => document.getElementById(id)
-      .classList.toggle('active', dayView ? v === 'day' : state.period === v));
-  // Nothing to draw a day from: the build had no order export, or --no-days.
-  document.getElementById('perDay').hidden = !VIEWS.day;
+      .classList.toggle('active', state.period === v));
   document.getElementById('cumulBtn').classList.toggle('active', state.cumul);
   document.getElementById('stkAmt').classList.toggle('active', !pctMode);
   document.getElementById('stkPct').classList.toggle('active', pctMode);
@@ -1561,12 +1732,8 @@ function drawStack() {
   // Month or quarter. There was a Year as well, until Cumulative arrived: the
   // last bar of a running total is the whole span, so a period that drew it as
   // one bar was a third way to say a number the page already said twice.
-  // The day view has days to put on the axis and nothing to roll them into,
-  // so the width is decided by the view and only then by the button.
-  const PER = dayView ? 'day'
-              : state.period === 'quarter' ? 'quarter' : 'month';
+  const PER = state.period === 'quarter' ? 'quarter' : 'month';
   const keyOf = m => {
-    if (PER === 'day') return [`${m.d}`, m.label];
     const y = Math.floor(m.ym / 100), mo = m.ym % 100;
     return PER === 'quarter'
       ? [`${y}Q${Math.ceil(mo / 3)}`, `${y} Q${Math.ceil(mo / 3)}`]
@@ -2047,16 +2214,6 @@ function drawStack() {
           + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
                       + `have a colour of their own, the same colour in every `
                       + `${PER}; the rest are folded into Other.` : '.'))
-    // What a day is, which decides whether the days come to the month. The
-    // order export is not the profit export, so this is not the chart beside
-    // it measured more finely - it is the orders behind it.
-    + (dayView ? ` A day is off ${DATA.file.split(', ').pop()}: `
-                 + (DATA.dayBasis === 'made'
-                    ? 'the day each order was placed, so the days do not add '
-                      + 'up to the month - an order placed on the last day and '
-                      + 'shipped later is here and not in the month.'
-                    : 'the day each order left, so the days add up to the '
-                      + 'month beside them.') : '')
     + (state.cumul ? ` Running totals: every bar is itself plus everything `
                      + `before it, so the last one is the whole span.` : '')
     + (hasLine ? ` The solid line is ${label('profit')} over ${denom} for the `
@@ -2472,18 +2629,15 @@ document.getElementById('resetBtn').onclick = () => {
   });
 document.getElementById('cumulBtn').onclick = () => {
   state.cumul = !state.cumul; render(); };
+document.getElementById('dayCumul').onclick = () => {
+  state.dayCumul = !state.dayCumul; render(); };
+document.getElementById('dayVals').onclick = () => {
+  state.dayVals = !state.dayVals; render(); };
 document.getElementById('pnlBtn').onclick = () => {
   state.pnl = !state.pnl; render(); };
-[['perDay', 'day'], ['perMonth', 'month'], ['perQtr', 'quarter']]
+[['perMonth', 'month'], ['perQtr', 'quarter']]
   .forEach(([id, v]) => {
-    document.getElementById(id).onclick = () => {
-      state.period = v;
-      // Day is the other view of the payload, not another width of this one.
-      // The narrowing survives the swap because both views share one index.
-      const want = v === 'day' ? 'day' : 'month';
-      if (VIEWS[want] && DATA !== VIEWS[want]) { DATA = VIEWS[want]; rebind(); }
-      render();
-    };
+    document.getElementById(id).onclick = () => { state.period = v; render(); };
   });
 document.getElementById('stkAmt').onclick = () => {
   state.stkScale = 'amount'; render(); };
@@ -2994,8 +3148,7 @@ function exportBook() {
     ['Rows read', DATA.rows],
     ['Taken at', new Date().toLocaleString()],
     [],
-    ['Period', DATA === VIEWS.day ? 'Day'
-               : state.period === 'quarter' ? 'Quarter' : 'Month'],
+    ['Period', state.period === 'quarter' ? 'Quarter' : 'Month'],
     ['Cumulative', state.cumul ? 'Yes' : 'No'],
     ['Stack by', state.stack],
     ['Split by', state.stack === 'orders' ? 'when ordered'
