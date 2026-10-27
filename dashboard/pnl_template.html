@@ -2130,6 +2130,11 @@ function drawStack() {
   const MEASURES = [
     [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
     ['qty', 'Qty'],
+    // A line out of the operating cost, on the same months as everything
+    // else. It is inside Operating Cost already, so it is a figure to pick
+    // and never a band to stack - picking it draws its months and nothing
+    // adds it to anything.
+    ['commission', label('commission')],
   ];
   const figBox = document.getElementById('stkFig');
   figBox.className = 'vals seg';
@@ -3303,8 +3308,8 @@ function detailSheets() {
   }
   if (!rows.size) return [];
 
-  const keep = ['gross', 'deduction', 'cogs', 'opex', 'net', 'profit', 'qty']
-    .filter(k => has[k] !== undefined);
+  const keep = ['gross', 'deduction', 'cogs', 'opex', 'net', 'profit', 'qty',
+                'commission'].filter(k => has[k] !== undefined);
   // The cost lines are stored signed and the table shows them positive; the
   // two reading differently about the same number is worse than either.
   const POS = new Set(['deduction', 'cogs', 'opex', 'qty']);

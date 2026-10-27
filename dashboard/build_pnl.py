@@ -93,6 +93,13 @@ SERIES = [
     ('net',       'Net Sales', ('*Net Sales', 'Net Sales', 'Net Sales Amt')),
     # And the denominator of every per-unit figure, ASP among them.
     ('qty',       'Qty', ('Quantity(Net)', 'Net Sales Qty', 'Qty', 'Quantity')),
+    # One line out of the operating cost, carried as a figure of its own
+    # rather than as a band: it is already inside Operating Cost, so stacking
+    # it beside that would count it twice. Pick it as the Figure and the
+    # months are its months. The letter it sits in moves between cuts - AJ in
+    # one, AK in the next - so it is matched by name and never by position.
+    ('commission', 'Paid Commission', ('*Paid Commission', 'Paid Commission',
+                                       '*Paid Commision')),
 ]
 
 # The order files' own figures, totalled onto the same key. They are counts of
