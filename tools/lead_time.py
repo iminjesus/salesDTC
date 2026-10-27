@@ -21,6 +21,7 @@ The same filters the page uses: a store-stamped reference, nothing rejected.
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
 from pathlib import Path
 
@@ -204,7 +205,78 @@ def average_days(folder: Path, ym: int, cust: dict, prod: dict,
     return out
 
 
-def say_blank(blank: dict, ym: int, say=print) -> int:
+def sweep_blank(folder: Path, prod: dict, sap: str = 'orders',
+                skip_sku=(), say=print) -> dict:
+    """Every code in every order export that the product master cannot place.
+
+    One month answers "what did this month lose"; the master is a standing
+    thing and the question it raises is "what has it never known", so this
+    reads the lot. A line on two exports is one line, by its own reference.
+    """
+    files = sorted(pick_series(folder, sap), key=lambda q: q.name)
+    seen: set = set()
+    files = [f for f in files
+             if not (f.stem.lower() in seen or seen.add(f.stem.lower()))]
+    if not files:
+        say(f'no {sap}_* export in the folder')
+        return {}
+    say(f'  reading {len(files)} export(s): '
+        + ', '.join(f.name for f in files))
+    rec: dict = {}
+    lines = 0
+    for f in files:
+        rows, _ = read_any(f)
+        if not rows:
+            continue
+        head = [h.strip() for h in rows[0]]
+        col = {k: find(head, *names) for k, names in
+               (('ref', SAP.S_REF), ('sku', SAP.S_SKU), ('qty', SAP.S_QTY),
+                ('made', SAP.S_MADE), ('reject', SAP.S_REJECT),
+                ('amt', SAP.S_AMT))}
+        if col['ref'] is None or col['sku'] is None or col['made'] is None:
+            say(f'  {f.name}: not an order export - skipped')
+            continue
+        cell = lambda r, i: (r[i].strip() if i is not None and i < len(r)
+                             else '')
+        for r in rows[1:]:
+            if not SAP.STAMPED.match(cell(r, col['ref']).upper()):
+                continue
+            if cell(r, col['reject']):
+                continue
+            made = SAP.to_date(cell(r, col['made']))
+            sku = cell(r, col['sku'])
+            if made is None or not sku:
+                continue
+            if skip_sku and sku.upper().startswith(skip_sku):
+                continue
+            qty = parse_number(cell(r, col['qty'])) or 0.0
+            amt = parse_number(cell(r, col['amt'])) or 0.0
+            rec[(cell(r, col['ref']).upper(), sku.upper(), qty, made)] = (
+                sku, qty, amt, made)
+            lines += 1
+    out: dict = {}
+    for sku, qty, amt, made in rec.values():
+        p = prod.get(key_norm(sku)) or {}
+        missing = [n for n, slot, _ in PRODUCT[:4]
+                   if not (p.get(slot) or '').strip()]
+        if not missing:
+            continue
+        b = out.setdefault(sku.upper(), {
+            'units': 0.0, 'amt': 0.0, 'known': not not p, 'missing': missing,
+            'months': set(), 'first': made, 'last': made,
+            'has': {n: (p.get(slot) or '').strip()
+                    for n, slot, _ in PRODUCT[:4] if (p.get(slot) or '').strip()}})
+        b['units'] += qty
+        b['amt'] += amt
+        b['months'].add(made.year * 100 + made.month)
+        b['first'] = min(b['first'], made)
+        b['last'] = max(b['last'], made)
+    say(f'  {lines:,} line(s) read, {len(rec):,} after collapsing the ones on '
+        f'more than one export')
+    return out
+
+
+def say_blank(blank: dict, ym, out=None, say=print) -> int:
     """The codes the product master cannot place, and what they are worth.
 
     Split by what is actually wrong with them, because the two have different
@@ -214,12 +286,14 @@ def say_blank(blank: dict, ym: int, say=print) -> int:
     its Biz, so it stays on the page and lands under a placeholder further
     down - visible, but not where anyone is looking for it.
     """
+    what = f'{ym}' if ym else 'every order export'
     if not blank:
-        say(f'\nevery {ym} order line places on the product master')
+        say(f'\nevery line of {what} places on the product master')
         return 0
     gone = {k: v for k, v in blank.items() if not v['known']}
     part = {k: v for k, v in blank.items() if v['known']}
-    for title, rows, what in (
+    top = 60
+    for title, rows, tag in (
             ('no row in the product master - the page drops these', gone,
              'dropped'),
             ('a row, but a level left empty - drawn under a placeholder',
@@ -228,17 +302,38 @@ def say_blank(blank: dict, ym: int, say=print) -> int:
             continue
         tot_u = sum(v['units'] for v in rows.values())
         tot_a = sum(v['amt'] for v in rows.values())
-        say(f'\n{ym}: {title}')
-        say(f'  {"code":<20}{"units":>10}{"value":>15}   what the master does '
-            'have')
-        for k, v in sorted(rows.items(), key=lambda kv: -kv[1]['amt'])[:40]:
+        say(f'\n{what}: {title}')
+        wide = 'months' in next(iter(rows.values()))
+        say(f'  {"code":<20}{"units":>10}{"value":>15}'
+            + (f'{"months":>8}{"first":>13}{"last":>13}' if wide else '')
+            + '   what the master does have')
+        for k, v in sorted(rows.items(), key=lambda kv: -kv[1]['amt'])[:top]:
             has = ', '.join(f'{n}={x}' for n, x in v['has'].items()) or '-'
-            say(f'  {k[:20]:<20}{v["units"]:>10,.0f}{v["amt"]:>15,.0f}   {has}')
-        if len(rows) > 40:
-            say(f'  ... and {len(rows) - 40} more')
-        say(f'  {"-" * 20}{"-" * 25}')
+            say(f'  {k[:20]:<20}{v["units"]:>10,.0f}{v["amt"]:>15,.0f}'
+                + (f'{len(v["months"]):>8}{v["first"].isoformat():>13}'
+                   f'{v["last"].isoformat():>13}' if wide else '')
+                + f'   {has}')
+        if len(rows) > top:
+            say(f'  ... and {len(rows) - top:,} more'
+                + (f' - --out has them all' if out else ''))
+        say('  ' + '-' * (45 + (34 if wide else 0)))
         say(f'  {f"{len(rows):,} code(s)":<20}{tot_u:>10,.0f}{tot_a:>15,.0f}'
-            f'   {what}')
+            f'   {tag}')
+    if out:
+        with open(out, 'w', newline='', encoding='utf-8') as f:
+            w = csv.writer(f)
+            w.writerow(['code', 'in the master', 'levels missing', 'units',
+                        'value', 'months', 'first order', 'last order',
+                        'what the master has'])
+            for k, v in sorted(blank.items(), key=lambda kv: -kv[1]['amt']):
+                w.writerow([k, 'yes' if v['known'] else 'no',
+                            ' '.join(v['missing']), round(v['units']),
+                            round(v['amt']),
+                            len(v.get('months', ())) or '',
+                            v['first'].isoformat() if v.get('first') else '',
+                            v['last'].isoformat() if v.get('last') else '',
+                            '; '.join(f'{n}={x}' for n, x in v['has'].items())])
+        say(f'\n-> {out}  ({len(blank):,} code(s))')
     return 0
 
 
@@ -247,13 +342,17 @@ def main() -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--dir', default='rawdata')
-    ap.add_argument('--month', type=int, required=True, metavar='YYMM',
-                    help='the month whose orders are measured, as 2609')
+    ap.add_argument('--month', type=int, default=None, metavar='YYMM',
+                    help='the month whose orders are measured, as 2609. With '
+                         '--blank it may be left off, and then every order '
+                         'export in the folder is swept')
     ap.add_argument('--sap', default='orders', metavar='STEM')
     ap.add_argument('--by', default='div1', metavar='LEVEL',
                     help='biz, div1, div2, div3, range or sku (default div1)')
     ap.add_argument('--online', action='store_true',
                     help='the online business only, as the target is')
+    ap.add_argument('--out', metavar='FILE',
+                    help='write the --blank listing as a csv, every code')
     ap.add_argument('--blank', action='store_true',
                     help='instead of the lead time, list the codes the '
                          'product master cannot place - what the page drops '
@@ -268,13 +367,16 @@ def main() -> int:
     if at is None:
         raise SystemExit('--by ' + args.by + ' is not one of '
                          + ', '.join(sorted(AT)))
+    if args.month is None and not args.blank:
+        raise SystemExit('--month is needed, as 2609')
     folder = Path(args.dir)
     if not folder.is_absolute():
         folder = ROOT / folder
     # 2609 and 202609 are both in use. 202000 + 2609 is the year 2046, which
     # is the shape of bug that reads as "no export in the folder".
     m = args.month
-    ym = m if m > 9999 else (2000 + m // 100) * 100 + m % 100
+    ym = None if m is None else (m if m > 9999
+                                 else (2000 + m // 100) * 100 + m % 100)
 
     print(f'reading {folder}')
     want = {slot: names for _, slot, names in CUST.LEVELS if names}
@@ -293,12 +395,17 @@ def main() -> int:
     print(f'  {pp.name}, {len(prod):,} products'
           + (f'; {cp.name}, {len(cust):,} accounts' if cp else ''))
 
+    if args.blank and ym is None:
+        # The master is a standing thing, so the question is what it has never
+        # known - every export, not one month of them.
+        return say_blank(sweep_blank(folder, prod, args.sap, skip_sku),
+                         None, args.out)
     blank: dict = {} if args.blank else None
     pots, whole, asof = measure(folder, ym, cust, prod, at,
                                 skip_sku=skip_sku, online=args.online,
                                 sap=args.sap, blank=blank)
     if args.blank:
-        return say_blank(blank, ym)
+        return say_blank(blank, ym, args.out)
 
     if not whole.lines:
         print(f'\nno order line was placed in {ym}')

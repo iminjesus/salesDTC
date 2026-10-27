@@ -49,8 +49,16 @@ set for. `--by` takes `biz`, `div1`, `div2`, `div3`, `range` or `sku`.
 ## What the master cannot place
 
 ```powershell
-py tools\lead_time.py --month 2610 --blank
+py tools\lead_time.py --blank --out docs\unplaced.csv   # every export
+py tools\lead_time.py --month 2610 --blank               # one month
 ```
+
+With no `--month` it sweeps **every** `orders_*` export in the folder, because
+the master is a standing thing and the question it raises is not what one
+month lost but what it has never known. Each code then carries the months it
+was ordered in and the first and last order seen, so a code that arrived with
+a launch reads differently from one that has been missing all year. `--out`
+writes the lot as a csv - the list that goes to whoever maintains the master.
 
 A product group's target stands whole whether or not the orders under it can
 be placed, so a code the product master has never heard of takes its money off
