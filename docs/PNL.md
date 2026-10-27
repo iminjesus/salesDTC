@@ -651,7 +651,9 @@ here as everywhere else on the page.
 **Clicking a band drills**, exactly as it does below: it narrows the page to
 that member and steps the split down a level, so the monthly chart follows the
 click made on the daily one. The x axis does not move - it is time - so the
-same days come back with only that member in them.
+same days come back with only that member in them. **Back** sits on the card
+beside Values and undoes the deepest narrowing, so a drill made here is
+stepped out of here rather than from a button further down the page.
 
 Two things it cannot follow, and the hint says so when they are on:
 

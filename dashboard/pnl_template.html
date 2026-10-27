@@ -359,6 +359,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="chartHead">
       <div class="legend"><span class="t" id="dayTitle"></span></div>
       <div class="tools">
+        <button class="ctl" id="dayBack" title="Widen the deepest narrowing">&larr; Back</button>
         <button class="ctl" id="dayVals" title="the figure on every bar - they are here, not under the pointer">Values</button>
       </div>
     </div>
@@ -1320,6 +1321,10 @@ function render() {
   const atTop = backLevel() < 0;
   document.getElementById('backBtn').disabled = atTop;
   document.getElementById('stkBack').disabled = atTop;
+  // The daily card drills as the chart below does, so it steps back from
+  // where the click was made rather than sending a reader down the page to
+  // find the button that undoes it.
+  document.getElementById('dayBack').disabled = atTop;
   // The sheet needs a campaign picked and days to draw for it.
   const dayAt = campaignLevels().find(j => state.filter[j] >= 0
     && (DATA.campaigns || {})[DATA.levels[j].values[state.filter[j]]]);
@@ -2990,6 +2995,8 @@ function setZoom(which) {
 }
 document.getElementById('stkZoom').onclick = () => setZoom('stk');
 document.getElementById('stkBack').onclick = () =>
+  document.getElementById('backBtn').click();
+document.getElementById('dayBack').onclick = () =>
   document.getElementById('backBtn').click();
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !document.getElementById('dayVeil').hidden) {
