@@ -708,10 +708,10 @@ const state = {
   // Which chart, if any, has the window to itself. Expanding is also what
   // turns the per-bar numbers on: that is the room they need.
   zoom: null,
-  // The levels, open or shut. Shut by default: they are eight rows of buttons
-  // at the top of a page whose content is underneath them, the breadcrumb
-  // already says what is narrowed, and clicking a bar narrows it anyway.
-  filters: false,
+  // The levels, open or shut. Open to start with - they are how a reader
+  // who has not clicked a bar yet gets anywhere - and Filters folds them away
+  // once the narrowing is set and the room is wanted for the charts.
+  filters: true,
   // The daily chart above follows the menu - the split, the narrowing, the
   // figure, the running total, the scale - so there is one set of controls on
   // the page and not two. Values is its own because the monthly chart reveals
@@ -1267,18 +1267,11 @@ function render() {
   const picked = DATA.levels
     .map((lv, i) => (state.filter[i] >= 0 ? `${lv.name} ${lv.values[state.filter[i]]}` : null))
     .filter(Boolean);
-  // What the build left out is not a filter and cannot be stepped out of, so
-  // it is said on its own: a reader who can reach every value on the menu and
-  // still not reach Memory has to be told Memory is not in the page at all.
-  const gone = DATA.dropped && DATA.dropped.length ? DATA.dropped : null;
-  const left = gone
-    ? ` <span class="gone">Not in this page — ${gone.join('; ')}.</span>` : '';
-  // What was left out of the build, and nothing else: the breadcrumb above
-  // already says what is narrowed, and saying it twice is a line of text at
-  // the top of a page whose content is underneath it.
-  const scope = document.getElementById('scope');
-  scope.innerHTML = left.trim();
-  scope.hidden = !left.trim();
+  // What --drop left out is said by the build that did it and on the Scope
+  // sheet of the workbook, not on the page: it is the same sentence on every
+  // page of a folder whose drops never change, and a line that never changes
+  // is one nobody reads.
+  document.getElementById('scope').hidden = true;
 
   /* The path taken so far: every level narrowed to one value, then the level
      the bars are on. Clicking a step goes back to it. */

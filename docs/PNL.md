@@ -85,16 +85,16 @@ On a 251-column, 11,573-row export the whole run takes about ten seconds.
 
 Top to bottom: a title line, the menu, then the cards.
 
-- **The menu is one row of switches.** The levels - eight rows of buttons -
-  sit behind **Filters**, shut by default, with a count on the button when any
-  of them is set. The breadcrumb above says what is narrowed, and clicking a
-  bar is the usual way to narrow it, so the levels are the second way rather
-  than the first.
+- **The menu is one row of switches**, with the levels under it. **Filters**
+  folds the levels away once the narrowing is set and the room is wanted for
+  the charts, and carries a count while any of them is on.
 - **Achievement is first and on by default**: the month against its target is
   what the page is opened for during an open month. Then the price tiles, the
   daily chart, the monthly chart, and the optional Numbers and Table cards.
-- **No captions.** A line under a chart appears only when something has been
-  left out or cannot be compared - a month whose carry-in is unknown, margin
+- **No captions.** What `--drop` left out is reported by the build that did
+  it and on the workbook's Scope sheet, not on the page: it is the same
+  sentence on every page of a folder whose drops never change. A line under a
+  chart appears only when something has been left out or cannot be compared - a month whose carry-in is unknown, margin
   points over the cap, an export that stops mid-month, target money that could
   not be placed. A caption that is always there is scrolled past; one that
   appears only when it matters is read.
