@@ -502,6 +502,7 @@ function viewOf(all, src, want) {
            // chain the other has and it has not.
            promoAt: (own.find(m => m.promoAt != null) || {}).promoAt ?? null,
            dayBasis: want ? (own[0] || {}).dayBasis : null,
+           asof: want ? (own[0] || {}).asof : null,
            file: one ? keep[0].file
                  : want
                    // Every day came out of one export, so the span is days.
@@ -1602,6 +1603,8 @@ function drawDayTrend() {
     + `  \u00b7  ${f.label} ${num(sum)}`
     + `  \u00b7  ${sold} of ${xs.length} day${xs.length === 1 ? '' : 's'} sold`;
 
+  // Drilling needs a level to drill into, and a level with something in it.
+  const canDrill = sl !== null;
   // The same height as the chart below, taken from it rather than guessed, so
   // the pair reads as one page however many columns the months come to.
   const mine = document.getElementById('dayPlot');
@@ -1644,6 +1647,26 @@ function drawDayTrend() {
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
       interaction: { mode: 'index', intersect: false },
+      onHover: (e, els) => {
+        e.native.target.style.cursor = (els.length && canDrill) ? 'pointer' : '';
+      },
+      // The same click the chart below takes: a band narrows the whole page to
+      // it and the split steps down. The x axis does not move - it is time -
+      // so the same days come back with only that member in them, which is the
+      // comparison the click was asking for.
+      onClick(e, els) {
+        if (!canDrill) return;
+        // Index mode hands over the whole column, so asking again for what the
+        // pointer is actually inside is the difference between "a bar was
+        // clicked" and "DTC only was clicked".
+        const hit = this.getElementsAtEventForMode(
+          e, 'nearest', { intersect: true }, true)[0] || els[0];
+        const d = hit && this.data.datasets[hit.datasetIndex];
+        if (!d || !d.label) return;
+        const j = D.levels[sl].values.indexOf(d.label);
+        if (j < 0) return;                     // the folded Other, not a member
+        defer(() => setFilter(sl, j));
+      },
       scales: {
         x: { stacked: true, offset: true, grid: { display: false },
              border: { display: false },
@@ -1690,6 +1713,13 @@ function drawDayTrend() {
          + 'the last day and shipped later is here and not in that month.'
        : 'A day is the day each order left, so once the month closes these '
          + 'days add up to its revenue.')
+    + (D.asof ? ` The export was taken ${D.asof}, so it stops there: past `
+                + 'that a despatch date is a plan and an order has not been '
+                + 'placed yet.' : '')
+    + (canDrill
+       ? ` Click a band to keep only that ${D.levels[sl].name} - it narrows `
+         + 'the page, so the chart below follows.'
+       : '')
     + ' Values puts the figure on every bar - they are not under the pointer.';
 }
 

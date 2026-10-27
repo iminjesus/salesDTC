@@ -74,6 +74,10 @@ class Months:
         self.no_customer = self.no_product = 0
         self.scheduled = 0.0        # units counted off a date that has not come
         self.measured = 0.0
+        # The last day the export knows anything about: the newest order on
+        # it. Past that, a despatch date is a plan and not a measurement, and
+        # a caller drawing days has to cut somewhere.
+        self.asof = None
         self.files: list[str] = []
         self.amount_col = None
         # Units per promotion band, on the same key. Filled only when the
@@ -164,6 +168,8 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
         # reported as a schedule rather than passed off as a measurement.
         made_all = [to_date(cell(r, col['made'])) for r in body]
         asof = max((d for d in made_all if d), default=None)
+        if asof and (out.asof is None or asof > out.asof):
+            out.asof = asof
 
         for r in body:
             out.lines += 1

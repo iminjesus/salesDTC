@@ -500,7 +500,7 @@ def day_watcher(basis: str = 'gi', band_of=None, fold: dict | None = None):
 
 def day_payloads(tally: dict, basis: str, ym: int, source: str,
                  banded: bool = False, drops: dict | None = None,
-                 say=print) -> list:
+                 asof=None, say=print) -> list:
     """One payload per day, in the shape a month payload has.
 
     The page unifies the two sets together and then splits them, so a day has
@@ -541,6 +541,18 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
     by_day: dict = {}
     for (day, key), v in tally.items():
         by_day.setdefault(day, {})[key] = v
+    # Nothing after the day the export was taken. On the order date there is
+    # nothing there anyway; on the despatch date there is, and it is a
+    # schedule - a bar drawn from it says the month sold something it has not.
+    if asof:
+        late = sorted(d for d in by_day if d > asof.isoformat())
+        for d in late:
+            del by_day[d]
+        if late:
+            say(f'  the export was taken {asof.isoformat()}; {len(late)} '
+                f'day(s) after it are a despatch plan and are left off')
+    if not by_day:
+        return []
     out = []
     for day in sorted(by_day):
         y, m, d = int(day[:4]), int(day[5:7]), int(day[8:10])
@@ -560,6 +572,7 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
             # when the levels are not there.
             'promoAt': PROMO_AT if banded else None,
             'carryIn': False,
+            'asof': asof.isoformat() if asof else None,
             # Which day it is. The page says so under the chart, because the
             # answer decides whether the days add up to the month.
             'dayBasis': basis,
@@ -631,7 +644,7 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     out = day_payloads(tally, args.day_basis, want,
                        ', '.join(f.name for f in months[want]),
                        banded=bander is not None, drops=drop_rules(args),
-                       say=say)
+                       asof=got.asof, say=say)
     if bander is None:
         say('  no promotion plan, so the daily chart has no band on it')
     say(f'  {got.counted:,} of {got.lines:,} line(s) counted - the rest are '
@@ -933,11 +946,12 @@ def main() -> int:
                     help='which month the daily chart covers (default: the '
                          'latest month the order export carries, which is '
                          'usually the open one the P&L has not closed)')
-    ap.add_argument('--day-basis', choices=('gi', 'made'), default='gi',
+    ap.add_argument('--day-basis', choices=('made', 'gi'), default='made',
                     metavar='WHICH',
-                    help='which day an order line counts on: gi, the day it '
-                         'left, so the days add up to the month the chart '
-                         'draws (the default), or made, the day it was placed')
+                    help='which day an order line counts on: made, the day it '
+                         'was placed, which is what the export measures (the '
+                         'default), or gi, the day it left - which past the '
+                         'export date is a despatch plan, not a measurement')
     ap.add_argument('--no-orders', action='store_true',
                     help='draw sales only, even when an order export is there')
     ap.add_argument('--shipped', metavar='LIST',

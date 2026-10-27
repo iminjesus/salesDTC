@@ -628,6 +628,11 @@ is **Values**, which puts the figure on every bar - the monthly chart reveals
 its figures by expanding and this one has no expand. Nothing appears on hover,
 here as everywhere else on the page.
 
+**Clicking a band drills**, exactly as it does below: it narrows the page to
+that member and steps the split down a level, so the monthly chart follows the
+click made on the daily one. The x axis does not move - it is time - so the
+same days come back with only that member in them.
+
 Two things it cannot follow, and the hint says so when they are on:
 
 - **P&L** is a statement a day has no columns for, so the chart falls back to
@@ -677,14 +682,32 @@ with them.
 `--day-basis` decides it, and it is the difference between the two charts
 agreeing and not:
 
-| | a day is | the days add up to |
+| | a day is | |
 |---|---|---|
-| `gi` (default) | the day the order left - its Goods Issue date | the month's revenue, once that month closes |
-| `made` | the day the order was placed - Created On | nothing: an order placed on the 30th that ships in November is here and not in that month |
+| `made` (default) | the day the order was placed - Created On | what the export **measures**: demand as it arrived |
+| `gi` | the day the order left - its Goods Issue date | what the month will **book**, once it closes |
 
-`gi` is the default because the monthly bar is the revenue that left in the
-month, so despatch days are the days that sum to it. `made` asks the other
-question - demand as it arrived.
+`made` is the default because it is the only one of the two that is entirely
+measurement. A despatch date in the future is a plan: an export pulled on the
+27th carries orders scheduled to leave on the 30th, and a bar drawn on the
+30th says the business sold something it has not.
+
+So **the days stop at the date the export was taken** - the newest order on
+it - whichever basis is showing. On `made` there is nothing past it to draw
+anyway; on `gi` there is, and it is schedule, so it is left off and the run
+says how many days went:
+
+```
+  the export was taken 2026-10-27; 1 day(s) after it are a despatch plan and are left off
+```
+
+The hint under the chart names that date, so a short last week reads as "the
+file ends here" and not as a collapse in demand.
+
+On `made` the days do not add up to the month's revenue, and they are not
+meant to: an order placed on the 30th and shipped in November is demand in
+October and revenue in November. `gi` is the basis that reconciles, once the
+month closes.
 
 `--day-month YYMM` picks the month; the default is the latest month the order
 export carries, which is normally the open one. `--no-days` leaves the card
