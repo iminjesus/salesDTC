@@ -670,6 +670,47 @@ Where no plan covers those days there is no band to split by, so the bars are
 drawn whole and the hint says why rather than showing one column labelled
 `(blank)`.
 
+#### Achievement, by product group
+
+The **Achievement** button in the menu puts a table under the daily chart: the
+same month against the same target, by product rather than by day. The chart
+says whether the month is on plan; the table says which products are carrying
+it and which are behind.
+
+| column | |
+|---|---|
+| Target (month) | the Blue File's Sokbo for this slice |
+| Target to *n* Oct | that, divided evenly over the month's calendar days and taken to the last day the export covers |
+| Actual to date | the days above, added up |
+| **Achievement** | actual to date over target to date |
+| Gap | actual to date minus target to date, in money |
+| Month at this rate | the month projected at the rate so far - a projection, not a measurement |
+
+There is no "projected achievement" column and there cannot be one: the target
+is spread evenly over the days, so projecting the month at the rate so far and
+dividing by the month's target gives back the achievement to date, exactly. It
+was in the table for one run and every row repeated the column four places to
+its left.
+
+**Rows** are product groups. The target is set at Div 3, so that is as deep as
+it goes; where the page is already split by a product level the table follows
+it, because a reader who has drilled to Div 2 is asking about Div 2. Narrowing
+applies to both sides of the ratio.
+
+**Money, always.** The target is an amount and a quantity has no target, so the
+table stays on order value whatever figure the chart is showing. That also
+means the actual is **demand placed, not revenue booked** - the order export is
+what exists for an open month.
+
+Two honesty notes the table prints rather than leaves to be discovered:
+
+- Narrow below the target's own key - a Range, a model, a campaign - and there
+  is nothing to compare against, so the table says so instead of putting a
+  whole month's target beside a slice of a month's sales.
+- Target money that could not be placed (a product group with no Div 3 match,
+  or one the customer mix could not split) is not in the total, and the hint
+  says how much. Otherwise a reader adds the column up and believes it.
+
 #### The drops apply
 
 `--drop` takes its values out of the daily chart as well - Memory and the
