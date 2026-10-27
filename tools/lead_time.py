@@ -73,7 +73,7 @@ class Pot:
 
 def measure(folder: Path, ym: int, cust: dict, prod: dict, at: int,
             skip_sku=(), online: bool = False, sap: str = 'orders',
-            say=print) -> tuple:
+            blank: dict | None = None, say=print) -> tuple:
     """({division: Pot}, Pot, asof) for the orders placed in `ym`.
 
     Every export from the month onward is read: a September order that left in
@@ -106,7 +106,7 @@ def measure(folder: Path, ym: int, cust: dict, prod: dict, at: int,
         col = {k: find(head, *names) for k, names in
                (('ref', SAP.S_REF), ('payer', SAP.S_PAYER), ('sku', SAP.S_SKU),
                 ('qty', SAP.S_QTY), ('gi', SAP.S_GI), ('made', SAP.S_MADE),
-                ('reject', SAP.S_REJECT))}
+                ('reject', SAP.S_REJECT), ('amt', SAP.S_AMT))}
         miss = [k for k in ('ref', 'sku', 'qty', 'gi', 'made') if col[k] is None]
         if miss:
             print(f'  {f.name}: no ' + ', no '.join(miss) + ' - skipped')
@@ -132,6 +132,22 @@ def measure(folder: Path, ym: int, cust: dict, prod: dict, at: int,
             p = prod.get(key_norm(sku)) or {}
             if not p and at < len(PRODUCT) - 1:
                 skipped += 1
+            # What the page cannot place. Two different cases, and the
+            # difference decides what to do about them: a code the master has
+            # never heard of is dropped from the page entirely, while a code
+            # it has but left a level empty on is drawn under a placeholder.
+            if blank is not None:
+                missing = [n for n, slot, _ in PRODUCT[:4]
+                           if not (p.get(slot) or '').strip()]
+                if missing:
+                    b = blank.setdefault(sku.upper(), {
+                        'units': 0.0, 'amt': 0.0, 'known': not not p,
+                        'missing': missing,
+                        'has': {n: (p.get(slot) or '').strip()
+                                for n, slot, _ in PRODUCT[:4]
+                                if (p.get(slot) or '').strip()}})
+                    b['units'] += parse_number(cell(r, col['qty'])) or 0.0
+                    b['amt'] += parse_number(cell(r, col['amt'])) or 0.0
             name = ((sku if PRODUCT[at][1] == 'sku'
                      else p.get(PRODUCT[at][1]) or '').strip() or '(blank)')
             qty = parse_number(cell(r, col['qty'])) or 0.0
@@ -188,6 +204,44 @@ def average_days(folder: Path, ym: int, cust: dict, prod: dict,
     return out
 
 
+def say_blank(blank: dict, ym: int, say=print) -> int:
+    """The codes the product master cannot place, and what they are worth.
+
+    Split by what is actually wrong with them, because the two have different
+    consequences: a code with no master row at all has every level empty, so
+    the page drops it with --drop Biz=(blank) and its money is on no chart and
+    in no achievement. A code the master knows but left a level empty on keeps
+    its Biz, so it stays on the page and lands under a placeholder further
+    down - visible, but not where anyone is looking for it.
+    """
+    if not blank:
+        say(f'\nevery {ym} order line places on the product master')
+        return 0
+    gone = {k: v for k, v in blank.items() if not v['known']}
+    part = {k: v for k, v in blank.items() if v['known']}
+    for title, rows, what in (
+            ('no row in the product master - the page drops these', gone,
+             'dropped'),
+            ('a row, but a level left empty - drawn under a placeholder',
+             part, 'placed under a placeholder')):
+        if not rows:
+            continue
+        tot_u = sum(v['units'] for v in rows.values())
+        tot_a = sum(v['amt'] for v in rows.values())
+        say(f'\n{ym}: {title}')
+        say(f'  {"code":<20}{"units":>10}{"value":>15}   what the master does '
+            'have')
+        for k, v in sorted(rows.items(), key=lambda kv: -kv[1]['amt'])[:40]:
+            has = ', '.join(f'{n}={x}' for n, x in v['has'].items()) or '-'
+            say(f'  {k[:20]:<20}{v["units"]:>10,.0f}{v["amt"]:>15,.0f}   {has}')
+        if len(rows) > 40:
+            say(f'  ... and {len(rows) - 40} more')
+        say(f'  {"-" * 20}{"-" * 25}')
+        say(f'  {f"{len(rows):,} code(s)":<20}{tot_u:>10,.0f}{tot_a:>15,.0f}'
+            f'   {what}')
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -200,6 +254,10 @@ def main() -> int:
                     help='biz, div1, div2, div3, range or sku (default div1)')
     ap.add_argument('--online', action='store_true',
                     help='the online business only, as the target is')
+    ap.add_argument('--blank', action='store_true',
+                    help='instead of the lead time, list the codes the '
+                         'product master cannot place - what the page drops '
+                         'or draws under a placeholder, and what it is worth')
     ap.add_argument('--skip-sku', default='', metavar='PREFIX',
                     help='leave out codes starting with this, comma-separated')
     args = ap.parse_args()
@@ -235,9 +293,12 @@ def main() -> int:
     print(f'  {pp.name}, {len(prod):,} products'
           + (f'; {cp.name}, {len(cust):,} accounts' if cp else ''))
 
+    blank: dict = {} if args.blank else None
     pots, whole, asof = measure(folder, ym, cust, prod, at,
                                 skip_sku=skip_sku, online=args.online,
-                                sap=args.sap)
+                                sap=args.sap, blank=blank)
+    if args.blank:
+        return say_blank(blank, ym)
 
     if not whole.lines:
         print(f'\nno order line was placed in {ym}')

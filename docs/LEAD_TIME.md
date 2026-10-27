@@ -45,3 +45,36 @@ the average down rather than up.
 
 `--online` narrows to the online business, which is what the Sokbo target is
 set for. `--by` takes `biz`, `div1`, `div2`, `div3`, `range` or `sku`.
+
+## What the master cannot place
+
+```powershell
+py tools\lead_time.py --month 2610 --blank
+```
+
+A product group's target stands whole whether or not the orders under it can
+be placed, so a code the product master has never heard of takes its money off
+the page and leaves the target behind - which reads as a division that missed.
+`--blank` lists them, split by what is actually wrong, because the two have
+different consequences:
+
+```
+202610: no row in the product master - the page drops these
+  code                     units          value   what the master does have
+  SM-X310                      6          5,400   -
+  ---------------------------------------------
+  2 code(s)                    9          9,000   dropped
+
+202610: a row, but a level left empty - drawn under a placeholder
+  SM-X210                      4          2,800   Biz=MX, Div 1=MX, Div 2=Mobile
+```
+
+- **No row at all**: every level is empty, so `--drop Biz=(blank)` takes it
+  out. Its money is on no chart and in no achievement, and nothing on the page
+  says it was there.
+- **A row with a level left empty**: it keeps its Biz, so it stays on the page
+  and lands under a placeholder further down - visible, but not where anyone
+  is looking for it.
+
+The right fix is the master, not the page: add the codes and both numbers land
+where the target is.
