@@ -490,6 +490,9 @@ def main() -> int:
     ap.add_argument('--by', default='account,div3,sku', metavar='LEVELS',
                     help='the level a row is grouped at for the split, as '
                          'account,div3,sku (the default) or div2, account, ...')
+    ap.add_argument('--online', action='store_true',
+                    help='the online business only, which is what the profit '
+                         'page shows - the same flag tools/lead_time.py takes')
     ap.add_argument('--drop', action='append', metavar='LEVEL=VALUE',
                     help='leave these out, e.g. --drop "Biz=Memory". The '
                          'profit page drops Biz=Memory and Biz=(blank) by '
@@ -512,6 +515,10 @@ def main() -> int:
     ap.set_defaults(returns=True)
     args = ap.parse_args()
     rules = where_rules(args.where)
+    if args.online:
+        # Added to whatever --where already said rather than replacing it, so
+        # --online --where "Div 1=DA" is the online DA business.
+        rules.setdefault('channel', set()).add(CUST.ONLINE.upper())
     drop = where_rules(args.drop)
     by = by_levels(args.by)
 

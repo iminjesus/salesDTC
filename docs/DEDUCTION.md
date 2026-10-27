@@ -99,8 +99,12 @@ so every run prints what it covers before it prints anything else:
          so its figures are smaller - --where "Channel=E-STORE" --drop "Biz=Memory" --drop "Biz=(blank)" matches it
 ```
 
-This tool reads **the file as it is**: both channels, every business, returns
-in. The page opens on the online business with Memory and the blanks dropped,
+`--online` narrows to the online business in one word - the same flag
+`tools/lead_time.py` takes - and adds to whatever `--where` already said, so
+`--online --where "Div 1=DA"` is the online DA business.
+
+This tool otherwise reads **the file as it is**: both channels, every
+business, returns in. The page opens on the online business with Memory and the blanks dropped,
 so the same column comes to a different number on each - January's gross is
 203m here and 14m there, and both are correct. `--where` narrows and `--drop`
 excludes, in the page's own spelling, so the two can be made to agree.
