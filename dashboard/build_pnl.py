@@ -32,6 +32,7 @@ import customer as CUST                                        # noqa: E402
 import orders as ORD                                           # noqa: E402
 import promo_match as PM                                       # noqa: E402
 import sap as SAP                                              # noqa: E402
+import target as TGT                                           # noqa: E402
 from rawdata import (MASTER_RAW as RAW, find, is_return,        # noqa: E402
                      key_norm, master,
                      month_before, month_name, month_of, parse_number,
@@ -952,6 +953,15 @@ def main() -> int:
                          'was placed, which is what the export measures (the '
                          'default), or gi, the day it left - which past the '
                          'export date is a despatch plan, not a measurement')
+    ap.add_argument('--target', default=None, metavar='NAME',
+                    help='the DTC Blue File cut whose Sokbo is the target line '
+                         'on the daily chart (default: the newest DTC_S* '
+                         'workbook in the folder, e.g. DTC_S0A_T0B_v1.xlsx)')
+    ap.add_argument('--target-version', default=None, metavar='S0x',
+                    help='which version column to read (default: the S0x in '
+                         'the file name)')
+    ap.add_argument('--no-target', action='store_true',
+                    help='leave the target line off the daily chart')
     ap.add_argument('--no-orders', action='store_true',
                     help='draw sales only, even when an order export is there')
     ap.add_argument('--shipped', metavar='LIST',
@@ -1043,8 +1053,25 @@ def main() -> int:
         m.pop('_masters', None)
     days = (day_chart(folder, args, masters[0], masters[1])
             if masters[0] is not None else [])
+    target = None
+    if days and not args.no_target:
+        tf = TGT.find_target(folder, args.target)
+        if tf is None:
+            print('\nno DTC_S* Blue File in the folder, so no target line '
+                  '(--target names one)')
+        else:
+            print('\nthe target line:')
+            t = TGT.read_target(tf, args.target_version)
+            if t is not None:
+                dm = {d['ym'] for d in days}
+                if t['ym'] not in dm:
+                    print(f"  it is for {t['ym']} and the daily chart is "
+                          f"{', '.join(str(x) for x in sorted(dm))} - left off")
+                else:
+                    target = TGT.split(t, months)
     html = template.replace('/*__DATA__*/null',
-                            json.dumps({'months': months, 'days': days},
+                            json.dumps({'months': months, 'days': days,
+                                        'target': target},
                                        ensure_ascii=False,
                                        separators=(',', ':')))
     if not args.cdn:

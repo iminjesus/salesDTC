@@ -1511,6 +1511,40 @@ const BAND_COLOUR = { 'DTC only': 0, 'DTC + Nation-wide': 2,
                       '(no order matched)': 7, 'No promotion': 8 };
 
 let dayTrend = null;
+/* The month's target over the days: the Blue File's Sokbo, split to the
+   customer by the last six months' mix at build time, divided evenly over the
+   calendar days of the month. It is a sum over the same names the menu
+   narrows by, so narrowing the page narrows the line.
+
+   Its key stops at Div 3 - a target is set by product group, not by range or
+   model - so a narrowing below that, or on the promotion chain, has no target
+   to draw and the line comes off with the reason in the hint. */
+function dayTarget(D) {
+  const T = ALL.target;
+  if (!T || !T.rows || !T.rows.length) return null;
+  const at = T.levels.map(n => D.levels.findIndex(lv => lv.name === n));
+  const mine = new Set(at.filter(i => i >= 0));
+  for (let i = 0; i < state.filter.length; i++) {
+    if (state.filter[i] >= 0 && !mine.has(i)) {
+      return { off: `${D.levels[i].name} is narrowed, and the target is set `
+                    + 'by product group, not below it' };
+    }
+  }
+  let sum = 0;
+  for (const r of T.rows) {
+    let ok = true;
+    for (let j = 0; j < at.length && ok; j++) {
+      const i = at[j];
+      if (i < 0 || state.filter[i] < 0) continue;
+      ok = r.k[j] !== null && D.levels[i].values[state.filter[i]] === r.k[j];
+    }
+    if (ok) sum += r.v;
+  }
+  return { month: sum, day: sum / T.days, days: T.days, ym: T.ym,
+           version: T.version, currency: T.currency, file: T.file,
+           mix: T.mix || [] };
+}
+
 function drawDayTrend() {
   const D = VIEWS.day;
   const card = document.getElementById('dayCard');
@@ -1593,14 +1627,38 @@ function drawDayTrend() {
   const totals = cumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
   const num = v => (f.key === 'qty' ? fmt(v) : fmt(v));
 
+  // The target, as a line over the bars: the month's target over its calendar
+  // days, or with Cumulative on, the target to date - a day's worth for every
+  // day of the month so far, so the line and the bars meet where the month is
+  // on plan. Money only: the target is an amount, and a share has no target.
+  const tg = (f.key === 'qty' || pct) ? null : dayTarget(D);
+  const dayNo = D.months.map(m => (m.d ? m.d % 100 : 0));
+  const onMonth = D.months.map(m => tg && m.ym === tg.ym);
+  if (tg && !tg.off) {
+    datasets.unshift({
+      type: 'line', label: `Target ${tg.version} (${tg.currency})`,
+      stack: 'target', order: -1,
+      data: dayNo.map((n, i) => (!onMonth[i] ? null
+                                 : cumul ? tg.day * n : tg.day)),
+      borderColor: C.ink, backgroundColor: C.ink, borderWidth: 2,
+      borderDash: [6, 4], pointRadius: 0, tension: 0, spanGaps: true,
+    });
+  }
+
   const sold = xs.filter(x => x.total).length;
   // The month to date, which is the sum and not the last bar: with Cumulative
   // off the last bar is one day, and a heading that changed with a drawing
   // switch would be reporting the control rather than the month.
   const sum = xs.reduce((a, x) => a + x.total, 0);
+  // Against the target to date: a day's worth for each day of the month up to
+  // the last one on the chart, which is where the export stops.
+  const lastDay = Math.max(0, ...dayNo.filter((_, i) => onMonth[i]));
+  const due = tg && !tg.off ? tg.day * lastDay : 0;
   document.getElementById('dayTitle').textContent =
     `${D.months[0].label} - ${D.months[D.months.length - 1].label}`
     + `  \u00b7  ${f.label} ${num(sum)}`
+    + (due ? `  \u00b7  ${Math.round(sum / due * 100)}% of target to date`
+             + ` (${fmt(due)} of ${fmt(tg.month)})` : '')
     + `  \u00b7  ${sold} of ${xs.length} day${xs.length === 1 ? '' : 's'} sold`;
 
   // Drilling needs a level to drill into, and a level with something in it.
@@ -1622,7 +1680,9 @@ function drawDayTrend() {
       afterDatasetsDraw(ch) {
         if (!state.dayVals) return;
         const g = ch.ctx;
-        const last = ch.getDatasetMeta(ch.data.datasets.length - 1);
+        const bars = ch.data.datasets.map((d, i) => i)
+          .filter(i => ch.data.datasets[i].type !== 'line');
+        const last = ch.getDatasetMeta(bars[bars.length - 1]);
         g.save();
         g.fillStyle = C.ink2;
         g.font = '600 10px ui-sans-serif, system-ui, sans-serif';
@@ -1636,8 +1696,7 @@ function drawDayTrend() {
           const t = num(totals[i]);
           const w = g.measureText(t).width;
           if (bar.x - w / 2 < used + 4) return;
-          const top = Math.min(...ch.data.datasets
-            .map((_, d) => ch.getDatasetMeta(d).data[i].y));
+          const top = Math.min(...bars.map(d => ch.getDatasetMeta(d).data[i].y));
           g.fillText(t, bar.x, top - 4);
           used = bar.x + w / 2;
         });
@@ -1662,7 +1721,7 @@ function drawDayTrend() {
         const hit = this.getElementsAtEventForMode(
           e, 'nearest', { intersect: true }, true)[0] || els[0];
         const d = hit && this.data.datasets[hit.datasetIndex];
-        if (!d || !d.label) return;
+        if (!d || !d.label || d.type === 'line') return;
         const j = D.levels[sl].values.indexOf(d.label);
         if (j < 0) return;                     // the folded Other, not a member
         defer(() => setFilter(sl, j));
@@ -1720,7 +1779,20 @@ function drawDayTrend() {
        ? ` Click a band to keep only that ${D.levels[sl].name} - it narrows `
          + 'the page, so the chart below follows.'
        : '')
-    + ' Values puts the figure on every bar - they are not under the pointer.';
+    + ' Values puts the figure on every bar - they are not under the pointer.'
+    + (tg && !tg.off
+       ? ` The dashed line is the target: ${tg.version} (${tg.currency}) from `
+         + `${tg.file}, ${fmt(tg.month)} for the month in this slice, split to `
+         + 'the customer by the average of each product group\'s monthly '
+         + `customer mix over ${tg.mix.length} closed month(s) `
+         + `(${tg.mix.join(', ')}), and divided evenly over the month's `
+         + `${tg.days} calendar days`
+         + (cumul ? ' - with Cumulative on, the target to date.' : '.')
+       : tg && tg.off ? ` No target line: ${tg.off}.`
+       : ALL.target && f.key === 'qty' ? ' The target line is an amount, so it '
+         + 'is off while the figure is Qty.'
+       : ALL.target && pct ? ' The target line is off while the bars are a '
+         + 'share of each day.' : '');
 }
 
 function drawStack() {

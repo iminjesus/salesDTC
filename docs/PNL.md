@@ -713,6 +713,46 @@ month closes.
 export carries, which is normally the open one. `--no-days` leaves the card
 out, and it is absent anyway when the build had no order source.
 
+#### The target line
+
+A dashed line over the daily bars: the month's **Sokbo** from the DTC Blue
+File, in AUD, the newest `DTC_S*` workbook in `rawdata\` (`DTC_S0A_T0B_v1.xlsx`
+reads as S0A, October). `--target NAME` picks another cut, `--target-version`
+another column, `--no-target` leaves it off. `py tools\target.py` prints what it
+reads, product group by product group.
+
+The Blue File sets one number per product group. The daily chart is by
+customer too, so the build splits it:
+
+```
+product group target  x  that group's customer mix, averaged over the last six closed months
+```
+
+- **The mix** is each customer's share of the group's net sales in a month,
+  read off the same `profit_*` months the chart below draws (after the drops),
+  online (`E-STORE`) only, then averaged over the six months before the target
+  month - an average of the monthly shares, so one big month does not outweigh
+  the other five. A customer is the whole chain, Channel -> Type -> Portal
+  Group -> Type2.
+- **A day** is the month's target divided evenly over its calendar days - 31
+  for October. With **Cumulative** on it is the target to date, so the line and
+  the bars meet where the month is on plan.
+- **It is compared as it stands** with the bars: order value on the order date.
+
+Narrowing the page narrows the line, because it is a sum over the same names.
+It stops at **Div 3**: a target is set by product group, so narrowing to a
+Range, a SKU or a promotion takes the line off, and the hint says why. It is
+also off for **Qty** and for **% of bar**, which have no target.
+
+The heading adds how the month to date stands against the target to date (a
+day's worth for each day up to the last day on the chart).
+
+The Blue File rows map to Div 3 by `DIV3` in `tools/target.py` (TV -> TV,
+MON -> Monitor, SD -> AV, SMP -> Mobile, APS -> Accessories, ...). A group no
+Div 3 matches is still in the line while the product chain is not narrowed,
+and the build names it; so is a group with no sales in the six months, while
+the customer chain is not narrowed.
+
 #### The two sets share one index
 
 The months and the days are **unified together and then split into two
