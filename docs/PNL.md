@@ -616,28 +616,61 @@ out, since a dead button still costs a row of a menu that is already tall.
 
 ### The open month, day by day
 
-Above the monthly chart, its own card: **one bar a day** for the month the
-order export covers. October's orders exist while October's P&L does not, so
-it is a chart of its own rather than a narrower setting of the one below it -
-the monthly chart keeps the closed months and nothing about it changes.
+Above the monthly chart, its own card, **the same height**: one bar a day for
+the month the order export covers. October's orders exist while October's P&L
+does not, so it is a chart of its own rather than a narrower setting of the one
+below - the monthly chart keeps the closed months and nothing about it changes.
 
-It is **a different export**, which is why it is a different chart. The
-monthly chart is the profit export: gross sales, deduction, COGS, operating
-cost, operating profit. A profit export is a month with no day in it, so a
-daily chart cannot come from one. This comes from the order export (`orders_*`,
-SAP), which carries a date on every line - so its figures are **Order Value**
-and **Order Qty**, and there is no cost and no margin line on it.
+**The menu above drives both.** The narrowing, the split (Stack by), the
+Figure, Cumulative and Scale all apply to the daily chart as well, so there is
+one set of controls on the page and not two. The card's only button of its own
+is **Values**, which puts the figure on every bar - the monthly chart reveals
+its figures by expanding and this one has no expand. Nothing appears on hover,
+here as everywhere else on the page.
 
-What it shares with the page is the **narrowing and the split**: pick a Div 3,
-a customer, a channel, and both charts answer it; set Stack by to Product and
-both cut by the same level. What it keeps to itself is the **figure** and
-**Cumulative**, because an order's value and net sales are not the same number
-and one control moving both would be claiming they were. **Values** puts the
-figure on every bar - as everywhere else on this page, nothing appears on
-hover.
+Two things it cannot follow, and the hint says so when they are on:
 
-The heading carries the month to date (the sum, not the last bar, so it does
-not move when Cumulative is pressed) and how many of the days have sold.
+- **P&L** is a statement a day has no columns for, so the chart falls back to
+  the money figure.
+- **When ordered** is not a level: it cuts a month by where its orders came
+  from, and a day *is* the orders. The split stays on the level the drill is on.
+
+#### It is a different export
+
+The monthly chart is the profit export - gross sales, deduction, COGS,
+operating cost, operating profit. A profit export is a month with no day in it,
+so a daily chart cannot come from one. This comes from the order export
+(`orders_*`, SAP), which carries a date on every line, so its figures are
+**Order Value** and **Order Qty** and there is no cost and no margin line.
+
+The heading carries the month to date - the sum, not the last bar, so it does
+not move when Cumulative is pressed - and how many of the days have sold.
+
+#### Promotion, measured rather than allocated
+
+**Stack by Promo works on it**, and works better than it does on the month.
+The profit file carries no promotion, so the monthly chart has to spread each
+combination across the bands its orders came in on, in proportion to units -
+an allocation, and the doc says so where it is set up. A day *is* the orders,
+so each line's own band is the line's own band: the plan is asked what was live
+for that product on the day it was ordered, and that is the bar.
+
+Banded on the **order** date, not the despatch date, because the promotion was
+live when the customer bought - the same rule the month's banding runs on, so
+the two agree. The bands keep a fixed order and a fixed colour in both charts:
+the daily card sits directly over the monthly one, and a band that changed
+colour between them would read as two different things.
+
+Where no plan covers those days there is no band to split by, so the bars are
+drawn whole and the hint says why rather than showing one column labelled
+`(blank)`.
+
+#### The drops apply
+
+`--drop` takes its values out of the daily chart as well - Memory and the
+blanks by default. A chart that drew them on days and not on months would be
+two charts about two different businesses. The run says how many day rows went
+with them.
 
 #### Which day a line counts on
 
@@ -651,8 +684,7 @@ agreeing and not:
 
 `gi` is the default because the monthly bar is the revenue that left in the
 month, so despatch days are the days that sum to it. `made` asks the other
-question - demand as it arrived. The hint under the chart says which is
-showing rather than leaving it to be assumed.
+question - demand as it arrived.
 
 `--day-month YYMM` picks the month; the default is the latest month the order
 export carries, which is normally the open one. `--no-days` leaves the card
@@ -666,11 +698,11 @@ so narrowing to MX on the page narrows the daily chart to the same MX.
 Unified separately, index 7 of Biz would be two different businesses and the
 daily chart would quietly be about someone else.
 
-Each view also carries only **the figures its own export declared**. Left
-holding the union, a day has a column for Operating Profit full of zeroes -
-a P&L saying the day made nothing, rather than a day that was never asked -
-and each view titles itself from its own exports, or a page with closed months
-through September comes out called "Aug 2026 - 3 Oct Profit".
+Each view also carries only **the figures and the chains its own export
+declared**. Left holding the union, a day has a column for Operating Profit
+full of zeroes - a P&L saying the day made nothing, rather than a day that was
+never asked - and each view titles itself from its own exports, or a page with
+closed months through September comes out called "Aug 2026 - 3 Oct Profit".
 
 ### Month, quarter, year
 

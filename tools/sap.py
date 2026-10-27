@@ -226,7 +226,7 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
             # which day it means - the one the order arrived or the one it left
             # - and that is not this module's decision to make.
             if daily is not None:
-                daily(tuple(key), gi, made, which, qty, amt)
+                daily(tuple(key), gi, made, which, qty, amt, sku)
     return out if out.files else None
 
 

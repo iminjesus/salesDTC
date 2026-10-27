@@ -455,7 +455,7 @@ def campaign_watcher(plan, canon):
     return watch, tally
 
 
-def day_watcher(basis: str = 'gi'):
+def day_watcher(basis: str = 'gi', band_of=None, fold: dict | None = None):
     """A per-line hook that totals the order export by day on the chart's key.
 
     Which day a line belongs to is the whole question. The month chart's bar is
@@ -465,11 +465,18 @@ def day_watcher(basis: str = 'gi'):
     order intake, whose days do not add up to the month: an order placed on the
     30th that ships in November is in the day chart and not in the month's.
 
+    Where a plan was read, the promotion is part of the key here the way it
+    is on the month - but measured rather than allocated. The month has to
+    spread each combination across the bands its orders came in on, because
+    the profit file carries no promotion; a day is the orders, so the line's
+    own band is the line's own band.
+
     Returns (daily, tally) with tally {(day, key): [units, amount]}.
     """
     tally: dict = {}
+    fold = {} if fold is None else fold
 
-    def daily(key, gi, made, which, qty, amt):
+    def daily(key, gi, made, which, qty, amt, sku):
         day = gi if basis == 'gi' else made
         if day is None:
             return
@@ -477,6 +484,13 @@ def day_watcher(basis: str = 'gi'):
         # what has not left yet; on intake, what was ordered before the month.
         if which == (SAP.CARRIED_OUT if basis == 'gi' else SAP.CARRIED_IN):
             return
+        if band_of is not None:
+            # Banded on the day it was ordered, not the day it shipped: the
+            # promotion was live when the customer bought. That is the rule
+            # the month's own banding runs on, kept here so the two agree.
+            band, c1, c2 = band_of(sku, made)
+            band = fold.get(band, band)
+            key = key + (PROMO_LABEL.get(band, band), c1, c2)
         v = tally.setdefault((day.isoformat(), key), [0.0, 0.0])
         v[0] += qty
         v[1] += amt
@@ -485,6 +499,7 @@ def day_watcher(basis: str = 'gi'):
 
 
 def day_payloads(tally: dict, basis: str, ym: int, source: str,
+                 banded: bool = False, drops: dict | None = None,
                  say=print) -> list:
     """One payload per day, in the shape a month payload has.
 
@@ -496,7 +511,20 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
     """
     if not tally:
         return []
-    levels = CUST.LEVELS + PRODUCT_LEVELS
+    levels = FILTERS + (PROMO_LEVELS if banded else [])
+    # The same values the page leaves out of the months - Memory, the blanks,
+    # anything else --drop names. A chart that drew them on days and not on
+    # months would be two charts about two different businesses.
+    if drops:
+        gone = {k for k in tally
+                if any(k[1][n].strip().upper() in vs
+                       for n, vs in drops.items() if n < len(k[1]))}
+        for k in gone:
+            del tally[k]
+        if gone:
+            say(f'  --drop took out {len(gone):,} of the day rows as well')
+        if not tally:
+            return []
     names: list = [[] for _ in levels]
     index: list = [{} for _ in levels]
     for _, key in tally:
@@ -530,7 +558,7 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
             # No promotion chain and no carry-in on a day: both are answers
             # about a month, and the page switches those buttons off itself
             # when the levels are not there.
-            'promoAt': None,
+            'promoAt': PROMO_AT if banded else None,
             'carryIn': False,
             # Which day it is. The page says so under the chart, because the
             # answer decides whether the days add up to the month.
@@ -585,7 +613,11 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         return []
     say(f'\nthe daily chart, off {", ".join(f.name for f in months[want])} '
         f'({want}):')
-    daily, tally = day_watcher(args.day_basis)
+    bander = (None if args.no_promo
+              else promo_bander(folder, args.plan, say=lambda *a: None))
+    daily, tally = day_watcher(
+        args.day_basis, bander,
+        {} if args.promo_bands == 'all' else PROMO_FOLD)
     got = SAP.load(
         months[want], month=want, cust_levels=CUST.LEVELS,
         prod_levels=PRODUCT_LEVELS, customers=cust, products=prod,
@@ -597,7 +629,11 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         say('  the order export could not be read as orders')
         return []
     out = day_payloads(tally, args.day_basis, want,
-                       ', '.join(f.name for f in months[want]), say=say)
+                       ', '.join(f.name for f in months[want]),
+                       banded=bander is not None, drops=drop_rules(args),
+                       say=say)
+    if bander is None:
+        say('  no promotion plan, so the daily chart has no band on it')
     say(f'  {got.counted:,} of {got.lines:,} line(s) counted - the rest are '
         'another month, a marketplace, or rejected')
     return out

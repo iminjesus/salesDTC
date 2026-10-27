@@ -209,10 +209,6 @@ body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
   overflow: auto; box-shadow: 0 10px 40px rgba(0,0,0,.18); }
 .card.zoom .chart { height: calc(100vh - 160px) !important; }
 .hint { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
-/* The daily card. Shorter than the monthly chart: it is the month being
-   watched, not the thing the page is about, and a reader should take it in
-   without scrolling past it to reach the chart underneath. */
-#dayCard .plot { height: 260px; }
 #dayCard .legend .t { font-weight: 600; font-size: 13px; color: var(--ink-2); }
 /* The campaign's own days, over the page. A sheet rather than another card:
    it answers a question asked of one band and is done with, and the page
@@ -301,12 +297,10 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="chartHead">
       <div class="legend"><span class="t" id="dayTitle"></span></div>
       <div class="tools">
-        <span class="seg" id="dayFig"></span>
-        <button class="ctl" id="dayCumul" title="each bar is the running total up to and including it, so the last bar is the month to date">Cumulative</button>
         <button class="ctl" id="dayVals" title="the figure on every bar - they are here, not under the pointer">Values</button>
       </div>
     </div>
-    <div class="plot"><canvas id="dayTrendBars"></canvas></div>
+    <div class="chart" id="dayPlot"><canvas id="dayTrendBars"></canvas></div>
     <div class="hint" id="dayHint"></div>
   </div>
 
@@ -503,8 +497,11 @@ function viewOf(all, src, want) {
            // A day has no promotion chain and no carry-in, so the buttons that
            // need them switch themselves off on the day view - they read the
            // payload, not a flag set here.
-           promoAt: want ? null : all.promoAt,
-           dayBasis: want ? (src.find(m => !!m.d) || {}).dayBasis : null,
+           // Each view's own: the day export bands what it measured, the
+           // month export bands what it allocated, and neither inherits a
+           // chain the other has and it has not.
+           promoAt: (own.find(m => m.promoAt != null) || {}).promoAt ?? null,
+           dayBasis: want ? (own[0] || {}).dayBasis : null,
            file: one ? keep[0].file
                  : want
                    // Every day came out of one export, so the span is days.
@@ -648,11 +645,10 @@ const state = {
   // Which chart, if any, has the window to itself. Expanding is also what
   // turns the per-bar numbers on: that is the room they need.
   zoom: null,
-  // The daily chart above, which has its own figure and its own running total
-  // because it is a different export asking a different question. The split
-  // and the narrowing it shares with the page.
-  dayFig: 'gross',
-  dayCumul: false,
+  // The daily chart above follows the menu - the split, the narrowing, the
+  // figure, the running total, the scale - so there is one set of controls on
+  // the page and not two. Values is its own because the monthly chart reveals
+  // its figures by expanding and this one has no expand.
   dayVals: false,
 };
 
@@ -1470,8 +1466,10 @@ function draw() {
   // to stop there too.
   lastTable = { rows, dimName: lv.name };
   renderTable(top, lv.name, rows.length);
-  drawDayTrend();
+  // The monthly chart first: it sizes its own plot to the number of columns
+  // it has, and the daily card takes that height so the two stand the same.
   drawStack();
+  drawDayTrend();
 }
 
 /* Time on the x axis, the whole file in one chart.
@@ -1500,6 +1498,17 @@ let lastTable = null;
    charts answer it - and what it keeps to itself is the figure and the running
    total, because an order's value and net sales are not the same number and a
    control that moved both would be claiming they were. */
+/* The promotion bands keep a fixed order and a fixed colour, in both charts.
+   A band sorted by size moves between columns, and a bar whose parts change
+   places along a time axis cannot be read at all - and the daily chart sits
+   directly over the monthly one, so a band that changed colour between them
+   would be read as two different things. */
+const BAND_ORDER = ['DTC only', 'DTC + Nation-wide', 'Nation-wide only',
+                    '(no order matched)', 'Not in the plan', 'No promotion'];
+const BAND_COLOUR = { 'DTC only': 0, 'DTC + Nation-wide': 2,
+                      'Nation-wide only': 4, 'Not in the plan': 7,
+                      '(no order matched)': 7, 'No promotion': 8 };
+
 let dayTrend = null;
 function drawDayTrend() {
   const D = VIEWS.day;
@@ -1507,25 +1516,30 @@ function drawDayTrend() {
   if (!D || !D.months.length) { card.hidden = true; return; }
   card.hidden = false;
 
-  // Its figures are the order export's own, under the names it gave them.
+  // The menu's figure, read onto what an order export has. Money is money -
+  // the page's Net Amount is net sales and this is what the order was worth,
+  // which is why the heading names it rather than borrowing the menu's word.
+  // P&L is a statement a day has no columns for, so it falls to the money.
   const figs = D.series.map((x, i) => ({ key: x.key, label: x.label, at: i }));
-  const f = figs.find(x => x.key === state.dayFig) || figs[0];
-  state.dayFig = f.key;
-  const box = document.getElementById('dayFig');
-  box.innerHTML = '';
-  figs.forEach(x => {
-    const b = document.createElement('button');
-    b.className = 'ctl' + (x.key === state.dayFig ? ' active' : '');
-    b.textContent = x.label;
-    b.onclick = () => { state.dayFig = x.key; defer(render); };
-    box.appendChild(b);
-  });
-  document.getElementById('dayCumul').classList.toggle('active', state.dayCumul);
+  const f = figs.find(x => x.key === (state.stkFig === 'qty' ? 'qty' : 'gross'))
+            || figs[0];
+  const cumul = state.cumul;
+  const pct = state.stkScale === 'pct' && !(state.pnl && has.profit !== undefined);
   document.getElementById('dayVals').classList.toggle('active', state.dayVals);
 
   // The same level the chart below is cut by, so the two read together. The
   // levels are shared, so a narrowing set on one applies to both unchanged.
-  const sl = splitLevel() ?? null;
+  // "When ordered" is not a level - it cuts a month by where its orders came
+  // from, which is a question about a month - so the day chart stays on the
+  // level the drill is on and the hint says the split is the page's.
+  let sl = state.stack === 'orders' ? null : (splitLevel() ?? null);
+  // A level the day export cannot fill - a promotion band where no plan
+  // covered this month - would draw as one bar labelled (blank). Better to
+  // split by nothing and say why.
+  const fills = i => D.combos.some(c => !/^\(.*\)$/.test(
+    D.levels[i].values[c.k[i]]));
+  const unbanded = sl !== null && !fills(sl);
+  if (unbanded) sl = null;
   const xs = D.months.map(m => ({ name: m.label, row: new Map(), total: 0 }));
   const tot = new Map();
   for (const c of D.combos) {
@@ -1537,30 +1551,45 @@ function drawDayTrend() {
     x.total += v;
     tot.set(g, (tot.get(g) || 0) + v);
   }
-  const members = [...tot.entries()]
-    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
+  const onBands = sl !== null && D.promoAt != null && sl === D.promoAt;
+  const members = onBands
+    ? [...tot.keys()].sort((a, b) => {
+        const i = BAND_ORDER.indexOf(a), j = BAND_ORDER.indexOf(b);
+        return (i < 0 ? 99 : i) - (j < 0 ? 99 : j);
+      })
+    : [...tot.entries()]
+        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(e => e[0]);
   const named = members.slice(0, 8);
   const folded = members.length > 8;
   // Applied to the columns, as it is below: every bar is itself plus every
   // bar before it, so the last one is the month to date.
   const run = v => { let a = 0; return v.map(x => (a += x)); };
+  // Cumulative first, then the share, so a running total normalised to its
+  // own column still comes to a hundred.
   const of = g => {
-    const d = xs.map(x => x.row.get(g) || 0);
-    return state.dayCumul ? run(d) : d;
+    let d = xs.map(x => x.row.get(g) || 0);
+    if (cumul) d = run(d);
+    if (!pct) return d;
+    const base = cumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
+    return d.map((v, i) => (base[i] ? v / base[i] * 100 : 0));
   };
   const skin = (g, i) => ({
     label: g, stack: 'a', data: of(g),
-    backgroundColor: C.stack[i], borderRadius: 3, borderSkipped: false,
+    backgroundColor: onBands && BAND_COLOUR[g] !== undefined
+                     ? C.stack[BAND_COLOUR[g]] : C.stack[i],
+    borderRadius: 3, borderSkipped: false,
     borderWidth: 1, borderColor: C.surface, maxBarThickness: 40,
   });
   const datasets = named.map(skin);
   if (folded) {
     const rest = xs.map(x => named.reduce((a, g) => a - (x.row.get(g) || 0),
                                          x.total));
-    datasets.push({ ...skin(`Other (${members.length - 8})`, 8),
-                    data: state.dayCumul ? run(rest) : rest });
+    const base = cumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
+    let d = cumul ? run(rest) : rest;
+    if (pct) d = d.map((v, i) => (base[i] ? v / base[i] * 100 : 0));
+    datasets.push({ ...skin(`Other (${members.length - 8})`, 8), data: d });
   }
-  const totals = state.dayCumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
+  const totals = cumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
   const num = v => (f.key === 'qty' ? fmt(v) : fmt(v));
 
   const sold = xs.filter(x => x.total).length;
@@ -1572,6 +1601,12 @@ function drawDayTrend() {
     `${D.months[0].label} - ${D.months[D.months.length - 1].label}`
     + `  \u00b7  ${f.label} ${num(sum)}`
     + `  \u00b7  ${sold} of ${xs.length} day${xs.length === 1 ? '' : 's'} sold`;
+
+  // The same height as the chart below, taken from it rather than guessed, so
+  // the pair reads as one page however many columns the months come to.
+  const mine = document.getElementById('dayPlot');
+  const his = document.getElementById('stkPlot');
+  mine.style.height = his.style.height || '';
 
   if (dayTrend) dayTrend.destroy();
   dayTrend = new Chart(document.getElementById('dayTrendBars'), {
@@ -1589,11 +1624,19 @@ function drawDayTrend() {
         g.fillStyle = C.ink2;
         g.font = '600 10px ui-sans-serif, system-ui, sans-serif';
         g.textAlign = 'center';
+        // A month of bars is narrower than the figures over it, so a label
+        // that would land on the one before it is left off rather than drawn
+        // into it - two numbers overlapping are worse than one missing.
+        let used = -Infinity;
         last.data.forEach((bar, i) => {
           if (!totals[i]) return;
+          const t = num(totals[i]);
+          const w = g.measureText(t).width;
+          if (bar.x - w / 2 < used + 4) return;
           const top = Math.min(...ch.data.datasets
             .map((_, d) => ch.getDatasetMeta(d).data[i].y));
-          g.fillText(num(totals[i]), bar.x, top - 4);
+          g.fillText(t, bar.x, top - 4);
+          used = bar.x + w / 2;
         });
         g.restore();
       },
@@ -1624,7 +1667,21 @@ function drawDayTrend() {
   document.getElementById('dayHint').textContent =
     `${f.label} a day, off ${D.file.split(', ').pop()}`
     + (sl === null ? '' : `, split by ${D.levels[sl].name}`)
-    + '. This is the order export, not the profit one, so it has order value '
+    + (pct ? ', every day normalised to its own total - the mix, not the size'
+           : '')
+    + (cumul ? ', each bar itself plus every day before it' : '')
+    + '. The menu above drives this chart too - the narrowing, the split, the '
+    + 'figure, Cumulative and Scale. '
+    + (state.stack === 'orders'
+       ? 'When ordered is the one it cannot follow: it cuts a month by where '
+         + 'its orders came from, and a day is the orders. The split here '
+         + 'stays on the level the drill is on. '
+       : '')
+    + (unbanded
+       ? 'No plan covers these days, so there is no band to split them by and '
+         + 'they are drawn whole. '
+       : '')
+    + 'This is the order export, not the profit one, so it has order value '
     + 'and units and no cost: the month below it is closed sales, this is the '
     + 'month being watched. '
     + (D.dayBasis === 'made'
@@ -1633,8 +1690,7 @@ function drawDayTrend() {
          + 'the last day and shipped later is here and not in that month.'
        : 'A day is the day each order left, so once the month closes these '
          + 'days add up to its revenue.')
-    + ' It answers the same narrowing as the chart below, and Values puts the '
-    + 'figure on every bar - they are not under the pointer.';
+    + ' Values puts the figure on every bar - they are not under the pointer.';
 }
 
 function drawStack() {
@@ -1849,8 +1905,6 @@ function drawStack() {
   // On the promotion band level the order is the drawing's, not the data's: a
   // band sorted by size moves between months, and a bar whose parts change
   // places month to month cannot be read along a time axis at all.
-  const BAND_ORDER = ['DTC only', 'DTC + Nation-wide', 'Nation-wide only',
-                      '(no order matched)', 'Not in the plan', 'No promotion'];
   const onBands = sl !== undefined && DATA.promoAt != null
                   && sl === DATA.promoAt;
   const members = ordMode
@@ -1873,12 +1927,6 @@ function drawStack() {
   const scale = vals => (pctMode
     ? vals.map((v, i) => (xs[i].total ? v / xs[i].total * 100 : 0))
     : vals);
-  // In orders mode the two bands mean something fixed, so they keep a fixed
-  // pair of colours rather than taking whichever slot they sorted into.
-  // The unmatched band takes the palette's neutral slot, which is what it is.
-  const BAND_COLOUR = { 'DTC only': 0, 'DTC + Nation-wide': 2,
-                        'Nation-wide only': 4, 'Not in the plan': 7,
-                        '(no order matched)': 7, 'No promotion': 8 };
   const bandColour = (i, g) => (
     ordMode ? [C.stack[0], C.stack[4], C.stack[8]][i]
     : onBands && BAND_COLOUR[g] !== undefined ? C.stack[BAND_COLOUR[g]]
@@ -2629,8 +2677,6 @@ document.getElementById('resetBtn').onclick = () => {
   });
 document.getElementById('cumulBtn').onclick = () => {
   state.cumul = !state.cumul; render(); };
-document.getElementById('dayCumul').onclick = () => {
-  state.dayCumul = !state.dayCumul; render(); };
 document.getElementById('dayVals').onclick = () => {
   state.dayVals = !state.dayVals; render(); };
 document.getElementById('pnlBtn').onclick = () => {
