@@ -213,6 +213,9 @@ body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
 /* The achievement tree. Indent says depth and weight says level, so Biz reads
    as a heading over its divisions rather than as another row like them. */
 #achBox td.tree { text-align: left; }
+#achBox td.tree[data-kids="1"] { cursor: pointer; }
+#achBox td.tree .tw { display: inline-block; width: 14px; color: var(--ink-3);
+                      font-size: 10px; }
 #achBox td.d0 { font-weight: 600; }
 #achBox td.d1 { padding-left: 22px; }
 #achBox td.d2 { padding-left: 40px; color: var(--ink-2); }
@@ -317,6 +320,12 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
        The chart says whether the month is on plan; this says which products
        are carrying it and which are behind. -->
   <div class="card" id="achCard" hidden>
+    <div class="chartHead">
+      <div class="legend"><span class="t" id="achTitle"></span></div>
+      <div class="tools">
+        <button class="ctl" id="achAll" title="every level at once, down to the product group the target is set at">Expand all</button>
+      </div>
+    </div>
     <div id="achBox"></div>
     <div class="hint" id="achHint"></div>
   </div>
@@ -671,6 +680,12 @@ const state = {
   // The achievement table under the daily chart. Off by default, like the
   // other tables: the page is the charts.
   ach: false,
+  // Which branches of it are open. A Blue File names seventeen product
+  // groups, so the tree opens to the divisions and the rest is a click - and
+  // what is held is the rows that differ from that default, by name, so the
+  // open ones survive a narrowing and a redraw.
+  achFlip: new Set(),
+  achAll: false,
 };
 
 /* Where the drill starts: one channel - the online business - with everything
@@ -1609,18 +1624,36 @@ function drawAch(D, lastDay, money) {
     add(li.map(i => D.levels[i].values[c.k[i]]), 'actual', c.v[money] || 0);
   }
 
-  // Flattened, with the repeats folded away.
+  // Flattened, with the repeats folded away and the shut branches left out.
+  // A Blue File names seventeen product groups, so the tree opens to the
+  // divisions and the rest is a click; Expand all drops that floor.
+  const shownTo = state.achAll ? 99 : 1;
+  const open = (key, depth) =>
+    (depth < shownTo) !== state.achFlip.has(key);
   const list = [];
-  const walk = (node, depth, above) => {
+  const walk = (node, depth, above, path) => {
     const kids = [...node.kids.values()]
       .sort((a, b) => b.target - a.target || b.actual - a.actual);
     for (const k of kids) {
-      if (k.name === above) { walk(k, depth, above); continue; }
-      list.push({ name: k.name, depth, target: k.target, actual: k.actual });
-      walk(k, depth + 1, k.name);
+      // A level repeating the one above it is not a step, so it is not a
+      // branch either: its children belong to the row already drawn.
+      if (k.name === above) { walk(k, depth, above, path); continue; }
+      const key = path + '\u0001' + k.name;
+      // Whether it has anything under it, once the repeats are folded: a row
+      // with one fold and nothing else is a leaf however deep the key goes.
+      let under = k;
+      while (under.kids.size === 1
+             && [...under.kids.values()][0].name === under.name) {
+        under = [...under.kids.values()][0];
+      }
+      const kids2 = under.kids.size > 0;
+      const up = kids2 && open(key, depth);
+      list.push({ name: k.name, depth, target: k.target, actual: k.actual,
+                  key, kids: kids2, open: up });
+      if (up) walk(k, depth + 1, k.name, key);
     }
   };
-  walk(root, 0, null);
+  walk(root, 0, null, '');
 
   const days = T.days || 0;
   const share = days ? lastDay / days : 0;      // of the month that has run
@@ -1642,7 +1675,11 @@ function drawAch(D, lastDay, money) {
 
   const pc = v => (v == null ? '-' : v.toFixed(0) + '%');
   const line = r => [
-    `<td class="tree d${r.depth}">${r.name}</td>`,
+    `<td class="tree d${r.depth}"${r.key === undefined ? '' :
+      ` data-k="${r.key.replace(/"/g, '&quot;')}" data-kids="${
+        r.kids ? 1 : 0}"`}><span class="tw">${
+      r.kids === undefined ? '' : r.kids ? (r.open ? '\u25be' : '\u25b8')
+                                         : ''}</span>${r.name}</td>`,
     `<td>${fmt(r.target)}</td>`,
     `<td>${fmt(r.due)}</td>`,
     `<td>${fmt(r.actual)}</td>`,
@@ -1651,6 +1688,14 @@ function drawAch(D, lastDay, money) {
   const head = ['Product', 'Target (month)',
                 `Target to ${lastDay} ${MON[T.ym % 100]}`, 'Actual to date',
                 'Achievement'];
+  document.getElementById('achTitle').textContent =
+    `Achievement  \u00b7  ${MON[T.ym % 100]} ${Math.floor(T.ym / 100)}  `
+    + `\u00b7  ${T.version} (${T.currency})  \u00b7  `
+    + `${tot.ach == null ? '-' : Math.round(tot.ach) + '%'} to ${lastDay} `
+    + MON[T.ym % 100];
+  document.getElementById('achAll').classList.toggle('active', state.achAll);
+  document.getElementById('achAll').textContent =
+    state.achAll ? 'Collapse' : 'Expand all';
   document.getElementById('achBox').innerHTML = `<table>
     <thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead>
     <tbody>${list.map(r => `<tr class="d${r.depth}">${line(r)}</tr>`)
@@ -2962,6 +3007,19 @@ document.getElementById('cumulBtn').onclick = () => {
   state.cumul = !state.cumul; render(); };
 document.getElementById('achBtn').onclick = () => {
   state.ach = !state.ach; render(); };
+document.getElementById('achAll').onclick = () => {
+  state.achAll = !state.achAll; state.achFlip.clear(); render(); };
+// One handler on the table rather than one per row: the table is rebuilt on
+// every render, and handlers attached to rows that no longer exist are how a
+// page comes to leak a listener a second.
+document.getElementById('achBox').onclick = e => {
+  const td = e.target.closest('td.tree');
+  if (!td || !td.dataset.k || td.dataset.kids !== '1') return;
+  const k = td.dataset.k;
+  if (state.achFlip.has(k)) state.achFlip.delete(k);
+  else state.achFlip.add(k);
+  render();
+};
 document.getElementById('dayVals').onclick = () => {
   state.dayVals = !state.dayVals; render(); };
 document.getElementById('pnlBtn').onclick = () => {

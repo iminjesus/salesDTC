@@ -694,16 +694,23 @@ Biz `CE` is a step; Div 2 `REF` under Div 1 `REF` is the same thing said twice,
 and the drill skips those for the same reason.
 
 ```
-CE          400,000   348,387   283,000    81%
-  DA        200,000   174,194   225,500   129%
-    REF     120,000   104,516   131,000   125%
-    WM       80,000    69,677    94,500   136%
-  VD        200,000   174,194    57,500    33%
-    TV      200,000   174,194    57,500    33%
-MX           50,000    43,548   106,200   244%
-  Mobile     50,000    43,548   106,200   244%
-Total       450,000   391,935   389,200    99%
+▾ CE        400,000   348,387   283,000    81%
+  ▸ DA      200,000   174,194   225,500   129%
+  ▸ VD      200,000   174,194    57,500    33%
+▾ MX         50,000    43,548   106,200   244%
+    Mobile   50,000    43,548   106,200   244%
+  Total     450,000   391,935   389,200    99%
 ```
+
+**It opens to the divisions**, because a Blue File names up to seventeen
+product groups and a table that long is scrolled past rather than read. Click
+a row to open it; **Expand all** drops the floor and opens everything. What is
+held is the rows that *differ* from that default, by name, so a branch left
+open survives a narrowing, a redraw and a figure change.
+
+A row only gets a marker if there is something under it once the repeats are
+folded: `Mobile` above is Div 2 and Div 3 both, so it is a leaf however deep
+the tree goes under it.
 
 There is no projected-achievement column and there cannot be one: the target
 is spread evenly over the days, so projecting the month at the rate so far and
