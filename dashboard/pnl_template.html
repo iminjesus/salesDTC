@@ -48,11 +48,18 @@
 body { margin: 0; background: var(--page); color: var(--ink);
   font: 14px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
         "Malgun Gothic", sans-serif; }
-.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
-h1 { font-size: 20px; margin: 0 0 2px; }
-.sub { color: var(--ink-3); font-size: 12px; margin-bottom: 16px; }
+/* The chart is the page, so it gets the monitor. Capped, because a bar
+   chart two metres wide is not more readable than one, and the cap is high
+   enough that a wide screen stops being mostly margin. */
+.wrap { max-width: min(1760px, 97vw); margin: 0 auto;
+  padding: 14px 18px 36px; }
+/* The title and the menu are the frame, not the content: one line each. */
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+  margin-bottom: 8px; }
+h1 { font-size: 17px; margin: 0; }
+.sub { color: var(--ink-3); font-size: 12px; margin: 0; }
 .card { background: var(--surface); border: 1px solid var(--line);
-  border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; }
 .row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-end; }
 label.f { display: flex; flex-direction: column; gap: 3px; font-size: 11px;
   color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
@@ -72,12 +79,14 @@ select:disabled { opacity: .5; }
 .seg .btn { border-radius: 0; margin-left: -1px; }
 .seg .btn:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
 .seg .btn:last-child { border-radius: 0 7px 7px 0; }
-.scope { font-size: 12px; color: var(--ink-3); margin: 10px 0 0; }
+.scope { font-size: 12px; color: var(--ink-3); margin: 7px 0 0; }
 /* A chain is one line: its levels in order, each a name and its members. The
    members are joined into a block so a level reads as one control and four of
    them fit across, rather than taking four rows of their own. */
-.chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
-  padding: 6px 0; }
+#filters { border-top: 1px solid var(--line); margin-top: 7px;
+  padding-top: 3px; }
+.chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
+  padding: 4px 0; }
 .chain + .chain { border-top: 1px solid var(--grid); }
 .chainName { flex: none; width: 60px; font-size: 11px; color: var(--ink-3);
   text-transform: uppercase; letter-spacing: .04em; }
@@ -116,13 +125,15 @@ select:disabled { opacity: .5; }
 .pop .none { font-size: 12px; color: var(--ink-3); padding: 7px 8px 3px; }
 /* The view switches run beside their captions rather than under them - stacked,
    they cost the menu a line of height for every control. */
-.bar { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 11px;
-  gap: 7px 14px; align-items: center; }
-.bar label.f { flex-direction: row; align-items: center; gap: 7px; }
-.bar .btn { padding: 4px 9px; font-size: 13px; }
+.bar { gap: 5px 10px; align-items: center; }
+.bar.under { border-top: 1px solid var(--line); margin-top: 7px;
+  padding-top: 8px; }
+.bar label.f { flex-direction: row; align-items: center; gap: 5px; }
+.bar label.f > span:first-child { font-size: 10px; }
+.bar .btn { padding: 3px 8px; font-size: 12.5px; }
 .bar .vals { display: inline-flex; }
 .crumb { display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
-  font-size: 13px; margin-bottom: 12px; }
+  font-size: 13px; margin: 0 0 7px; }
 .crumb button { background: none; border: 0; color: var(--accent);
   cursor: pointer; font: inherit; padding: 2px 5px; border-radius: 5px; }
 .crumb button:hover { background: var(--grid); }
@@ -257,14 +268,19 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
 </head>
 <body>
 <div class="wrap">
-  <h1 id="pageTitle">Profit</h1>
-  <div class="sub" id="pageSub"></div>
+  <div class="head">
+    <h1 id="pageTitle">Profit</h1>
+    <div class="sub" id="pageSub"></div>
+  </div>
 
-  <!-- One menu for the page: the levels, then how they are drawn. -->
+  <!-- One menu for the page: how it is drawn, with the levels behind a
+       switch. They are eight rows of buttons and they are not what a reader
+       looks at - the breadcrumb above says what is narrowed, and clicking a
+       bar is the usual way to narrow it. -->
   <div class="card">
     <div class="crumb" id="crumb"></div>
-    <div id="filters"></div>
     <div class="row bar">
+      <button class="btn" id="filterBtn" title="the levels, to narrow by hand - clicking a bar does the same thing">Filters</button>
       <button class="btn" id="backBtn">&larr; Back</button>
       <label class="f" id="stackBox"><span>Stack by</span><span class="seg">
         <button class="btn" id="stkCust">Customer</button
@@ -287,7 +303,22 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <button class="btn" id="xlsBtn" title="the figures behind this view as a workbook - the chart, the table, and the narrowing in force">Excel</button>
       <button class="btn" id="resetBtn">Reset</button>
     </div>
+    <div id="filters" hidden></div>
     <div class="scope" id="scope"></div>
+  </div>
+
+  <!-- The same month against the same target, by product rather than by day.
+       The chart says whether the month is on plan; this says which products
+       are carrying it and which are behind. -->
+  <div class="card" id="achCard" hidden>
+    <div class="chartHead">
+      <div class="legend"><span class="t" id="achTitle"></span></div>
+      <div class="tools">
+        <button class="ctl" id="achAll" title="every level at once, down to the product group the target is set at">Expand all</button>
+      </div>
+    </div>
+    <div id="achBox"></div>
+    <div class="hint" id="achHint"></div>
   </div>
 
   <!-- What the slice sold at, beside what it was meant to sell at. Above the
@@ -314,20 +345,6 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     </div>
     <div class="chart" id="dayPlot"><canvas id="dayTrendBars"></canvas></div>
     <div class="hint" id="dayHint"></div>
-  </div>
-
-  <!-- The same month against the same target, by product rather than by day.
-       The chart says whether the month is on plan; this says which products
-       are carrying it and which are behind. -->
-  <div class="card" id="achCard" hidden>
-    <div class="chartHead">
-      <div class="legend"><span class="t" id="achTitle"></span></div>
-      <div class="tools">
-        <button class="ctl" id="achAll" title="every level at once, down to the product group the target is set at">Expand all</button>
-      </div>
-    </div>
-    <div id="achBox"></div>
-    <div class="hint" id="achHint"></div>
   </div>
 
   <div class="card" id="stkCard">
@@ -672,6 +689,10 @@ const state = {
   // Which chart, if any, has the window to itself. Expanding is also what
   // turns the per-bar numbers on: that is the room they need.
   zoom: null,
+  // The levels, open or shut. Shut by default: they are eight rows of buttons
+  // at the top of a page whose content is underneath them, the breadcrumb
+  // already says what is narrowed, and clicking a bar narrows it anyway.
+  filters: false,
   // The daily chart above follows the menu - the split, the narrowing, the
   // figure, the running total, the scale - so there is one set of controls on
   // the page and not two. Values is its own because the monthly chart reveals
@@ -679,7 +700,7 @@ const state = {
   dayVals: false,
   // The achievement table under the daily chart. Off by default, like the
   // other tables: the page is the charts.
-  ach: false,
+  ach: true,
   // Which branches of it are open. A Blue File names seventeen product
   // groups, so the tree opens to the divisions and the rest is a click - and
   // what is held is the rows that differ from that default, by name, so the
@@ -1143,7 +1164,16 @@ function setFilter(i, v) {
 const BTN_MAX = 8;
 function buildFilters() {
   const box = document.getElementById('filters');
+  box.hidden = !state.filters;
+  const b = document.getElementById('filterBtn');
+  b.classList.toggle('active', state.filters);
+  // A narrowing set from a bar click is not visible while the levels are
+  // shut, and the breadcrumb says which - but the count says how many at a
+  // glance, which is what a reader checks before reading a figure.
+  const on = state.filter.filter(v => v >= 0).length;
+  b.textContent = on ? `Filters (${on})` : 'Filters';
   box.innerHTML = '';
+  if (!state.filters) return;
   [['Customer', CHAINS.customer], ['Product', CHAINS.product],
    ['Promotion', CHAINS.promo || []]]
     .filter(([, ids]) => ids.length)
@@ -1224,14 +1254,12 @@ function render() {
   const gone = DATA.dropped && DATA.dropped.length ? DATA.dropped : null;
   const left = gone
     ? ` <span class="gone">Not in this page — ${gone.join('; ')}.</span>` : '';
-  document.getElementById('scope').innerHTML = (picked.length
-    ? 'Showing <b>' + picked.join('</b> · <b>') + '</b>'
-      + (state.filter[0] >= 0
-          ? ` — set ${DATA.levels[0].name} to All to step up and compare the rest.`
-          : '')
-    // "Everything in the file" is not true of a build that left something out,
-    // and the sentence that says so is right beside it.
-    : `Showing everything${gone ? ' else' : ''} in the file.`) + left;
+  // What was left out of the build, and nothing else: the breadcrumb above
+  // already says what is narrowed, and saying it twice is a line of text at
+  // the top of a page whose content is underneath it.
+  const scope = document.getElementById('scope');
+  scope.innerHTML = left.trim();
+  scope.hidden = !left.trim();
 
   /* The path taken so far: every level narrowed to one value, then the level
      the bars are on. Clicking a step goes back to it. */
@@ -1708,23 +1736,20 @@ function drawAch(D, lastDay, money) {
   // letting a reader add the column up and believe it.
   const whole = T.rows.reduce((a, r) => a + r.v, 0);
   const left = Math.round(whole - tot.target);
-  document.getElementById('achHint').textContent = (outside.length
-    ? `${outside.join(' and ')} ${outside.length > 1 ? 'are' : 'is'} narrowed, `
-      + 'and the target is set by product group, not below it - so there is no '
-      + 'target to compare this slice against and only the actuals are shown.'
-    : 'Achievement = the month to date over the target to date, which is '
-      + `${T.version} (${T.currency}) divided evenly over the ${T.days} days `
-      + `of the month and taken to ${lastDay} - where the export stops. `
-      + 'Actual is order value off the order export, so it is demand placed, '
-      + 'not revenue booked; the target is an amount, so this table stays on '
-      + 'money whatever figure the chart is showing. Each row carries its own '
-      + 'children, so a division is its groups added up and the total is the '
-      + 'tree, not the column. The narrowing applies to both sides.')
-    + (left > 0 && !outside.length
-       ? ` ${fmt(left)} of the month's ${fmt(whole)} target is not in this `
-         + 'table: a product group with no match in the data, or one the '
-         + 'customer mix could not place - the build names them.'
-       : '');
+  const an = [];
+  if (outside.length) {
+    an.push(`${outside.join(' and ')} ${outside.length > 1 ? 'are' : 'is'} `
+            + 'narrowed, and the target is set by product group, not below '
+            + 'it - so there is nothing to compare this slice against and '
+            + 'only the actuals are shown.');
+  } else if (left > 0) {
+    an.push(`${fmt(left)} of the month's ${fmt(whole)} target is not in this `
+            + 'table: a product group with no match in the data, or one the '
+            + 'customer mix could not place.');
+  }
+  const ah = document.getElementById('achHint');
+  ah.textContent = an.join(' ');
+  ah.hidden = !an.length;
 }
 
 let dayTrend = null;
@@ -1972,53 +1997,25 @@ function drawDayTrend() {
     },
   });
 
-  document.getElementById('dayHint').textContent =
-    `${f.label} a day, off ${D.file.split(', ').pop()}`
-    + (sl === null ? '' : `, split by ${D.levels[sl].name}`)
-    + (pct ? ', every day normalised to its own total - the mix, not the size'
-           : '')
-    + (cumul ? ', each bar itself plus every day before it' : '')
-    + '. The menu above drives this chart too - the narrowing, the split, the '
-    + 'figure, Cumulative and Scale. '
-    + (state.stack === 'orders'
-       ? 'When ordered is the one it cannot follow: it cuts a month by where '
-         + 'its orders came from, and a day is the orders. The split here '
-         + 'stays on the level the drill is on. '
-       : '')
-    + (unbanded
-       ? 'No plan covers these days, so there is no band to split them by and '
-         + 'they are drawn whole. '
-       : '')
-    + 'This is the order export, not the profit one, so it has order value '
-    + 'and units and no cost: the month below it is closed sales, this is the '
-    + 'month being watched. '
-    + (D.dayBasis === 'made'
-       ? 'A day is the day each order was placed - demand as it arrived - so '
-         + 'these days do not add up to a month of revenue: an order placed on '
-         + 'the last day and shipped later is here and not in that month.'
-       : 'A day is the day each order left, so once the month closes these '
-         + 'days add up to its revenue.')
-    + (D.asof ? ` The export was taken ${D.asof}, so it stops there: past `
-                + 'that a despatch date is a plan and an order has not been '
-                + 'placed yet.' : '')
-    + (canDrill
-       ? ` Click a band to keep only that ${D.levels[sl].name} - it narrows `
-         + 'the page, so the chart below follows.'
-       : '')
-    + ' Values puts the figure on every bar - they are not under the pointer.'
-    + (tg && !tg.off
-       ? ` The dashed line is the target: ${tg.version} (${tg.currency}) from `
-         + `${tg.file}, ${fmt(tg.month)} for the month in this slice, split to `
-         + 'the customer by the average of each product group\'s monthly '
-         + `customer mix over ${tg.mix.length} closed month(s) `
-         + `(${tg.mix.join(', ')}), and divided evenly over the month's `
-         + `${tg.days} calendar days`
-         + (cumul ? ' - with Cumulative on, the target to date.' : '.')
-       : tg && tg.off ? ` No target line: ${tg.off}.`
-       : ALL.target && f.key === 'qty' ? ' The target line is an amount, so it '
-         + 'is off while the figure is Qty.'
-       : ALL.target && pct ? ' The target line is off while the bars are a '
-         + 'share of each day.' : '');
+  // Only what would be misread without it: where the export stops, a plan
+  // that does not cover these days, and a target that is off.
+  const dn = [];
+  if (D.asof) {
+    dn.push(`The export was taken ${D.asof} and stops there - a short last `
+            + 'week is the file ending, not demand.');
+  }
+  if (unbanded) {
+    dn.push('No plan covers these days, so there is no band to split them by '
+            + 'and they are drawn whole.');
+  }
+  if (tg && tg.off) dn.push(`No target line: ${tg.off}.`);
+  else if (!tg && ALL.target) {
+    dn.push('The target is an amount, so the line is off while the bars are '
+            + (pct ? 'a share of each day.' : 'a quantity.'));
+  }
+  const dh = document.getElementById('dayHint');
+  dh.textContent = dn.join(' ');
+  dh.hidden = !dn.length;
 }
 
 function drawStack() {
@@ -2551,81 +2548,35 @@ function drawStack() {
     },
   });
 
-  document.getElementById('stkHint').textContent =
-    (ordMode
-      ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}, `
-        + `split by when the order behind it was placed, with what no order `
-        + 'could be matched to in grey - so the bar comes to the same total as '
-        + 'every other way of stacking it. What the month ships but has not '
-        + 'sold yet is not here: it is next month\'s.'
-        + (() => {
-            const blind = DATA.months.filter(m => !m.carryIn).map(m => m.label);
-            return blind.length
-              ? ` ${blind.join(', ')} ${blind.length > 1 ? 'are' : 'is'} empty: `
-                + 'the month before was not read, so how much came in is '
-                + 'unknown rather than nil.'
-              : '';
-          })()
-      : pnlMode
-      ? `${label('gross')} beside what it went out on, by ${PER}. Costs are `
-        + 'drawn as amounts, and each block carries what it is worth as a '
-        + `share of ${denom} - the same denominator as the line, so the bar `
-        + 'and the line are read together. Expand adds the amount under it.'
-      : sl === undefined
-        ? `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}. `
-          + `Every ${state.stack} level is narrowed to one value, so there is `
-          + 'nothing left to split by - step one back to bring a split back.'
-        : `${(figs.find(x => x.key === state.stkFig) || {}).label} by ${PER}, `
-          + `each split by ${DATA.levels[sl].name}`
-          + (sl === DATA.promoAt
-             ? '. The bands do not contain each other: DTC + Nation-wide is '
-               + 'the DTC business that had a nationwide campaign over it as '
-               + 'well, DTC only is the business that did not, and all of the '
-               + 'DTC business is the two together'
-             : '')
-          + (pctMode ? `, every ${PER} normalised to its own total - the mix, `
-                       + 'not the size. Expand keeps the amount behind each '
-                       + 'share'
-                     : '')
-          + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
-                      + `have a colour of their own, the same colour in every `
-                      + `${PER}; the rest are folded into Other.` : '.'))
-    + (state.cumul ? ` Running totals: every bar is itself plus everything `
-                     + `before it, so the last one is the whole span.` : '')
-    + (hasLine ? ` The solid line is ${label('profit')} over ${denom} for the `
-                 + 'whole slice, each point carrying its own figure'
-                 + (pnlMode ? '.'
-                    : '; the dotted lines are the same margin for each band, in '
-                      + 'the band\'s own colour - two bands the same size can '
-                      + 'be a long way apart on it.') : '')
-    + (overCap ? ` ${overCap} point${overCap > 1 ? 's' : ''} over `
-                 + `${MARGIN_CAP}% ${overCap > 1 ? 'are' : 'is'} left off: `
-                 + 'profit cannot be most of net sales, so a margin that high '
-                 + 'is a tiny base rather than a result, and drawn it would '
-                 + 'own the axis.' : '')
-    + (tooSmall ? ` A band under ${(LINE_FLOOR * 100).toFixed(1)}% of its `
-                  + `${PER} keeps its bar and loses its margin point - `
-                  + `${tooSmall} of them - because a ratio over almost nothing `
-                  + 'swings by hundreds of points and says nothing.' : '')
-    + (canDrill ? ` Click a band to keep only that ${DATA.levels[sl].name}`
-                  + (slNext === null ? '.'
-                     // Where the split lands depends on the band: inside MX,
-                     // Div 1 and Div 2 are MX again and the drill goes past
-                     // them. Naming only the next level would be wrong for
-                     // half the bands, and saying neither would hide the rule.
-                     : `; the split then steps down to `
-                       + DATA.levels[slNext].name
-                       + (chain.indexOf(slNext) < chain.length - 1
-                          ? ', or past it where it holds one value.' : '.'))
-                : '')
-    // Two gestures on the legend, and neither is guessable, so both are said.
-    + ' A legend entry takes its band out of the bars; double-click one to keep'
-    + ' only that band.'
-    // The chart says nothing under the pointer, which reads as broken unless
-    // the page says where the figures are instead.
-    + (state.zoom === 'stk' ? ''
-       : ' The bars carry no figures on hover - Expand labels every one of '
-         + 'them.');
+  // What the chart is not showing, and nothing about how to read it. A
+  // caption under every chart is a page a reader scrolls past; a line that
+  // appears only when something has been left out is one they believe.
+  const notes = [];
+  if (ordMode) {
+    const blind = DATA.months.filter(m => !m.carryIn).map(m => m.label);
+    if (blind.length) {
+      notes.push(`${blind.join(', ')}: the month before was not read, so what `
+                 + 'came in is unknown rather than nil and is left empty.');
+    }
+  }
+  if (folded) {
+    notes.push(`The eight biggest ${DATA.levels[sl].name.toLowerCase()}s have `
+               + 'a colour of their own; the rest are folded into Other.');
+  }
+  if (overCap) {
+    notes.push(`${overCap} margin point${overCap > 1 ? 's' : ''} over `
+               + `${MARGIN_CAP}% left off: that high is a tiny base rather `
+               + 'than a result, and drawn it would own the axis.');
+  }
+  if (tooSmall) {
+    notes.push(`${tooSmall} band${tooSmall > 1 ? 's' : ''} under `
+               + `${(LINE_FLOOR * 100).toFixed(1)}% of ${PER} keep the bar and `
+               + 'lose the margin point - a ratio over almost nothing swings '
+               + 'by hundreds of points.');
+  }
+  const hint = document.getElementById('stkHint');
+  hint.textContent = notes.join(' ');
+  hint.hidden = !notes.length;
 }
 
 /* The two counts side by side, one pair per member of the level the bars are
@@ -3007,6 +2958,8 @@ document.getElementById('cumulBtn').onclick = () => {
   state.cumul = !state.cumul; render(); };
 document.getElementById('achBtn').onclick = () => {
   state.ach = !state.ach; render(); };
+document.getElementById('filterBtn').onclick = () => {
+  state.filters = !state.filters; render(); };
 document.getElementById('achAll').onclick = () => {
   state.achAll = !state.achAll; state.achFlip.clear(); render(); };
 // One handler on the table rather than one per row: the table is rebuilt on

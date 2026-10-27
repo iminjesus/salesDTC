@@ -81,6 +81,26 @@ with the worst gap it was checked to:
 
 On a 251-column, 11,573-row export the whole run takes about ten seconds.
 
+## The shape of the page
+
+Top to bottom: a title line, the menu, then the cards.
+
+- **The menu is one row of switches.** The levels - eight rows of buttons -
+  sit behind **Filters**, shut by default, with a count on the button when any
+  of them is set. The breadcrumb above says what is narrowed, and clicking a
+  bar is the usual way to narrow it, so the levels are the second way rather
+  than the first.
+- **Achievement is first and on by default**: the month against its target is
+  what the page is opened for during an open month. Then the price tiles, the
+  daily chart, the monthly chart, and the optional Numbers and Table cards.
+- **No captions.** A line under a chart appears only when something has been
+  left out or cannot be compared - a month whose carry-in is unknown, margin
+  points over the cap, an export that stops mid-month, target money that could
+  not be placed. A caption that is always there is scrolled past; one that
+  appears only when it matters is read.
+- The page takes the width of the monitor, capped, so a wide screen is not
+  mostly margin.
+
 ## 3. The chart
 
 `dashboard\build_pnl.py` turns that into one self-contained page: one bar for
@@ -762,7 +782,7 @@ says how many days went:
   the export was taken 2026-10-27; 1 day(s) after it are a despatch plan and are left off
 ```
 
-The hint under the chart names that date, so a short last week reads as "the
+A line under the chart names that date, so a short last week reads as "the
 file ends here" and not as a collapse in demand.
 
 On `made` the days do not add up to the month's revenue, and they are not
