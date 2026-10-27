@@ -732,6 +732,16 @@ A row only gets a marker if there is something under it once the repeats are
 folded: `Mobile` above is Div 2 and Div 3 both, so it is a leaf however deep
 the tree goes under it.
 
+**The achievement reads as a bar as well as a number.** The track runs 0-150%
+with a notch at 100, cut in the card's own colour so it shows over the fill as
+well as over the track - a mark that a full bar hides is missing exactly when
+the row is worth looking at. Over 150% the bar fills; the number is beside it,
+so nothing is lost.
+
+Three colours and no more - **on plan (>= 100%), nearly (90-99%), behind
+(< 90%)** - on the bar and on the number together. A gradient would put a
+different colour on every row and say nothing about which one to look at.
+
 There is no projected-achievement column and there cannot be one: the target
 is spread evenly over the days, so projecting the month at the rate so far and
 dividing by the month's target gives back the achievement to date, exactly. It

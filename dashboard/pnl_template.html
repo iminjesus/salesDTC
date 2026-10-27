@@ -223,6 +223,25 @@ body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
 #dayCard .legend .t { font-weight: 600; font-size: 13px; color: var(--ink-2); }
 /* The achievement tree. Indent says depth and weight says level, so Biz reads
    as a heading over its divisions rather than as another row like them. */
+/* The achievement, as a bar as well as a number. The track runs 0-150% with
+   a tick at 100, so where a row sits against plan is a glance rather than a
+   comparison of four-digit numbers - and the tick is at a fixed place in
+   every row, which is what makes the column scannable at all. */
+#achBox td.ach { padding-left: 0; }
+#achBox .achWrap { display: inline-flex; align-items: center; gap: 9px;
+  justify-content: flex-end; width: 100%; }
+#achBox .achBar { position: relative; flex: none; width: 108px; height: 9px;
+  border-radius: 5px; background: var(--grid); overflow: hidden; }
+#achBox .achBar i { position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: 5px; }
+/* The 100% mark, two thirds along a track that runs to 150. Cut in the
+   surface colour so it reads as a notch over the fill as well as over the
+   track - a tick a full bar hides is a tick that is missing exactly when the
+   row is interesting. */
+#achBox .achBar::after { content: ""; position: absolute; left: 66.67%;
+  top: 0; bottom: 0; width: 2px; background: var(--surface); }
+#achBox .achNum { font-weight: 650; min-width: 44px; }
+#achBox tfoot .achBar { height: 11px; }
 #achBox td.tree { text-align: left; }
 #achBox td.tree[data-kids="1"] { cursor: pointer; }
 #achBox td.tree .tw { display: inline-block; width: 14px; color: var(--ink-3);
@@ -1702,6 +1721,14 @@ function drawAch(D, lastDay, money) {
   // repeated the column four places to its left.
 
   const pc = v => (v == null ? '-' : v.toFixed(0) + '%');
+  // Three bands, and no more: on plan, nearly, behind. A gradient would put a
+  // different colour on every row and say nothing about which to look at.
+  const hue = v => (v == null ? 'var(--ink-3)' : v >= 100 ? 'var(--k3)'
+                    : v >= 90 ? 'var(--k4)' : 'var(--neg)');
+  const bar = v => (v == null ? ''
+    : `<span class="achBar"><i style="width:${
+        Math.max(2, Math.min(v, 150) / 150 * 100).toFixed(1)}%;background:${
+        hue(v)}"></i></span>`);
   const line = r => [
     `<td class="tree d${r.depth}"${r.key === undefined ? '' :
       ` data-k="${r.key.replace(/"/g, '&quot;')}" data-kids="${
@@ -1711,7 +1738,8 @@ function drawAch(D, lastDay, money) {
     `<td>${fmt(r.target)}</td>`,
     `<td>${fmt(r.due)}</td>`,
     `<td>${fmt(r.actual)}</td>`,
-    `<td class="${r.ach != null && r.ach < 100 ? 'neg' : ''}">${pc(r.ach)}</td>`,
+    `<td class="ach"><span class="achWrap">${bar(r.ach)}<span class="achNum" `
+    + `style="color:${hue(r.ach)}">${pc(r.ach)}</span></span></td>`,
   ].join('');
   const head = ['Product', 'Target (month)',
                 `Target to ${lastDay} ${MON[T.ym % 100]}`, 'Actual to date',
