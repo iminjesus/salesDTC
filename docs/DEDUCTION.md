@@ -64,6 +64,25 @@ headcount-driven charge: all of them behave this way. When the base carries
 the gap, the rate-versus-mix verdict says so too, because "every row deepened
 together" is precisely what one number over a smaller number looks like.
 
+## Just the months
+
+`--total` prints one row a month for the whole business and stops there - no
+channel split, no rate-versus-mix, nothing to read past:
+
+```powershell
+py tools\deduction.py --column "*Paid Commission" --total
+```
+
+```
+paid commission, month by month
+  month          units        gross   Paid Commission  of gross   per unit
+  202601        35,212   14,419,584           270,110      1.9%      11.33
+  202602        29,841   10,584,668           172,927      1.6%       9.62
+```
+
+The channel split is the next question, not that one, and two rows a month is
+how a nine-month answer stops being readable at a glance.
+
 ## Picking the column
 
 `--column` takes a header name (`--column "Paid Commission"`) or a

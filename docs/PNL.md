@@ -851,24 +851,6 @@ total is already the whole span, so drawing it as one bar was a third way to say
 a number the page says twice over - and it is still there whichever period is
 showing, which Year was not.
 
-### Paid Commission as a figure
-
-`*Paid Commission` is read as a figure of its own, so picking it in the
-**Figure** row draws the months the page holds - January to September as the
-folder stands - with the same split, the same narrowing and the same
-Cumulative as every other figure. Narrow to nothing and it is the monthly
-total regardless of product, which is the reading it is usually wanted at.
-
-It is a **figure and never a band**: it already sits inside Operating Cost, so
-stacking it beside that in the P&L view would count it twice. Nothing adds it
-to anything - it is drawn when it is picked and is otherwise only in the
-workbook's detail sheets.
-
-Matched **by name**, never by position: the letter it sits in moves between
-cuts of the same export - AJ in one month, AK in the next - and a tool reading
-the letter got `*Other Expense(S)` for eight months out of nine. See
-`docs/DEDUCTION.md`, which is the console-side reading of the same column.
-
 ### The chart's own controls
 
 Top-right, on the legend's row - not over the plot, where they covered whatever

@@ -312,18 +312,35 @@ def read_month(path: Path, cust: dict, prod: dict, keep_returns: bool,
 
 
 def trend(months: list, label: str = 'deduction', of: str = 'gross',
-          say=print) -> None:
-    say(f'\n{label.lower()}, month by month')
-    say(f'  {"month":<9}{"channel":<10}{"units":>11}{of:>13}'
-        f'{label[:18]:>18}{"of " + of:>10}{"per unit":>11}')
+          total: bool = False, say=print) -> None:
+    """The column month by month: per channel, or the business as a whole.
+
+    `--total` is for the question that is only ever "what was it each month" -
+    the channel split is the next question, not that one, and two rows a month
+    is how a nine-month answer stops being readable at a glance.
+    """
+    say(f'\n{label.lower()}, month by month'
+        + ('' if total else ', by channel'))
+    say(f'  {"month":<9}{"" if total else "channel":<{0 if total else 10}}'
+        f'{"units":>11}{of:>13}{label[:18]:>18}{"of " + of:>10}'
+        f'{"per unit":>11}')
     for ym, pots in months:
-        for name, pot in (('online', pots[CUST.ONLINE]),
-                          ('offline', pots[CUST.OFFLINE])):
+        if total:
+            all_ = Pot()
+            for pot in pots.values():
+                all_.qty += pot.qty; all_.gross += pot.gross
+                all_.deduct += pot.deduct; all_.net += pot.net
+            sides = [('', all_)]
+        else:
+            sides = [('online', pots[CUST.ONLINE]),
+                     ('offline', pots[CUST.OFFLINE])]
+        for name, pot in sides:
             if not pot.gross and not pot.deduct:
                 continue
-            say(f'  {ym:<9}{name:<10}{pot.qty:>11,.0f}{pot.gross:>13,.0f}'
-                f'{pot.deduct:>18,.0f}{pct(per(pot.deduct, pot.gross)):>10}'
-                f'{(per(pot.deduct, pot.qty) or 0):>11,.2f}')
+            say(f'  {ym:<9}' + ('' if total else f'{name:<10}')
+                + f'{pot.qty:>11,.0f}{pot.gross:>13,.0f}'
+                + f'{pot.deduct:>18,.0f}{pct(per(pot.deduct, pot.gross)):>10}'
+                + f'{(per(pot.deduct, pot.qty) or 0):>11,.2f}')
 
 
 def compare(months: list, was: list, now: list, channel: str, top: int,
@@ -454,6 +471,9 @@ def main() -> int:
     ap.add_argument('--by', default='account,div3,sku', metavar='LEVELS',
                     help='the level a row is grouped at for the split, as '
                          'account,div3,sku (the default) or div2, account, ...')
+    ap.add_argument('--total', action='store_true',
+                    help='one row a month for the whole business, rather than '
+                         'one per channel - and stop there')
     ap.add_argument('--grid', action='store_true',
                     help='also print the rate month by month for each group, '
                          'which is what tells a step from a spike')
@@ -548,7 +568,9 @@ def main() -> int:
                   'above')
             return 1
     months.sort(key=lambda m: m[0])
-    trend(months, label, args.of)
+    trend(months, label, args.of, args.total)
+    if args.total:
+        return 0
 
     known = [m[0] for m in months]
     now = spell(args.now, known) if args.now else known[-3:]
