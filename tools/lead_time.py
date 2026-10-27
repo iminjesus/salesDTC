@@ -21,15 +21,17 @@ The same filters the page uses: a store-stamped reference, nothing rejected.
 from __future__ import annotations
 
 import argparse
+import calendar
 import csv
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import customer as CUST                                        # noqa: E402
 import sap as SAP                                              # noqa: E402
-from rawdata import (find, key_norm, master, month_of,        # noqa: E402
-                     parse_number, pick_series, read_any)
+from rawdata import (find, key_norm, master, month_before,    # noqa: E402
+                     month_of, parse_number, pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -74,7 +76,8 @@ class Pot:
 
 def measure(folder: Path, ym: int, cust: dict, prod: dict, at: int,
             skip_sku=(), online: bool = False, sap: str = 'orders',
-            blank: dict | None = None, say=print) -> tuple:
+            blank: dict | None = None, late: dict | None = None,
+            say=print) -> tuple:
     """({division: Pot}, Pot, asof) for the orders placed in `ym`.
 
     Every export from the month onward is read: a September order that left in
@@ -165,6 +168,27 @@ def measure(folder: Path, ym: int, cust: dict, prod: dict, at: int,
 
     pots: dict = {}
     whole = Pot()
+    # The lines that will not be this month's revenue: a despatch date in a
+    # later month, or none at all. Collected here rather than in the loop
+    # above because the duplicates have to collapse first - a line open on one
+    # export and shipped on the next is not two lines.
+    if late is not None:
+        end = date(ym // 100, ym % 100,
+                   calendar.monthrange(ym // 100, ym % 100)[1])
+        for gi, made, qty, name in rec.values():
+            if gi is not None and gi <= end:
+                continue
+            d = late.setdefault(made.isoformat(),
+                                {'made': made, 'first': None, 'last': None,
+                                 'divs': {}})
+            v = d['divs'].setdefault(name, {'sched': 0.0, 'open': 0.0})
+            if gi is None:
+                v['open'] += qty
+            else:
+                v['sched'] += qty
+                d['first'] = gi if d['first'] is None else min(d['first'], gi)
+                d['last'] = gi if d['last'] is None else max(d['last'], gi)
+
     for gi, made, qty, name in rec.values():
         pot = pots.setdefault(name, Pot())
         pot.lines += 1
@@ -276,6 +300,64 @@ def sweep_blank(folder: Path, prod: dict, sap: str = 'orders',
     return out
 
 
+def say_late(late: dict, ym: int, lead: dict, end, say=print) -> int:
+    """Ordered in the month, not gone yet - and whether the page counts it.
+
+    The chart draws some of this as a hatched band and the question it raises
+    is always the same one: an order placed on the first of the month, still
+    not gone? Three different things are in here and only two are the band:
+
+        scheduled   SAP carries a despatch date in a later month. Not "still
+                    not gone" - gone on a date already set, and next month's
+                    revenue. The page hatches it.
+        late        no despatch date, and its division's measured lead time
+                    does not fit in what is left of the month. Hatched too,
+                    and a prediction rather than a fact.
+        in time     no despatch date, but the lead time says it still fits.
+                    Counted on the page, and the part that would hurt if the
+                    lead time is optimistic.
+    """
+    if not late:
+        say(f'\neverything ordered in {ym} has left or is scheduled inside it')
+        return 0
+    rest = lead.get('\0all')
+    say(f'\n{ym}: ordered in the month and not gone yet, by the day ordered')
+    say(f'  {"ordered":<12}{"scheduled":>11}{"late":>9}{"in time":>9}'
+        f'{"leaves":>26}   the divisions')
+    tot = {'sched': 0.0, 'late': 0.0, 'fits': 0.0}
+    for day in sorted(late):
+        d = late[day]
+        row = {'sched': 0.0, 'late': 0.0, 'fits': 0.0}
+        shown = {}
+        for name, v in d['divs'].items():
+            row['sched'] += v['sched']
+            days = lead.get(name, rest)
+            over = (days is not None and end is not None
+                    and d['made'] + timedelta(days=round(days)) > end)
+            row['late' if over else 'fits'] += v['open']
+            shown[name] = v['sched'] + v['open']
+        for k in tot:
+            tot[k] += row[k]
+        when = ('-' if d['first'] is None
+                else d['first'].isoformat() if d['first'] == d['last']
+                else f'{d["first"].isoformat()} .. {d["last"].isoformat()}')
+        divs = ', '.join(f'{k} {n:,.0f}' for k, n in
+                         sorted(shown.items(), key=lambda kv: -kv[1])[:3])
+        say(f'  {day:<12}{row["sched"]:>11,.0f}{row["late"]:>9,.0f}'
+            f'{row["fits"]:>9,.0f}{when:>26}   {divs}')
+    say(f'  {"-" * 67}')
+    say(f'  {f"{len(late)} day(s)":<12}{tot["sched"]:>11,.0f}'
+        f'{tot["late"]:>9,.0f}{tot["fits"]:>9,.0f}')
+    say(f'\n  scheduled + late is the hatched band: {tot["sched"] + tot["late"]:,.0f} '
+        'unit(s), out of the\n  month\'s figures and out of its achievement.')
+    say(f'  in time is {tot["fits"]:,.0f} unit(s) the page is counting on the '
+        'lead time for.')
+    if not lead:
+        say('  (no previous month to measure a lead time from, so nothing is '
+            'called late)')
+    return 0
+
+
 def say_blank(blank: dict, ym, out=None, say=print) -> int:
     """The codes the product master cannot place, and what they are worth.
 
@@ -353,6 +435,10 @@ def main() -> int:
                     help='the online business only, as the target is')
     ap.add_argument('--out', metavar='FILE',
                     help='write the --blank listing as a csv, every code')
+    ap.add_argument('--late', action='store_true',
+                    help='instead of the lead time, list what was ordered in '
+                         'the month and does not leave inside it - the '
+                         "chart's hatched band, by the day it was ordered")
     ap.add_argument('--blank', action='store_true',
                     help='instead of the lead time, list the codes the '
                          'product master cannot place - what the page drops '
@@ -401,9 +487,17 @@ def main() -> int:
         return say_blank(sweep_blank(folder, prod, args.sap, skip_sku),
                          None, args.out)
     blank: dict = {} if args.blank else None
+    late: dict = {} if args.late else None
     pots, whole, asof = measure(folder, ym, cust, prod, at,
                                 skip_sku=skip_sku, online=args.online,
-                                sap=args.sap, blank=blank)
+                                sap=args.sap, blank=blank, late=late)
+    if args.late:
+        lead = average_days(folder, month_before(ym), cust, prod,
+                            online=args.online, sap=args.sap,
+                            say=lambda *a: None)
+        end = date(ym // 100, ym % 100,
+                   calendar.monthrange(ym // 100, ym % 100)[1])
+        return say_late(late, ym, lead, end)
     if args.blank:
         return say_blank(blank, ym, args.out)
 

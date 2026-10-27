@@ -86,3 +86,33 @@ different consequences:
 
 The right fix is the master, not the page: add the codes and both numbers land
 where the target is.
+
+## What is not leaving this month
+
+```powershell
+py tools\lead_time.py --month 2610 --late --online
+```
+
+The daily chart draws a hatched band and the question it raises is always the
+same one - *an order placed on the first of the month, still not gone?* This
+lists them by the day they were ordered, and keeps the three things apart,
+because only two of them are the band:
+
+```
+202610: ordered in the month and not gone yet, by the day ordered
+  ordered       scheduled     late  in time                    leaves   the divisions
+  2026-10-05            8        0        0                2026-11-02   DA 8
+  2026-10-10            0        0        6                         -   DA 6
+  2026-10-30            0        4        0                         -   VD 4
+```
+
+| | |
+|---|---|
+| **scheduled** | SAP carries a despatch date in a later month. Not "still not gone" - gone on a date already set, and next month's revenue |
+| **late** | no despatch date, and its division's measured lead time does not fit in what is left of the month. A prediction, not a fact |
+| **in time** | no despatch date, but the lead time says it still fits. **Counted** on the page - the part that would hurt if the lead time is optimistic |
+
+`scheduled + late` is the hatched band. An order early in the month showing up
+here is almost always **scheduled**: the lead times are days, not weeks, so a
+prediction cannot put a first-of-the-month order into November - only a
+despatch date already set can.
