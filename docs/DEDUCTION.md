@@ -75,10 +75,15 @@ py tools\deduction.py --column "*Paid Commission" --total
 
 ```
 paid commission, month by month
-  month          units        gross   Paid Commission  of gross   per unit
-  202601        35,212   14,419,584           270,110      1.9%      11.33
-  202602        29,841   10,584,668           172,927      1.6%       9.62
+  month          units          gross            net   Paid Commission  of gross   per unit
+  202601        35,212     14,419,584     13,100,220           270,110      1.9%      11.33
+  202602        29,841     10,584,668      9,640,900           172,927      1.6%       9.62
 ```
+
+Gross and net sit side by side: the share below is of one of them, and a
+reader comparing this against a page drawn on the other needs both to see that
+the gap is the deduction and not a different slice of the file. With
+`--of net` there is one column, since the two would be the same one twice.
 
 The channel split is the next question, not that one, and two rows a month is
 how a nine-month answer stops being readable at a glance.

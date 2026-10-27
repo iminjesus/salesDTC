@@ -335,9 +335,13 @@ def trend(months: list, label: str = 'deduction', of: str = 'gross',
     """
     say(f'\n{label.lower()}, month by month'
         + ('' if total else ', by channel'))
+    # Gross and net side by side: the share below is of one of them, and a
+    # reader comparing this with a page drawn on the other needs both to see
+    # that the gap is the deduction and not a different slice of the file.
+    both = of != 'net'
     say(f'  {"month":<9}{"" if total else "channel":<{0 if total else 10}}'
-        f'{"units":>11}{of:>13}{label[:18]:>18}{"of " + of:>10}'
-        f'{"per unit":>11}')
+        f'{"units":>11}{of:>15}' + (f'{"net":>15}' if both else '')
+        + f'{label[:18]:>18}{"of " + of:>10}{"per unit":>11}')
     for ym, pots in months:
         if total:
             all_ = Pot()
@@ -352,7 +356,8 @@ def trend(months: list, label: str = 'deduction', of: str = 'gross',
             if not pot.gross and not pot.deduct:
                 continue
             say(f'  {ym:<9}' + ('' if total else f'{name:<10}')
-                + f'{pot.qty:>11,.0f}{pot.gross:>13,.0f}'
+                + f'{pot.qty:>11,.0f}{pot.gross:>15,.0f}'
+                + (f'{pot.net:>15,.0f}' if both else '')
                 + f'{pot.deduct:>18,.0f}{pct(per(pot.deduct, pot.gross)):>10}'
                 + f'{(per(pot.deduct, pot.qty) or 0):>11,.2f}')
 
