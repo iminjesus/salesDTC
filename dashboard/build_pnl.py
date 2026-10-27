@@ -31,6 +31,7 @@ import analyze_structure as A                                  # noqa: E402
 import customer as CUST                                        # noqa: E402
 import orders as ORD                                           # noqa: E402
 import promo_match as PM                                       # noqa: E402
+import lead_time as LT                                        # noqa: E402
 import sap as SAP                                              # noqa: E402
 import target as TGT                                           # noqa: E402
 from rawdata import (MASTER_RAW as RAW, find, is_return,        # noqa: E402
@@ -40,6 +41,9 @@ from rawdata import (MASTER_RAW as RAW, find, is_return,        # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
+# lead_time.py's key for the figure over every division, which is what a
+# division with nothing sold last month falls back to.
+ALL_DIVS = '\0all'
 
 
 # The drill, top first: the account name only says online or offline, and the
@@ -456,34 +460,57 @@ def campaign_watcher(plan, canon):
     return watch, tally
 
 
-def day_watcher(basis: str = 'gi', band_of=None, fold: dict | None = None):
+def day_watcher(basis: str = 'mixed', band_of=None, fold: dict | None = None,
+                lead: dict | None = None, month_end=None, at: int = 0):
     """A per-line hook that totals the order export by day on the chart's key.
 
-    Which day a line belongs to is the whole question. The month chart's bar is
-    the revenue that left in the month, so the days that add up to it are
-    despatch days - that is the default, and it is what makes the daily chart
-    the monthly chart at a different width. `made` asks a different question,
-    order intake, whose days do not add up to the month: an order placed on the
-    30th that ships in November is in the day chart and not in the month's.
+    What the month will be paid for is not one thing measured one way:
 
-    Where a plan was read, the promotion is part of the key here the way it
-    is on the month - but measured rather than allocated. The month has to
-    spread each combination across the bands its orders came in on, because
-    the profit file carries no promotion; a day is the orders, so the line's
-    own band is the line's own band.
+        carried in   ordered last month, despatched this one - revenue here,
+                     and it sits on the day it left, which is its only day in
+                     this month
+        this month   ordered this month, on the day it was ordered, which is
+                     what the export measures and what a reader means by a
+                     day's demand
+        rollover     ordered this month and leaving after it - next month's
+                     revenue, drawn apart and counted in nothing
 
-    Returns (daily, tally) with tally {(day, key): [units, amount]}.
+    A line that has already left is certain either way. One that has not is
+    predicted from its division's average lead time: ordered later than that
+    many days before month end, it is a rollover. "Maybe" is the word on the
+    chart because that is exactly what it is.
+
+    Returns (daily, tally) with tally {(day, key): [units, amount, roll units,
+    roll amount]}, the last pair being the part that leaves after the month.
     """
     tally: dict = {}
     fold = {} if fold is None else fold
+    lead = lead or {}
 
     def daily(key, gi, made, which, qty, amt, sku):
-        day = gi if basis == 'gi' else made
+        roll = False
+        if basis in ('gi', 'made'):             # the two older readings
+            if which == (SAP.CARRIED_OUT if basis == 'gi' else SAP.CARRIED_IN):
+                return
+            if which == SAP.OPEN and basis == 'gi':
+                return
+            day = gi if basis == 'gi' else made
+        elif which == SAP.CARRIED_IN:
+            day = gi                            # the day it became revenue
+        elif which == SAP.CARRIED_OUT:
+            day, roll = made, True              # certain: it leaves after
+        elif which == SAP.OPEN:
+            day = made
+            # Not shipped yet, so its division's average decides. A division
+            # with no average - nothing of it sold last month - falls back to
+            # the figure over everything, and then to not guessing at all.
+            div = (key[at] or '').strip()
+            days = lead.get(div, lead.get(ALL_DIVS))
+            roll = (days is not None and month_end is not None and made
+                    and made + timedelta(days=round(days)) > month_end)
+        else:                                   # BOOKED: ordered and shipped
+            day = made
         if day is None:
-            return
-        # Each basis drops the bucket that is not its own day: on despatch,
-        # what has not left yet; on intake, what was ordered before the month.
-        if which == (SAP.CARRIED_OUT if basis == 'gi' else SAP.CARRIED_IN):
             return
         if band_of is not None:
             # Banded on the day it was ordered, not the day it shipped: the
@@ -492,9 +519,9 @@ def day_watcher(basis: str = 'gi', band_of=None, fold: dict | None = None):
             band, c1, c2 = band_of(sku, made)
             band = fold.get(band, band)
             key = key + (PROMO_LABEL.get(band, band), c1, c2)
-        v = tally.setdefault((day.isoformat(), key), [0.0, 0.0])
-        v[0] += qty
-        v[1] += amt
+        v = tally.setdefault((day.isoformat(), key), [0.0, 0.0, 0.0, 0.0])
+        v[2 if roll else 0] += qty
+        v[3 if roll else 1] += amt
 
     return daily, tally
 
@@ -538,7 +565,12 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
     # the profit export, and a figure called Gross Sales that is neither would
     # be read as the one the rest of the page draws.
     series = [{'key': 'qty', 'label': 'Order Qty'},
-              {'key': 'gross', 'label': 'Order Value'}]
+              {'key': 'gross', 'label': 'Order Value'},
+              # Drawn apart and counted in nothing: it is next month's
+              # revenue, and a KPI that added it would be claiming money the
+              # month will not be paid.
+              {'key': 'rqty', 'label': 'Maybe rollover (qty)'},
+              {'key': 'rgross', 'label': 'Maybe rollover'}]
     by_day: dict = {}
     for (day, key), v in tally.items():
         by_day.setdefault(day, {})[key] = v
@@ -580,14 +612,21 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
             'levels': lv,
             'series': series,
             'combos': [{'k': [index[i][k[i]] for i in range(len(levels))],
-                        'n': 1, 'v': [round(v[0]), round(v[1])]}
+                        'n': 1, 'v': [round(x) for x in v]}
                        for k, v in rows.items()],
         })
     lo, hi = sorted(by_day)[0], sorted(by_day)[-1]
-    what = ('the day each order left' if basis == 'gi'
-            else 'the day each order was placed')
-    say(f'\n  by day, on {what}: {len(out)} day(s), {lo} .. {hi}, '
+    what = {'gi': 'the day each order left',
+            'made': 'the day each order was placed'}.get(
+                basis, "last month's orders on the day they left, this "
+                       "month's on the day they were placed")
+    say(f'\n  by day, on {what}:\n    {len(out)} day(s), {lo} .. {hi}, '
         f'{sum(len(r) for r in by_day.values()):,} combination(s)')
+    roll = sum(v[3] for r in by_day.values() for v in r.values())
+    kept = sum(v[1] for r in by_day.values() for v in r.values())
+    if roll:
+        say(f'    {kept:,.0f} counted; {roll:,.0f} leaves after the month and '
+            'is drawn dashed, out of the total')
     return out
 
 
@@ -629,9 +668,29 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         f'({want}):')
     bander = (None if args.no_promo
               else promo_bander(folder, args.plan, say=lambda *a: None))
+    # Last month's lead time per Div 1, which is what says whether an order
+    # placed near this month's end will leave inside it. Measured, not
+    # assumed: tools/lead_time.py is the same reading, printed.
+    lead = {}
+    if args.day_basis == 'mixed':
+        lead = LT.average_days(folder, month_before(want), cust, prod,
+                               by='div1', sap=args.sap,
+                               say=lambda *a: None)
+        if lead:
+            rest = lead.get(ALL_DIVS)
+            shown = sorted(((k, v) for k, v in lead.items() if k != ALL_DIVS),
+                           key=lambda kv: -kv[1])
+            say(f'  lead time off {month_before(want)}, days to despatch: '
+                + ', '.join(f'{k} {v:.1f}' for k, v in shown[:8])
+                + ('' if rest is None else f'; anything else {rest:.1f}'))
+        else:
+            say(f'  no {month_before(want)} orders to measure a lead time '
+                'from, so nothing is called a rollover')
     daily, tally = day_watcher(
         args.day_basis, bander,
-        {} if args.promo_bands == 'all' else PROMO_FOLD)
+        {} if args.promo_bands == 'all' else PROMO_FOLD,
+        lead=lead, month_end=month_window(want)[1],
+        at=len(CUST.LEVELS) + [n for n, _, _ in PRODUCT_LEVELS].index('Div 1'))
     got = SAP.load(
         months[want], month=want, cust_levels=CUST.LEVELS,
         prod_levels=PRODUCT_LEVELS, customers=cust, products=prod,
@@ -947,12 +1006,13 @@ def main() -> int:
                     help='which month the daily chart covers (default: the '
                          'latest month the order export carries, which is '
                          'usually the open one the P&L has not closed)')
-    ap.add_argument('--day-basis', choices=('made', 'gi'), default='made',
-                    metavar='WHICH',
-                    help='which day an order line counts on: made, the day it '
-                         'was placed, which is what the export measures (the '
-                         'default), or gi, the day it left - which past the '
-                         'export date is a despatch plan, not a measurement')
+    ap.add_argument('--day-basis', choices=('mixed', 'made', 'gi'),
+                    default='mixed', metavar='WHICH',
+                    help="which day an order line counts on: mixed, last "
+                         "month's orders on the day they left and this "
+                         "month's on the day they were placed, with what "
+                         'leaves after the month drawn apart (the default); '
+                         'or made or gi, every line on one of its two dates')
     ap.add_argument('--target', default=None, metavar='NAME',
                     help='the DTC Blue File cut whose Sokbo is the target line '
                          'on the daily chart (default: the newest DTC_S* '

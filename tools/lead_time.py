@@ -71,6 +71,123 @@ class Pot:
         return self.days / self.units if self.units else None
 
 
+def measure(folder: Path, ym: int, cust: dict, prod: dict, at: int,
+            skip_sku=(), online: bool = False, sap: str = 'orders',
+            say=print) -> tuple:
+    """({division: Pot}, Pot, asof) for the orders placed in `ym`.
+
+    Every export from the month onward is read: a September order that left in
+    October is on October's file, and leaving it out is what makes a lead time
+    look shorter than it is.
+    """
+    files = sorted(pick_series(folder, sap), key=lambda q: q.name)
+    seen: set = set()
+    files = [f for f in files
+             if not (f.stem.lower() in seen or seen.add(f.stem.lower()))]
+    files = [f for f in files
+             if (month_of([], [], f.stem, say=lambda *a: None) or 0) >= ym]
+    if not files:
+        say(f'no {sap}_* export for {ym} or later in the folder')
+        return {}, Pot(), None
+    say(f'  orders: {", ".join(f.name for f in files)}')
+    # A September order shows up twice: open on September's export and
+    # shipped on October's. Both are the same line, so they are gathered by
+    # their own reference first and the one that has left wins - counted from
+    # both files it would be two orders, and averaged it would be one fast and
+    # one that never happened.
+    rec: dict = {}
+    asof = None
+    skipped = dupes = 0
+    for f in files:
+        rows, _ = read_any(f)
+        if not rows:
+            continue
+        head = [h.strip() for h in rows[0]]
+        col = {k: find(head, *names) for k, names in
+               (('ref', SAP.S_REF), ('payer', SAP.S_PAYER), ('sku', SAP.S_SKU),
+                ('qty', SAP.S_QTY), ('gi', SAP.S_GI), ('made', SAP.S_MADE),
+                ('reject', SAP.S_REJECT))}
+        miss = [k for k in ('ref', 'sku', 'qty', 'gi', 'made') if col[k] is None]
+        if miss:
+            print(f'  {f.name}: no ' + ', no '.join(miss) + ' - skipped')
+            continue
+        cell = lambda r, i: (r[i].strip() if i is not None and i < len(r) else '')
+        for r in rows[1:]:
+            if not SAP.STAMPED.match(cell(r, col['ref']).upper()):
+                continue                       # a marketplace, not the store
+            if cell(r, col['reject']):
+                continue
+            made = SAP.to_date(cell(r, col['made']))
+            if made is None or made.year * 100 + made.month != ym:
+                continue                       # ordered in another month
+            if asof is None or made > asof:
+                asof = made
+            sku = cell(r, col['sku'])
+            if skip_sku and sku.upper().startswith(skip_sku):
+                continue
+            if online:
+                c = cust.get(key_norm(cell(r, col['payer']))) or {}
+                if CUST.channel_of(c.get('account'), bool(c)) != CUST.ONLINE:
+                    continue
+            p = prod.get(key_norm(sku)) or {}
+            if not p and at < len(PRODUCT) - 1:
+                skipped += 1
+            name = ((sku if PRODUCT[at][1] == 'sku'
+                     else p.get(PRODUCT[at][1]) or '').strip() or '(blank)')
+            qty = parse_number(cell(r, col['qty'])) or 0.0
+            gi = SAP.to_date(cell(r, col['gi']))
+            k = (cell(r, col['ref']).upper(), sku.upper(), qty, made)
+            old = rec.get(k)
+            if old is not None:
+                dupes += 1
+                # The one that has left is the one that is true; otherwise the
+                # later export, which has seen more of the order's life.
+                if old[0] is not None and gi is None:
+                    continue
+            rec[k] = (gi, made, qty, name)
+
+    pots: dict = {}
+    whole = Pot()
+    for gi, made, qty, name in rec.values():
+        pot = pots.setdefault(name, Pot())
+        pot.lines += 1
+        whole.lines += 1
+        # A line with no despatch date has not left. It is the slow end of the
+        # distribution, so it is counted and reported rather than averaged in
+        # as nothing or dropped as if it had not happened.
+        if gi is None:
+            pot.open_units += qty
+            whole.open_units += qty
+            continue
+        d = (gi - made).days
+        pot.units += qty
+        pot.days += d * qty
+        whole.units += qty
+        whole.days += d * qty
+    say(f'  {len(rec):,} line(s) ordered in {ym}'
+        + (f'; {dupes:,} seen on more than one export' if dupes else '')
+        + (f'; {skipped:,} had no product master row' if skipped else ''))
+    return pots, whole, asof
+
+
+def average_days(folder: Path, ym: int, cust: dict, prod: dict,
+                 by: str = 'div1', online: bool = False, sap: str = 'orders',
+                 say=print) -> dict:
+    """{division: average days from order to despatch} for the month's orders.
+
+    What it is for is predicting whether an order placed near a month end will
+    leave inside it, so a division with nothing measured gets no entry and the
+    caller falls back to the figure over everything.
+    """
+    at = AT.get(by.lower().replace(' ', ''), 1)
+    pots, whole, _ = measure(folder, ym, cust, prod, at, online=online,
+                             sap=sap, say=say)
+    out = {k: p.mean for k, p in pots.items() if p.mean is not None}
+    if whole.mean is not None:
+        out['\0all'] = whole.mean
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -118,97 +235,9 @@ def main() -> int:
     print(f'  {pp.name}, {len(prod):,} products'
           + (f'; {cp.name}, {len(cust):,} accounts' if cp else ''))
 
-    files = sorted(pick_series(folder, args.sap), key=lambda q: q.name)
-    seen: set = set()
-    files = [f for f in files
-             if not (f.stem.lower() in seen or seen.add(f.stem.lower()))]
-    # The month's own export and the ones after it: an order placed in
-    # September that left in October is in October's file, and leaving it out
-    # is what makes a lead time look shorter than it is.
-    files = [f for f in files
-             if (month_of([], [], f.stem, say=lambda *a: None) or 0) >= ym]
-    if not files:
-        print(f'no {args.sap}_* export for {ym} or later in the folder')
-        return 1
-    print(f'  orders: {", ".join(f.name for f in files)}')
-
-    # A September order shows up twice: open on September's export and
-    # shipped on October's. Both are the same line, so they are gathered by
-    # their own reference first and the one that has left wins - counted from
-    # both files it would be two orders, and averaged it would be one fast and
-    # one that never happened.
-    rec: dict = {}
-    asof = None
-    skipped = dupes = 0
-    for f in files:
-        rows, _ = read_any(f)
-        if not rows:
-            continue
-        head = [h.strip() for h in rows[0]]
-        col = {k: find(head, *names) for k, names in
-               (('ref', SAP.S_REF), ('payer', SAP.S_PAYER), ('sku', SAP.S_SKU),
-                ('qty', SAP.S_QTY), ('gi', SAP.S_GI), ('made', SAP.S_MADE),
-                ('reject', SAP.S_REJECT))}
-        miss = [k for k in ('ref', 'sku', 'qty', 'gi', 'made') if col[k] is None]
-        if miss:
-            print(f'  {f.name}: no ' + ', no '.join(miss) + ' - skipped')
-            continue
-        cell = lambda r, i: (r[i].strip() if i is not None and i < len(r) else '')
-        for r in rows[1:]:
-            if not SAP.STAMPED.match(cell(r, col['ref']).upper()):
-                continue                       # a marketplace, not the store
-            if cell(r, col['reject']):
-                continue
-            made = SAP.to_date(cell(r, col['made']))
-            if made is None or made.year * 100 + made.month != ym:
-                continue                       # ordered in another month
-            if asof is None or made > asof:
-                asof = made
-            sku = cell(r, col['sku'])
-            if skip_sku and sku.upper().startswith(skip_sku):
-                continue
-            if args.online:
-                c = cust.get(key_norm(cell(r, col['payer']))) or {}
-                if CUST.channel_of(c.get('account'), bool(c)) != CUST.ONLINE:
-                    continue
-            p = prod.get(key_norm(sku)) or {}
-            if not p and at < len(PRODUCT) - 1:
-                skipped += 1
-            name = ((sku if PRODUCT[at][1] == 'sku'
-                     else p.get(PRODUCT[at][1]) or '').strip() or '(blank)')
-            qty = parse_number(cell(r, col['qty'])) or 0.0
-            gi = SAP.to_date(cell(r, col['gi']))
-            k = (cell(r, col['ref']).upper(), sku.upper(), qty, made)
-            old = rec.get(k)
-            if old is not None:
-                dupes += 1
-                # The one that has left is the one that is true; otherwise the
-                # later export, which has seen more of the order's life.
-                if old[0] is not None and gi is None:
-                    continue
-            rec[k] = (gi, made, qty, name)
-
-    pots: dict = {}
-    whole = Pot()
-    for gi, made, qty, name in rec.values():
-        pot = pots.setdefault(name, Pot())
-        pot.lines += 1
-        whole.lines += 1
-        # A line with no despatch date has not left. It is the slow end of the
-        # distribution, so it is counted and reported rather than averaged in
-        # as nothing or dropped as if it had not happened.
-        if gi is None:
-            pot.open_units += qty
-            whole.open_units += qty
-            continue
-        d = (gi - made).days
-        pot.units += qty
-        pot.days += d * qty
-        whole.units += qty
-        whole.days += d * qty
-    print(f'  {len(rec):,} line(s) ordered in {ym}'
-          + (f'; {dupes:,} seen on more than one export' if dupes else '')
-          + (f'; {skipped:,} had no product master row' if skipped else ''))
+    pots, whole, asof = measure(folder, ym, cust, prod, at,
+                                skip_sku=skip_sku, online=args.online,
+                                sap=args.sap)
 
     if not whole.lines:
         print(f'\nno order line was placed in {ym}')

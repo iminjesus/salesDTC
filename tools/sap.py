@@ -50,6 +50,11 @@ STAMPED = re.compile(r'^([A-Z]{2})(\d{6})-(\d+)$')
 DELIVERED = ('COMPLETED', 'DELIVERED', 'FULLY DELIVERED')
 
 BOOKED, CARRIED_IN, CARRIED_OUT = 0, 1, 2       # which pair of slots
+# Ordered in the month and not shipped at all. Not a slot - there is no
+# revenue to put anywhere - but it is the month's own demand and a caller
+# asking what will become of it needs the line. It reaches `daily` and
+# nothing else, so every total this module reports is unchanged by it.
+OPEN = 3
 
 
 def to_date(v):
@@ -185,6 +190,8 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
                 which = BOOKED if made_m == month else CARRIED_IN
             elif made_m == month and gi_m and gi_m > month:
                 which = CARRIED_OUT
+            elif made_m == month and gi is None:
+                which = OPEN
             else:
                 out.outside += 1
                 continue
@@ -193,10 +200,11 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
                 continue
             qty = parse_number(cell(r, col['qty'])) or 0.0
             amt = parse_number(cell(r, col['amt'])) or 0.0
-            if gi and asof and gi > asof:
-                out.scheduled += qty
-            else:
-                out.measured += qty
+            if which != OPEN:
+                if gi and asof and gi > asof:
+                    out.scheduled += qty
+                else:
+                    out.measured += qty
 
             # The payer is the profit file's own key, so the customer levels
             # come out at full depth with nothing inferred and nothing spread.
@@ -212,20 +220,21 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
             for _, slot, _ in prod_levels:
                 key.append(sku or CUST.BLANK if slot == 'sku'
                            else p.get(slot) or CUST.BLANK)
-            out.counted += 1
-            out.add(tuple(key), which, qty, amt)
+            if which != OPEN:
+                out.counted += 1
+                out.add(tuple(key), which, qty, amt)
             # What brought it in, banded on the day it was ordered rather than
             # the day it shipped: the promotion was live when the customer
             # bought, not when the warehouse got to it. Carried out is left
             # alone - it is next month's revenue and has earned nothing here.
-            if band_of is not None and which != CARRIED_OUT:
+            if band_of is not None and which not in (CARRIED_OUT, OPEN):
                 out.add_band(tuple(key), band_of(sku, made), qty)
             # Every line that counted, with the day it came in: what the
             # caller makes of that is the caller's business. The campaign
             # sheet uses it to count a product's days before and after its
             # promotion as well as during it, which no banding can answer -
             # outside its window a campaign bands nothing at all.
-            if watch is not None:
+            if watch is not None and which != OPEN:
                 watch(sku, made, qty, amt)
             # The same line again, this time with the key it landed on and both
             # of its dates. A caller totalling the export by day needs to pick

@@ -1853,6 +1853,19 @@ function drawDayTrend() {
     x.total += v;
     tot.set(g, (tot.get(g) || 0) + v);
   }
+  // What leaves after the month, per column and not per band: it is one
+  // thing drawn apart, and splitting it would invite it to be read as part of
+  // the mix rather than as money the month will not be paid.
+  const rollAt = D.series.findIndex(
+    x => x.key === (f.key === 'qty' ? 'rqty' : 'rgross'));
+  const rolls = xs.map(() => 0);
+  if (rollAt >= 0 && !pct) {
+    for (const c of D.combos) {
+      if (inSlice(c)) rolls[c.m] += c.v[rollAt] || 0;
+    }
+  }
+  const rollSum = rolls.reduce((a, v) => a + v, 0);
+
   const onBands = sl !== null && D.promoAt != null && sl === D.promoAt;
   const members = onBands
     ? [...tot.keys()].sort((a, b) => {
@@ -1891,6 +1904,26 @@ function drawDayTrend() {
     if (pct) d = d.map((v, i) => (base[i] ? v / base[i] * 100 : 0));
     datasets.push({ ...skin(`Other (${members.length - 8})`, 8), data: d });
   }
+  if (rollSum) {
+    // Hatched rather than filled: the bar under it is a measurement and this
+    // is a prediction, and a reader should not have to look that up.
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 6;
+    const g2 = cv.getContext('2d');
+    g2.strokeStyle = C.ink3;
+    g2.globalAlpha = 0.6;
+    g2.lineWidth = 1.6;
+    [[0, 6, 6, 0], [-1, 1, 1, -1], [5, 7, 7, 5]].forEach(q => {
+      g2.beginPath(); g2.moveTo(q[0], q[1]); g2.lineTo(q[2], q[3]); g2.stroke();
+    });
+    datasets.push({
+      label: 'Maybe rollover', stack: 'a',
+      data: cumul ? run(rolls) : rolls,
+      backgroundColor: g2.createPattern(cv, 'repeat'),
+      borderColor: C.ink3, borderWidth: 1, borderRadius: 3,
+      borderSkipped: false, maxBarThickness: 40, roll: true,
+    });
+  }
   const totals = cumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
   const num = v => (f.key === 'qty' ? fmt(v) : fmt(v));
 
@@ -1924,6 +1957,7 @@ function drawDayTrend() {
   document.getElementById('dayTitle').textContent =
     `${D.months[0].label} - ${D.months[D.months.length - 1].label}`
     + `  \u00b7  ${f.label} ${num(sum)}`
+    + (rollSum ? `  \u00b7  ${num(rollSum)} maybe rollover` : '')
     + (due ? `  \u00b7  ${Math.round(sum / due * 100)}% of target to date`
              + ` (${fmt(due)} of ${fmt(tg.month)})` : '')
     + `  \u00b7  ${sold} of ${xs.length} day${xs.length === 1 ? '' : 's'} sold`;
@@ -1952,8 +1986,11 @@ function drawDayTrend() {
       afterDatasetsDraw(ch) {
         if (!state.dayVals) return;
         const g = ch.ctx;
+        // The counted bars: not the target line, and not the rollover
+        // band, which is next month's and is not in the figure printed.
         const bars = ch.data.datasets.map((d, i) => i)
-          .filter(i => ch.data.datasets[i].type !== 'line');
+          .filter(i => ch.data.datasets[i].type !== 'line'
+                       && !ch.data.datasets[i].roll);
         const last = ch.getDatasetMeta(bars[bars.length - 1]);
         g.save();
         g.fillStyle = C.ink2;
@@ -2028,6 +2065,14 @@ function drawDayTrend() {
   if (unbanded) {
     dn.push('No plan covers these days, so there is no band to split them by '
             + 'and they are drawn whole.');
+  }
+  if (rollSum) {
+    dn.push('The hatched band is ordered this month and leaving after it, by '
+            + "its division's measured lead time - next month's revenue, so "
+            + 'it is in no total here and in no achievement.');
+  } else if (rollAt >= 0 && pct) {
+    dn.push('The rollover band is off while the bars are a share of each '
+            + 'day: it is not part of the day it was ordered in.');
   }
   if (tg && tg.off) dn.push(`No target line: ${tg.off}.`);
   else if (!tg && ALL.target) {

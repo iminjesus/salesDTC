@@ -770,79 +770,46 @@ with them.
 
 #### Which day a line counts on
 
-`--day-basis` decides it, and it is the difference between the two charts
-agreeing and not:
+A month is paid for what **leaves** in it, and an order placed near the end of
+one leaves in the next. So the default - `--day-basis mixed` - is not one date
+read one way; it is three cases, because they are three different facts:
 
-| | a day is | |
+| | where it sits | counted |
 |---|---|---|
-| `made` (default) | the day the order was placed - Created On | what the export **measures**: demand as it arrived |
-| `gi` | the day the order left - its Goods Issue date | what the month will **book**, once it closes |
+| ordered last month, despatched this one | **the day it left** - its only day in this month | yes |
+| ordered this month, already despatched | the day it was ordered | yes |
+| ordered this month, not despatched yet | the day it was ordered | **only if its division can get it out in time** |
+| ordered this month, leaving after it | the day it was ordered | no - drawn hatched |
 
-`made` is the default because it is the only one of the two that is entirely
-measurement. A despatch date in the future is a plan: an export pulled on the
-27th carries orders scheduled to leave on the 30th, and a bar drawn on the
-30th says the business sold something it has not.
+The last two are the **Maybe rollover** band: hatched rather than filled,
+because the bar under it is a measurement and this is a prediction. It is in
+no total on the card, in no Achievement figure and in no export of them - a
+KPI that added it would be claiming money the month will not be paid.
 
-So **the days stop at the date the export was taken** - the newest order on
-it - whichever basis is showing. On `made` there is nothing past it to draw
-anyway; on `gi` there is, and it is schedule, so it is left off and the run
-says how many days went:
+Which way a not-yet-despatched line goes is **measured, not assumed**: the
+build reads last month's orders and takes each Div 1's average days from order
+to despatch - the same reading `tools/lead_time.py` prints - and an order
+placed later than that many days before month end is a rollover. A division
+with nothing sold last month falls back to the figure over everything; with no
+previous month at all, nothing is called a rollover and the run says so.
 
 ```
-  the export was taken 2026-10-27; 1 day(s) after it are a despatch plan and are left off
+  lead time off 202609, days to despatch: VD 10.0, HA 7.0, DA 2.0; anything else 6.2
+  by day, on last month's orders on the day they left, this month's on the day they were placed:
+    5 day(s), 2026-10-03 .. 2026-10-30, 6 combination(s)
+    3,400 counted; 1,200 leaves after the month and is drawn dashed, out of the total
 ```
 
-A line under the chart names that date, so a short last week reads as "the
-file ends here" and not as a collapse in demand.
+A line that has already left is certain either way and is never a "maybe": the
+prediction is only ever applied to lines with no despatch date on them.
 
-On `made` the days do not add up to the month's revenue, and they are not
-meant to: an order placed on the 30th and shipped in November is demand in
-October and revenue in November. `gi` is the basis that reconciles, once the
-month closes.
+`--day-basis made` and `gi` are the older readings - every line on one of its
+two dates, with no carry-in and no rollover - kept for a straight count of
+order intake or of despatch.
 
 `--day-month YYMM` picks the month; the default is the latest month the order
 export carries, which is normally the open one. `--no-days` leaves the card
 out, and it is absent anyway when the build had no order source.
-
-#### The target line
-
-A dashed line over the daily bars: the month's **Sokbo** from the DTC Blue
-File, in AUD, the newest `DTC_S*` workbook in `rawdata\` (`DTC_S0A_T0B_v1.xlsx`
-reads as S0A, October). `--target NAME` picks another cut, `--target-version`
-another column, `--no-target` leaves it off. `py tools\target.py` prints what it
-reads, product group by product group.
-
-The Blue File sets one number per product group. The daily chart is by
-customer too, so the build splits it:
-
-```
-product group target  x  that group's customer mix, averaged over the last six closed months
-```
-
-- **The mix** is each customer's share of the group's net sales in a month,
-  read off the same `profit_*` months the chart below draws (after the drops),
-  online (`E-STORE`) only, then averaged over the six months before the target
-  month - an average of the monthly shares, so one big month does not outweigh
-  the other five. A customer is the whole chain, Channel -> Type -> Portal
-  Group -> Type2.
-- **A day** is the month's target divided evenly over its calendar days - 31
-  for October. With **Cumulative** on it is the target to date, so the line and
-  the bars meet where the month is on plan.
-- **It is compared as it stands** with the bars: order value on the order date.
-
-Narrowing the page narrows the line, because it is a sum over the same names.
-It stops at **Div 3**: a target is set by product group, so narrowing to a
-Range, a SKU or a promotion takes the line off, and the hint says why. It is
-also off for **Qty** and for **% of bar**, which have no target.
-
-The heading adds how the month to date stands against the target to date (a
-day's worth for each day up to the last day on the chart).
-
-The Blue File rows map to Div 3 by `DIV3` in `tools/target.py` (TV -> TV,
-MON -> Monitor, SD -> AV, SMP -> Mobile, APS -> Accessories, ...). A group no
-Div 3 matches is still in the line while the product chain is not narrowed,
-and the build names it; so is a group with no sales in the six months, while
-the customer chain is not narrowed.
 
 #### The two sets share one index
 
