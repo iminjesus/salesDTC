@@ -181,8 +181,14 @@ def where_rules(args_where) -> dict:
     return out
 
 
-def where_match(rules: dict, c: dict, p: dict, sku: str, chan) -> bool:
-    """Does this row belong to the slice --where asked for?"""
+def where_match(rules: dict, c: dict, p: dict, sku: str, chan,
+                how=all) -> bool:
+    """Does this row belong to the slice --where asked for?
+
+    `how=any` reads the same rules as --drop: one match is enough to go,
+    where --where needs every rule to hold.
+    """
+    hits = []
     for slot, vals in rules.items():
         if slot == 'channel':
             got = chan or ''
@@ -192,9 +198,11 @@ def where_match(rules: dict, c: dict, p: dict, sku: str, chan) -> bool:
             got = sku
         else:
             got = p.get(slot) or ''
-        if str(got).strip().upper() not in vals:
-            return False
-    return True
+        # The page writes an empty value as (blank) and that is how a reader
+        # has seen it spelled, so --drop "Biz=(blank)" has to reach the rows
+        # whose Biz is simply empty here.
+        hits.append((str(got).strip().upper() or '(BLANK)') in vals)
+    return how(hits) if hits else how is all
 
 
 def months_in(a: str, b: str) -> list:
@@ -248,7 +256,8 @@ class Pot:
 
 def read_month(path: Path, cust: dict, prod: dict, keep_returns: bool,
                column: str = '', of: str = 'gross', rules: dict | None = None,
-               by: list | None = None, say=print) -> tuple:
+               by: list | None = None, drop: dict | None = None,
+               say=print) -> tuple:
     rows, info = read_any(path)
     if not rows:
         raise ValueError('it is empty')
@@ -269,7 +278,8 @@ def read_month(path: Path, cust: dict, prod: dict, keep_returns: bool,
         raise ValueError('no ' + ', no '.join(
             {'base': of}.get(k, k) for k in missing))
     note = {'label': (head[at['deduct']] or column or 'deduction').strip(),
-            'how': how, 'at': at['deduct'], 'seen': 0, 'kept': 0}
+            'how': how, 'at': at['deduct'], 'seen': 0, 'kept': 0,
+            'dropped': 0}
     cell = lambda r, i: (r[i].strip() if i is not None and i < len(r) else '')
     num = lambda r, i: ((parse_number(cell(r, i)) or 0.0)
                         if i is not None else 0.0)
@@ -303,6 +313,10 @@ def read_month(path: Path, cust: dict, prod: dict, keep_returns: bool,
         p = prod.get(PM.code_norm(sku)) or {}
         note['seen'] += 1
         if rules and not where_match(rules, c, p, sku, chan):
+            continue
+        # --drop is --where read the other way: anything matching goes.
+        if drop and where_match(drop, c, p, sku, chan, how=any):
+            note['dropped'] += 1
             continue
         note['kept'] += 1
         key = row_key(by or ['account', 'div3', 'sku'], c, p, sku, chan)
@@ -471,6 +485,11 @@ def main() -> int:
     ap.add_argument('--by', default='account,div3,sku', metavar='LEVELS',
                     help='the level a row is grouped at for the split, as '
                          'account,div3,sku (the default) or div2, account, ...')
+    ap.add_argument('--drop', action='append', metavar='LEVEL=VALUE',
+                    help='leave these out, e.g. --drop "Biz=Memory". The '
+                         'profit page drops Biz=Memory and Biz=(blank) by '
+                         'default; this reads the file as it is unless told '
+                         'otherwise')
     ap.add_argument('--total', action='store_true',
                     help='one row a month for the whole business, rather than '
                          'one per channel - and stop there')
@@ -488,6 +507,7 @@ def main() -> int:
     ap.set_defaults(returns=True)
     args = ap.parse_args()
     rules = where_rules(args.where)
+    drop = where_rules(args.drop)
     by = by_levels(args.by)
 
     folder = Path(args.dir)
@@ -533,12 +553,13 @@ def main() -> int:
                       + ', '.join(sorted(v for v in seen if v)[:12]))
 
     months = []
-    label, kept, seen = 'deduction', 0, 0
+    label, kept, seen, dropped = 'deduction', 0, 0, 0
     for path in sorted(pick_series(folder, args.export),
                        key=lambda q: q.name):
         try:
             ym, pots, info, note = read_month(path, cust, prod, args.returns,
-                                              args.column, args.of, rules, by)
+                                              args.column, args.of, rules,
+                                              by, drop)
         except (ValueError, OSError, KeyError, IndexError) as e:
             print(f'  {path.name}: {e} - skipped')
             continue
@@ -555,18 +576,38 @@ def main() -> int:
             print(f'  {path.name}: this one carries {note["label"]!r} in '
                   f'{col_letter(note["at"])}, not {col_letter(sat)}')
         kept += note['kept']; seen += note['seen']
+        dropped += note['dropped']
         months.append((str(ym or path.stem), pots))
     if not months:
         print('no profit export could be read')
         return 1
+    # What this run covers, said every time. The figures are right and the
+    # scope is what differs from the page, so a run that does not say its
+    # scope is a run whose figures get doubted - which is what happened.
+    said = ', '.join(k + '=' + '/'.join(sorted(v))
+                     for k, v in sorted(rules.items()))
+    gone = ', '.join(k + '=' + '/'.join(sorted(v))
+                     for k, v in sorted(drop.items()))
+    print('  scope: ' + (said or 'every channel and every product')
+          + (f'; dropping {gone}' if gone else '')
+          + ('; returns in' if args.returns else '; returns out'))
     if rules:
-        slice_ = ', '.join(k + '=' + '/'.join(sorted(v))
-                           for k, v in sorted(rules.items()))
-        print(f'  {slice_}: {kept:,} of {seen:,} rows')
+        print(f'         {kept:,} of {seen:,} rows'
+              + (f', {dropped:,} dropped' if dropped else ''))
         if not kept:
             print('  nothing matched - check the spelling against the note '
                   'above')
             return 1
+    elif dropped:
+        print(f'         {dropped:,} of {seen:,} rows dropped')
+    if 'channel' not in rules and not drop:
+        # The one difference that makes a reader distrust the number: the
+        # page opens on the online business with Memory and the blanks taken
+        # out, and this is the whole file.
+        print('         the profit page shows ' + CUST.ONLINE + ' only and '
+              'drops Biz=Memory and Biz=(blank),\n         so its figures are '
+              'smaller - --where "Channel=' + CUST.ONLINE + '" --drop '
+              '"Biz=Memory" --drop "Biz=(blank)" matches it')
     months.sort(key=lambda m: m[0])
     trend(months, label, args.of, args.total)
     if args.total:

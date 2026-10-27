@@ -83,6 +83,23 @@ paid commission, month by month
 The channel split is the next question, not that one, and two rows a month is
 how a nine-month answer stops being readable at a glance.
 
+## The scope, said every time
+
+The figures are right and the **scope** is what differs from the profit page,
+so every run prints what it covers before it prints anything else:
+
+```
+  scope: every channel and every product; returns in
+         the profit page shows E-STORE only and drops Biz=Memory and Biz=(blank),
+         so its figures are smaller - --where "Channel=E-STORE" --drop "Biz=Memory" --drop "Biz=(blank)" matches it
+```
+
+This tool reads **the file as it is**: both channels, every business, returns
+in. The page opens on the online business with Memory and the blanks dropped,
+so the same column comes to a different number on each - January's gross is
+203m here and 14m there, and both are correct. `--where` narrows and `--drop`
+excludes, in the page's own spelling, so the two can be made to agree.
+
 ## Picking the column
 
 `--column` takes a header name (`--column "Paid Commission"`) or a
