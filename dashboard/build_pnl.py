@@ -455,6 +455,99 @@ def campaign_watcher(plan, canon):
     return watch, tally
 
 
+def day_watcher(basis: str = 'gi'):
+    """A per-line hook that totals the order export by day on the chart's key.
+
+    Which day a line belongs to is the whole question. The month chart's bar is
+    the revenue that left in the month, so the days that add up to it are
+    despatch days - that is the default, and it is what makes the daily chart
+    the monthly chart at a different width. `made` asks a different question,
+    order intake, whose days do not add up to the month: an order placed on the
+    30th that ships in November is in the day chart and not in the month's.
+
+    Returns (daily, tally) with tally {(day, key): [units, amount]}.
+    """
+    tally: dict = {}
+
+    def daily(key, gi, made, which, qty, amt):
+        day = gi if basis == 'gi' else made
+        if day is None:
+            return
+        # Each basis drops the bucket that is not its own day: on despatch,
+        # what has not left yet; on intake, what was ordered before the month.
+        if which == (SAP.CARRIED_OUT if basis == 'gi' else SAP.CARRIED_IN):
+            return
+        v = tally.setdefault((day.isoformat(), key), [0.0, 0.0])
+        v[0] += qty
+        v[1] += amt
+
+    return daily, tally
+
+
+def day_payloads(tally: dict, basis: str, source: str, say=print) -> list:
+    """One payload per day, in the shape a month payload has.
+
+    The page unifies the two sets together and then splits them, so a day has
+    to arrive looking like a month: the same levels in the same order, members
+    by name, and combinations indexing into them. Then every control the
+    monthly chart has - the drill, the split, the percent scale, the running
+    total - works on days without knowing that it is.
+    """
+    if not tally:
+        return []
+    levels = CUST.LEVELS + PRODUCT_LEVELS
+    names: list = [[] for _ in levels]
+    index: list = [{} for _ in levels]
+    for _, key in tally:
+        for i, part in enumerate(key[:len(levels)]):
+            if part not in index[i]:
+                index[i][part] = len(names[i])
+                names[i].append(part)
+    lv = [{'name': levels[i][0], 'values': names[i]} for i in range(len(levels))]
+    # Units and the order's own money. Not gross sales: the order export is not
+    # the profit export, and a figure called Gross Sales that is neither would
+    # be read as the one the rest of the page draws.
+    series = [{'key': 'qty', 'label': 'Order Qty'},
+              {'key': 'gross', 'label': 'Order Value'}]
+    by_day: dict = {}
+    for (day, key), v in tally.items():
+        by_day.setdefault(day, {})[key] = v
+    out = []
+    for day in sorted(by_day):
+        y, m, d = int(day[:4]), int(day[5:7]), int(day[8:10])
+        rows = by_day[day]
+        out.append({
+            # YYYYMMDD marks it as a day and orders the columns; ym stays the
+            # real month so anything that reads one still can.
+            'd': y * 10000 + m * 100 + d,
+            'ym': y * 100 + m,
+            'month': f'{d} {MONTHS[m - 1]}',
+            'title': f'{d} {MONTHS[m - 1]} {y} Orders',
+            'file': source,
+            'rows': len(rows),
+            'custDepth': CUST_DEPTH,
+            # No promotion chain and no carry-in on a day: both are answers
+            # about a month, and the page switches those buttons off itself
+            # when the levels are not there.
+            'promoAt': None,
+            'carryIn': False,
+            # Which day it is. The page says so under the chart, because the
+            # answer decides whether the days add up to the month.
+            'dayBasis': basis,
+            'levels': lv,
+            'series': series,
+            'combos': [{'k': [index[i][k[i]] for i in range(len(levels))],
+                        'n': 1, 'v': [round(v[0]), round(v[1])]}
+                       for k, v in rows.items()],
+        })
+    lo, hi = sorted(by_day)[0], sorted(by_day)[-1]
+    what = ('the day each order left' if basis == 'gi'
+            else 'the day each order was placed')
+    say(f'\n  by day, on {what}: {len(out)} day(s), {lo} .. {hi}, '
+        f'{sum(len(r) for r in by_day.values()):,} combination(s)')
+    return out
+
+
 def campaign_payload(by_day: dict, folder, args) -> dict:
     """{campaign: {start, end, days: {day: [units, amount]}}}.
 
@@ -741,6 +834,15 @@ def main() -> int:
                     help='the promotion plan(s) the promotion split is read '
                          'from (default: ' + ' '.join(PM.PLAN_STEMS)
                          + ', a bar between the names one division has gone by)')
+    ap.add_argument('--no-days', action='store_true',
+                    help='leave the daily chart out. It is built from the '
+                         'order export, so a build with no order source has '
+                         'none anyway')
+    ap.add_argument('--day-basis', choices=('gi', 'made'), default='gi',
+                    metavar='WHICH',
+                    help='which day an order line counts on: gi, the day it '
+                         'left, so the days add up to the month the chart '
+                         'draws (the default), or made, the day it was placed')
     ap.add_argument('--no-orders', action='store_true',
                     help='draw sales only, even when an order export is there')
     ap.add_argument('--shipped', metavar='LIST',
@@ -823,8 +925,16 @@ def main() -> int:
         f'pnl{tag}_{str(months[-1]["ym"])[-4:]}.html' if months[-1].get('ym')
         else f'pnl{tag}.html')
     template = (HERE / 'pnl_template.html').read_text(encoding='utf-8')
+    # The days come out of the months that read them and go in beside them:
+    # the page unifies both sets together so a member is the same number in
+    # each, then splits them back into two views of one payload.
+    days = [d for m in months for d in m.pop('days', [])]
+    if days:
+        print(f'\nthe daily chart: {len(days)} day(s) from the order export, '
+              f'{sum(len(d["combos"]) for d in days):,} combination(s)')
     html = template.replace('/*__DATA__*/null',
-                            json.dumps({'months': months}, ensure_ascii=False,
+                            json.dumps({'months': months, 'days': days},
+                                       ensure_ascii=False,
                                        separators=(',', ':')))
     if not args.cdn:
         f = HERE / 'vendor' / 'chart.umd.js'
@@ -1458,6 +1568,12 @@ def build_month(folder, target, args):
                      for t in args.skip_sku.split(',') if t.strip())
 
     got_sap = None
+    # The same order lines the month is modelled from, totalled a second way:
+    # by day, on the chart's own key. Nothing is read twice for it.
+    day_tally: dict = {}
+    daily = None
+    if not args.no_days:
+        daily, day_tally = day_watcher(args.day_basis)
     if not args.no_orders and not args.no_sap and ym:
         sap_files = pick_series(folder, args.sap)
         seen_stem = set()
@@ -1472,7 +1588,7 @@ def build_month(folder, target, args):
                 currency=args.currency,
                 skip_sku=tuple(t.strip().upper()
                                for t in args.skip_sku.split(',') if t.strip()),
-                band_of=bander, watch=watch)
+                band_of=bander, watch=watch, daily=daily)
             if got_sap:
                 SAP.report(got_sap, ym)
                 carry_in_known = any(
@@ -1772,6 +1888,11 @@ def build_month(folder, target, args):
         # between. Not part of the key and not split by anything: the month chart
         # is the month, and this is the campaign.
         'campaigns': campaign_payload(by_day, folder, args),
+        # One payload per day of the order export, in the shape a month has.
+        # Hoisted out of here when the page is written: they are a second set
+        # of columns for the same chart, not part of this month's own.
+        'days': day_payloads(day_tally, args.day_basis,
+                             ', '.join(got_sap.files) if got_sap else ''),
         'start': index[levels[0]['name']].get(start, -1) if start else -1,
         # Rounded to whole units: the chart is drawn in millions and the table
         # in whole amounts, so cents would only make the file bigger.

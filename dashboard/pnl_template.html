@@ -263,7 +263,8 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         <span class="vals" id="stkFig"></span></label>
       <button class="btn apart" id="pnlBtn" title="the whole statement for whatever is picked above: what came in beside what it went out on">P&amp;L</button>
       <label class="f" id="periodBox"><span>Period</span><span class="seg">
-        <button class="btn" id="perMonth">Month</button
+        <button class="btn" id="perDay" title="one bar a day, off the order export - the same chart at a narrower width">Day</button
+        ><button class="btn" id="perMonth">Month</button
         ><button class="btn" id="perQtr">Quarter</button></span></label>
       <button class="btn" id="cumulBtn" title="each bar is the running total up to and including it, so the last bar is the whole span">Cumulative</button>
       <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
@@ -389,7 +390,8 @@ function unify(months) {
     levels, series, combos,
     // The list price per SKU, kept per month: a price drop is a new list
     // price, and one map for the whole page would date-stamp it wrongly.
-    months: months.map(m => ({ ym: m.ym, label: m.month, file: m.file,
+    months: months.map(m => ({ ym: m.ym, d: m.d, label: m.month,
+                               file: m.file, rows: m.rows || 0,
                                carryIn: !!m.carryIn, rrp: m.rrp || {} })),
     custDepth: shape.custDepth,
     // What the build left out, said once however many months say it.
@@ -438,7 +440,65 @@ function unify(months) {
   };
 }
 
-let DATA = unify(ALL.months);
+/* The months the profit exports cover, and the days the order export covers,
+   as two views of one payload.
+
+   They are unified together and then split, which is the whole trick: a member
+   is the same number in both views, so a narrowing set on months still means
+   the same customer and the same product on days, and every control the chart
+   already has works on either without knowing which it is on. Split apart and
+   unified separately, index 7 of Biz would be two different businesses and
+   switching would silently redraw someone else's chart.
+
+   A day arrives from the build looking like a month - the same levels in the
+   same order, combinations indexing into them - with `d` set. */
+function viewOf(all, src, want) {
+  const at = new Map();
+  const keep = [];
+  all.months.forEach((m, i) => {
+    if (!!m.d === want) { at.set(i, keep.length); keep.push(m); }
+  });
+  if (!keep.length) return null;
+  const one = keep.length === 1;
+  // A view carries only the figures its own exports declared. Unified, the
+  // series are the union of both sets, and a day left holding a column for
+  // Operating Profit draws the whole statement as zeroes - a P&L that says
+  // the day made nothing, rather than a day that was never asked.
+  const mine = new Map();
+  src.forEach(m => { if (!!m.d === want) m.series.forEach(
+    s => { if (!mine.has(s.key)) mine.set(s.key, s.label); }); });
+  const take = all.series.map((s, i) => i).filter(i => mine.has(all.series[i].key));
+  return { ...all, months: keep,
+           // Each view names its own figures too: the order export's money is
+           // the order's value and not gross sales, and the page says which.
+           series: take.map(i => ({ ...all.series[i],
+                                    label: mine.get(all.series[i].key) })),
+           combos: all.combos.filter(c => at.has(c.m))
+                             .map(c => ({ ...c, m: at.get(c.m),
+                                          v: take.map(i => c.v[i]) })),
+           rows: keep.reduce((a, m) => a + (m.rows || 0), 0),
+           carryIn: keep.some(m => m.carryIn),
+           // A day has no promotion chain and no carry-in, so the buttons that
+           // need them switch themselves off on the day view - they read the
+           // payload, not a flag set here.
+           promoAt: want ? null : all.promoAt,
+           dayBasis: want ? (src.find(m => !!m.d) || {}).dayBasis : null,
+           file: one ? keep[0].file
+                 : want
+                   // Every day came out of one export, so the span is days.
+                   ? `${keep.length} days, ${keep[0].label} .. `
+                     + `${keep[keep.length - 1].label}, ${keep[0].file}`
+                   : `${keep.length} exports, ${keep[0].file} .. `
+                     + `${keep[keep.length - 1].file}`,
+           title: want
+             ? `${keep[0].label} - ${keep[keep.length - 1].label} Orders`
+             : all.title };
+}
+const ALL_SRC = (ALL.months || []).concat(ALL.days || []);
+const ALL_ONE = unify(ALL_SRC);
+const VIEWS = { month: viewOf(ALL_ONE, ALL_SRC, false),
+                day: viewOf(ALL_ONE, ALL_SRC, true) };
+let DATA = VIEWS.month || VIEWS.day;
 
 /* Chart.js cannot resolve a custom property, so the series colours are read off
    the stylesheet once per render - that way light and dark live in one place. */
@@ -1142,7 +1202,8 @@ function render() {
     });
   });
   const sl = splitLevel();
-  const per = state.period === 'quarter' ? 'quarter' : 'month';
+  const per = DATA === VIEWS.day ? 'day'
+              : state.period === 'quarter' ? 'quarter' : 'month';
   const run = state.cumul ? ' cumulative' : '';
   step(state.stack === 'orders' ? `by ${per}${run}, split by when ordered`
        : sl === null ? `by ${per}${run}`
@@ -1401,6 +1462,7 @@ function drawStack() {
   // month the order behind it was placed. It needs the order export and the
   // month before's, or there is nothing to call carried in. Decided first,
   // because what the bars are split by depends on it.
+  const dayView = DATA === VIEWS.day;
   const canOrd = hasOrders() && DATA.carryIn;
   // The promotion split needs the band series on the cells; a build run
   // without a plan has none, and the button stays off rather than drawing an
@@ -1439,9 +1501,15 @@ function drawStack() {
   // The same three in every stack mode, which is what keeps the y axis still
   // when Stack by changes: there is no figure that one mode has and another
   // does not, so nothing has to be swapped out underneath the reader.
+  // The money and the units. Each takes the name its own view's export gave
+  // it: on months that is net sales, on days it is what the order was worth,
+  // and a button reading "Net Amount" over order values would be a figure
+  // nobody asked for.
   const MEASURES = [
-    [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
-    ['qty', 'Qty'],
+    [has.net !== undefined ? 'net' : 'gross',
+     dayView ? label(has.net !== undefined ? 'net' : 'gross')
+             : 'Net Amount (AUD)'],
+    ['qty', dayView ? label('qty') : 'Qty'],
   ];
   const figBox = document.getElementById('stkFig');
   figBox.className = 'vals seg';
@@ -1473,9 +1541,11 @@ function drawStack() {
   // the menu, and this menu is already tall.
   const pctMode = state.stkScale === 'pct' && !pnlMode;
   document.getElementById('scaleBox').hidden = pnlMode;
-  [['perMonth', 'month'], ['perQtr', 'quarter']]
+  [['perDay', 'day'], ['perMonth', 'month'], ['perQtr', 'quarter']]
     .forEach(([id, v]) => document.getElementById(id)
-      .classList.toggle('active', state.period === v));
+      .classList.toggle('active', dayView ? v === 'day' : state.period === v));
+  // Nothing to draw a day from: the build had no order export, or --no-days.
+  document.getElementById('perDay').hidden = !VIEWS.day;
   document.getElementById('cumulBtn').classList.toggle('active', state.cumul);
   document.getElementById('stkAmt').classList.toggle('active', !pctMode);
   document.getElementById('stkPct').classList.toggle('active', pctMode);
@@ -1491,8 +1561,12 @@ function drawStack() {
   // Month or quarter. There was a Year as well, until Cumulative arrived: the
   // last bar of a running total is the whole span, so a period that drew it as
   // one bar was a third way to say a number the page already said twice.
-  const PER = state.period === 'quarter' ? 'quarter' : 'month';
+  // The day view has days to put on the axis and nothing to roll them into,
+  // so the width is decided by the view and only then by the button.
+  const PER = dayView ? 'day'
+              : state.period === 'quarter' ? 'quarter' : 'month';
   const keyOf = m => {
+    if (PER === 'day') return [`${m.d}`, m.label];
     const y = Math.floor(m.ym / 100), mo = m.ym % 100;
     return PER === 'quarter'
       ? [`${y}Q${Math.ceil(mo / 3)}`, `${y} Q${Math.ceil(mo / 3)}`]
@@ -1973,6 +2047,16 @@ function drawStack() {
           + (folded ? `. The eight biggest ${DATA.levels[sl].name.toLowerCase()}s `
                       + `have a colour of their own, the same colour in every `
                       + `${PER}; the rest are folded into Other.` : '.'))
+    // What a day is, which decides whether the days come to the month. The
+    // order export is not the profit export, so this is not the chart beside
+    // it measured more finely - it is the orders behind it.
+    + (dayView ? ` A day is off ${DATA.file.split(', ').pop()}: `
+                 + (DATA.dayBasis === 'made'
+                    ? 'the day each order was placed, so the days do not add '
+                      + 'up to the month - an order placed on the last day and '
+                      + 'shipped later is here and not in the month.'
+                    : 'the day each order left, so the days add up to the '
+                      + 'month beside them.') : '')
     + (state.cumul ? ` Running totals: every bar is itself plus everything `
                      + `before it, so the last one is the whole span.` : '')
     + (hasLine ? ` The solid line is ${label('profit')} over ${denom} for the `
@@ -2390,9 +2474,16 @@ document.getElementById('cumulBtn').onclick = () => {
   state.cumul = !state.cumul; render(); };
 document.getElementById('pnlBtn').onclick = () => {
   state.pnl = !state.pnl; render(); };
-[['perMonth', 'month'], ['perQtr', 'quarter']]
+[['perDay', 'day'], ['perMonth', 'month'], ['perQtr', 'quarter']]
   .forEach(([id, v]) => {
-    document.getElementById(id).onclick = () => { state.period = v; render(); };
+    document.getElementById(id).onclick = () => {
+      state.period = v;
+      // Day is the other view of the payload, not another width of this one.
+      // The narrowing survives the swap because both views share one index.
+      const want = v === 'day' ? 'day' : 'month';
+      if (VIEWS[want] && DATA !== VIEWS[want]) { DATA = VIEWS[want]; rebind(); }
+      render();
+    };
   });
 document.getElementById('stkAmt').onclick = () => {
   state.stkScale = 'amount'; render(); };
@@ -2903,7 +2994,8 @@ function exportBook() {
     ['Rows read', DATA.rows],
     ['Taken at', new Date().toLocaleString()],
     [],
-    ['Period', state.period === 'quarter' ? 'Quarter' : 'Month'],
+    ['Period', DATA === VIEWS.day ? 'Day'
+               : state.period === 'quarter' ? 'Quarter' : 'Month'],
     ['Cumulative', state.cumul ? 'Yes' : 'No'],
     ['Stack by', state.stack],
     ['Split by', state.stack === 'orders' ? 'when ordered'

@@ -614,6 +614,45 @@ cost bars**: costs share no scale with a count of units, and the same goes for a
 bar normalised to 100%. Controls that do not apply disappear rather than greying
 out, since a dead button still costs a row of a menu that is already tall.
 
+### Day
+
+**Day** sits at the front of the Period row and is the same chart one width
+narrower: one bar a day, the same slice, the same split, the same figure, the
+same percent scale, the same running total, the same drill. Clicking a band
+still narrows to it and steps the split down.
+
+It is the same chart but **not the same export**. The monthly chart is the
+profit export - gross sales, deduction, COGS, operating cost, operating
+profit. A profit export is a month with no day in it, so a daily chart cannot
+come from it; it comes from the order export (`orders_*`, SAP), which has a
+date on every line. So in day view the Figure row offers **Order Value** and
+**Order Qty** and nothing else, P&L hides itself, and the hint under the chart
+names the file the days came out of. The button is not there at all when the
+build had no order source.
+
+Which day a line counts on is the question that decides whether the two charts
+agree, and `--day-basis` answers it:
+
+| | a day is | the days add up to |
+|---|---|---|
+| `gi` (default) | the day the order left - its Goods Issue date | the month beside it |
+| `made` | the day the order was placed - Created On | nothing: an order placed on the 30th that ships in November is in the day chart and not in the month's |
+
+`gi` is the default because the month chart's bar is the revenue that left in
+the month, so despatch days are the days that sum to it. `made` asks the other
+question - order intake, demand as it arrived - and the hint says which one is
+showing rather than leaving it to be assumed.
+
+**The two views share one index.** The months and the days are unified
+together and then split, so a member is the same number in both: narrow to
+MX on months, switch to Day, and it is the same MX. Unified separately,
+index 7 of Biz would be two different businesses and switching would
+silently redraw someone else's chart.
+
+A day carries no promotion chain and no carry-in - both are answers about a
+month - so **Stack by Promo** and **When ordered** switch themselves off in
+day view, the same way they do on any build whose payload lacks them.
+
 ### Month, quarter, year
 
 **Period** sets how wide a bar is - a month or a quarter. Nothing else

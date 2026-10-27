@@ -121,7 +121,7 @@ class Months:
 
 def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
          products: dict, skip_sku: tuple = (), currency: str | None = None,
-         band_of=None, watch=None, say=print) -> Months | None:
+         band_of=None, watch=None, daily=None, say=print) -> Months | None:
     """Read every SAP export and total the month onto the profit file's key.
 
     `month` is the month being drawn, as YYYYMM. A line counts when it left in
@@ -221,6 +221,12 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
             # outside its window a campaign bands nothing at all.
             if watch is not None:
                 watch(sku, made, qty, amt)
+            # The same line again, this time with the key it landed on and both
+            # of its dates. A caller totalling the export by day needs to pick
+            # which day it means - the one the order arrived or the one it left
+            # - and that is not this module's decision to make.
+            if daily is not None:
+                daily(tuple(key), gi, made, which, qty, amt)
     return out if out.files else None
 
 
