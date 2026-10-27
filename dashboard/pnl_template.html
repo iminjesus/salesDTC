@@ -210,6 +210,14 @@ body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
 .card.zoom .chart { height: calc(100vh - 160px) !important; }
 .hint { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
 #dayCard .legend .t { font-weight: 600; font-size: 13px; color: var(--ink-2); }
+/* The achievement tree. Indent says depth and weight says level, so Biz reads
+   as a heading over its divisions rather than as another row like them. */
+#achBox td.tree { text-align: left; }
+#achBox td.d0 { font-weight: 600; }
+#achBox td.d1 { padding-left: 22px; }
+#achBox td.d2 { padding-left: 40px; color: var(--ink-2); }
+#achBox td.d3 { padding-left: 58px; color: var(--ink-2); }
+#achBox tr.d0 td { border-top: 1px solid var(--grid); }
 /* The campaign's own days, over the page. A sheet rather than another card:
    it answers a question asked of one band and is done with, and the page
    underneath should still be visible behind it. */
@@ -1532,10 +1540,14 @@ const BAND_COLOUR = { 'DTC only': 0, 'DTC + Nation-wide': 2,
    own never answers. Same month, same target, same narrowing - only the axis
    changes, from days to products.
 
-   The target is set by product group, so Div 3 is as deep as it goes. Where
-   the page is already split by a product level the table follows it, because
-   a reader who has drilled to Div 2 is asking about Div 2; otherwise it shows
-   the level the target was written at.
+   The rows are the product tree the page drills - Biz, then Div 1, Div 2,
+   Div 3 - with each parent carrying its children's total, so a business that
+   is behind can be read where it sits. The target is set at Div 3, which is
+   where the tree ends.
+
+   A level that repeats the one above it is not a step and gets no row of its
+   own: Div 1 DA under Biz CE is a step, Div 2 REF under Div 1 REF is the same
+   thing said twice, and the drill skips those for the same reason.
 
    Money only. The target is an amount and a quantity has no target, so the
    table stays on the order value whatever the chart's figure is - and says so
@@ -1543,12 +1555,7 @@ const BAND_COLOUR = { 'DTC only': 0, 'DTC + Nation-wide': 2,
 const MON = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
              'Oct', 'Nov', 'Dec'];
 
-function achLevel(D) {
-  const want = ['Biz', 'Div 1', 'Div 2', 'Div 3'];
-  const sl = state.stack === 'orders' ? null : (splitLevel() ?? null);
-  const name = sl === null ? null : D.levels[sl].name;
-  return want.includes(name) ? name : 'Div 3';
-}
+const ACH_TREE = ['Biz', 'Div 1', 'Div 2', 'Div 3'];
 
 function drawAch(D, lastDay, money) {
   const card = document.getElementById('achCard');
@@ -1558,9 +1565,8 @@ function drawAch(D, lastDay, money) {
     return;
   }
   card.hidden = false;
-  const name = achLevel(D);
-  const li = D.levels.findIndex(lv => lv.name === name);
-  const tj = T.levels.indexOf(name);
+  const li = ACH_TREE.map(n => D.levels.findIndex(lv => lv.name === n));
+  const tj = ACH_TREE.map(n => T.levels.indexOf(n));
   const at = T.levels.map(n => D.levels.findIndex(lv => lv.name === n));
   const mine = new Set(at.filter(i => i >= 0));
   // A narrowing on something the target has no key for - a Range, a model, a
@@ -1571,11 +1577,20 @@ function drawAch(D, lastDay, money) {
     if (state.filter[i] >= 0 && !mine.has(i)) outside.push(D.levels[i].name);
   }
 
-  const rows = new Map();
-  const slot = k => {
-    let r = rows.get(k);
-    if (!r) rows.set(k, r = { name: k, target: 0, actual: 0 });
-    return r;
+  // One tree, both sides of the ratio on it: every node carries its own
+  // subtree's target and actual, so a parent row is a real subtotal and not a
+  // number assembled separately from the rows under it.
+  const root = { kids: new Map(), target: 0, actual: 0 };
+  const add = (path, key, v) => {
+    let node = root;
+    node[key] += v;
+    for (const name of path) {
+      let k = node.kids.get(name);
+      if (!k) node.kids.set(name, k = { name, kids: new Map(),
+                                        target: 0, actual: 0 });
+      k[key] += v;
+      node = k;
+    }
   };
   if (!outside.length) {
     for (const r of T.rows) {
@@ -1585,32 +1600,40 @@ function drawAch(D, lastDay, money) {
         if (i < 0 || state.filter[i] < 0) continue;
         ok = r.k[j] !== null && D.levels[i].values[state.filter[i]] === r.k[j];
       }
-      if (ok) slot(r.k[tj] === null ? '(not matched to a product)' : r.k[tj])
-                .target += r.v;
+      if (ok) add(tj.map(j => (r.k[j] === null ? '(not matched)' : r.k[j])),
+                  'target', r.v);
     }
   }
   for (const c of D.combos) {
     if (!inSlice(c)) continue;
-    slot(D.levels[li].values[c.k[li]]).actual += c.v[money] || 0;
+    add(li.map(i => D.levels[i].values[c.k[i]]), 'actual', c.v[money] || 0);
   }
+
+  // Flattened, with the repeats folded away.
+  const list = [];
+  const walk = (node, depth, above) => {
+    const kids = [...node.kids.values()]
+      .sort((a, b) => b.target - a.target || b.actual - a.actual);
+    for (const k of kids) {
+      if (k.name === above) { walk(k, depth, above); continue; }
+      list.push({ name: k.name, depth, target: k.target, actual: k.actual });
+      walk(k, depth + 1, k.name);
+    }
+  };
+  walk(root, 0, null);
 
   const days = T.days || 0;
   const share = days ? lastDay / days : 0;      // of the month that has run
-  const list = [...rows.values()];
-  list.forEach(r => {
+  const rate = r => {
     r.due = r.target * share;
     r.ach = r.due ? (r.actual / r.due) * 100 : null;
-    r.gap = r.actual - r.due;
-    // Where the month lands if the rest of it runs at the rate so far. A
-    // projection, not a measurement, and the heading says which.
-    r.proj = lastDay ? (r.actual / lastDay) * days : null;
-  });
-  list.sort((a, b) => b.target - a.target || b.actual - a.actual);
-  const tot = list.reduce((a, r) => ({
-    name: 'Total', target: a.target + r.target, actual: a.actual + r.actual,
-    due: a.due + r.due, gap: a.gap + r.gap, proj: a.proj + (r.proj || 0),
-  }), { name: 'Total', target: 0, actual: 0, due: 0, gap: 0, proj: 0 });
-  tot.ach = tot.due ? (tot.actual / tot.due) * 100 : null;
+    return r;
+  };
+  list.forEach(rate);
+  // The root, not the rows added up: they are a tree, and adding them would
+  // count every parent again.
+  const tot = rate({ name: 'Total', depth: 0,
+                     target: root.target, actual: root.actual });
   // There is no "projected achievement" column, and there cannot be one: the
   // target is spread evenly over the days, so projecting the month at the
   // rate so far and dividing by the month's target gives back the achievement
@@ -1619,20 +1642,19 @@ function drawAch(D, lastDay, money) {
 
   const pc = v => (v == null ? '-' : v.toFixed(0) + '%');
   const line = r => [
-    `<td>${r.name}</td>`,
+    `<td class="tree d${r.depth}">${r.name}</td>`,
     `<td>${fmt(r.target)}</td>`,
     `<td>${fmt(r.due)}</td>`,
     `<td>${fmt(r.actual)}</td>`,
     `<td class="${r.ach != null && r.ach < 100 ? 'neg' : ''}">${pc(r.ach)}</td>`,
-    `<td class="${r.gap < 0 ? 'neg' : ''}">${fmt(r.gap)}</td>`,
-    `<td>${r.proj == null ? '-' : fmt(r.proj)}</td>`,
   ].join('');
-  const head = [name, 'Target (month)',
+  const head = ['Product', 'Target (month)',
                 `Target to ${lastDay} ${MON[T.ym % 100]}`, 'Actual to date',
-                'Achievement', 'Gap', 'Month at this rate'];
+                'Achievement'];
   document.getElementById('achBox').innerHTML = `<table>
     <thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead>
-    <tbody>${list.map(r => `<tr>${line(r)}</tr>`).join('')}</tbody>
+    <tbody>${list.map(r => `<tr class="d${r.depth}">${line(r)}</tr>`)
+                 .join('')}</tbody>
     <tfoot><tr>${line(tot)}</tr></tfoot></table>`;
 
   // Target money this slice cannot account for: a product group with no Div 3
@@ -1650,9 +1672,9 @@ function drawAch(D, lastDay, money) {
       + `of the month and taken to ${lastDay} - where the export stops. `
       + 'Actual is order value off the order export, so it is demand placed, '
       + 'not revenue booked; the target is an amount, so this table stays on '
-      + 'money whatever figure the chart is showing. Projected is the month at '
-      + 'the rate so far - a projection, not a measurement. The narrowing '
-      + 'applies to both sides.')
+      + 'money whatever figure the chart is showing. Each row carries its own '
+      + 'children, so a division is its groups added up and the total is the '
+      + 'tree, not the column. The narrowing applies to both sides.')
     + (left > 0 && !outside.length
        ? ` ${fmt(left)} of the month's ${fmt(whole)} target is not in this `
          + 'table: a product group with no match in the data, or one the '

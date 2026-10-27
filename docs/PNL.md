@@ -683,19 +683,32 @@ it and which are behind.
 | Target to *n* Oct | that, divided evenly over the month's calendar days and taken to the last day the export covers |
 | Actual to date | the days above, added up |
 | **Achievement** | actual to date over target to date |
-| Gap | actual to date minus target to date, in money |
-| Month at this rate | the month projected at the rate so far - a projection, not a measurement |
 
-There is no "projected achievement" column and there cannot be one: the target
+**The rows are the product tree the page drills** - Biz, then Div 1, Div 2,
+Div 3 - each parent carrying its children's total, so a division is its groups
+added up and the total is the tree rather than the column. The target is set
+at Div 3, which is where the tree ends.
+
+A level that repeats the one above it gets no row of its own. Div 1 `DA` under
+Biz `CE` is a step; Div 2 `REF` under Div 1 `REF` is the same thing said twice,
+and the drill skips those for the same reason.
+
+```
+CE          400,000   348,387   283,000    81%
+  DA        200,000   174,194   225,500   129%
+    REF     120,000   104,516   131,000   125%
+    WM       80,000    69,677    94,500   136%
+  VD        200,000   174,194    57,500    33%
+    TV      200,000   174,194    57,500    33%
+MX           50,000    43,548   106,200   244%
+  Mobile     50,000    43,548   106,200   244%
+Total       450,000   391,935   389,200    99%
+```
+
+There is no projected-achievement column and there cannot be one: the target
 is spread evenly over the days, so projecting the month at the rate so far and
 dividing by the month's target gives back the achievement to date, exactly. It
-was in the table for one run and every row repeated the column four places to
-its left.
-
-**Rows** are product groups. The target is set at Div 3, so that is as deep as
-it goes; where the page is already split by a product level the table follows
-it, because a reader who has drilled to Div 2 is asking about Div 2. Narrowing
-applies to both sides of the ratio.
+was in the table for one run and every row repeated the column beside it.
 
 **Money, always.** The target is an amount and a quantity has no target, so the
 table stays on order value whatever figure the chart is showing. That also
