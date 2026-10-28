@@ -435,16 +435,30 @@ def campaign_watcher(plan, canon):
         if seen[1] is None or day > seen[1]:
             seen[1] = day
         for name in by_sku.get(PM.code_norm(sku), ()):
-            for start, end in win.get(name, ()):
-                if (day < start - timedelta(days=SHOULDER)
-                        or day > end + timedelta(days=SHOULDER)):
-                    continue
-                t = tally.setdefault((name, start), {
-                    'in': {}, 'before': [0.0, 0.0], 'after': [0.0, 0.0],
-                    'win': (start, end)})
-                break
-            else:
+            runs = win.get(name, ())
+            # The run the day is actually inside wins. Taking the first run
+            # within a shoulder instead put every October day on a run that
+            # closed on 20 September - thirty days of shoulder reach across a
+            # month end, and a campaign that comes round each month had its
+            # later runs swallowed whole by its first: the run drawn started
+            # in September, so nothing of it opened in October.
+            hit = next(((a, b) for a, b in runs if a <= day <= b), None)
+            if hit is None:
+                # Outside every run, the nearest one it shoulders - a day
+                # belongs to the run it is closest to, not to whichever is
+                # listed first.
+                near = None
+                for a, b in runs:
+                    gap = (a - day).days if day < a else (day - b).days
+                    if gap <= SHOULDER and (near is None or gap < near[0]):
+                        near = (gap, a, b)
+                hit = None if near is None else (near[1], near[2])
+            if hit is None:
                 continue
+            start, end = hit
+            t = tally.setdefault((name, start), {
+                'in': {}, 'before': [0.0, 0.0], 'after': [0.0, 0.0],
+                'win': (start, end)})
             if day < start:
                 t['before'][0] += qty
                 t['before'][1] += amt

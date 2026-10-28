@@ -753,6 +753,25 @@ campaign was live rather than which - it can be neither narrowed nor
 attributed, and a nationwide run is the trading backdrop rather than something
 this channel did. The strip is for the campaigns that are ours.
 
+**A campaign that comes round again is pinned on this month's run.** Samsung
+Week runs in September and again in October, and those are two runs, not one
+long one. Two things used to collapse them into the first:
+
+- the build's window search took the first run within a month's shoulder of
+  the day, and thirty days of shoulder reach across a month end - so every
+  October day landed on the run that closed on 20 September, and the October
+  run was left holding nothing;
+- the page then merged a name's payloads by taking the earliest start and the
+  latest end, which dated the campaign to the first time it ever ran.
+
+Between them, a recurring campaign was never an October campaign and never got
+a pin. Now a day belongs to the run it is **inside**, and a shoulder is only a
+fallback - the nearest run, not the first listed. The page keeps a name's runs
+apart (`campaignRuns`) and each view asks for the run in **its own window**, so
+the daily chart of October pins October's run and the sheet it opens shows
+October's dates. Only payloads whose windows meet are added together, which is
+how one run that crosses a month end stays one run.
+
 **They follow the narrowing.** With nothing selected, every DTC campaign that
 opened in the month is pinned. Once a product or a customer is chosen, only
 the campaigns that sold something inside that slice stay - the campaign levels

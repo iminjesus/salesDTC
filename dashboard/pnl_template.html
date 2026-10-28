@@ -471,6 +471,55 @@ function unify(months) {
     });
   });
 
+  /* One campaign's days, gathered from whichever months carry them - but
+   kept as separate runs.
+
+   A campaign crosses a month end, and each month's payload holds only its
+   own part of that one run: those add up. A campaign also comes round
+   again - Samsung Week runs in September and again in October - and those
+   are two runs. Taking the earliest start and the latest end of both drew
+   a six-week window nobody ran, and dated the campaign to the first time
+   it opened, so its October run was not an October campaign at all and
+   the daily chart had nothing to pin.
+
+   Two payloads are the same run when their windows meet, with the two
+   days of slack the build folds plan lines with. */
+  const campRuns = (() => {
+    const all = {};
+    const plus = (iso, n) => {
+      const d = new Date(iso + 'T00:00:00');
+      d.setDate(d.getDate() + n);
+      return d.toISOString().slice(0, 10);
+    };
+    months.forEach(m => Object.entries(m.campaigns || {}).forEach(([k, v]) => {
+      if (!v.start || !v.end) return;
+      const runs = all[k] || (all[k] = []);
+      const r = runs.find(r => v.start <= plus(r.end, 2)
+                               && r.start <= plus(v.end, 2));
+      if (!r) {
+        runs.push({ start: v.start, end: v.end,
+                    days: { ...(v.days || {}) },
+                    before: [...(v.before || [0, 0, 0])],
+                    after: [...(v.after || [0, 0, 0])] });
+        return;
+      }
+      if (v.start < r.start) r.start = v.start;
+      if (v.end > r.end) r.end = v.end;
+      Object.entries(v.days || {}).forEach(([d, u]) => {
+        const q = r.days[d] || (r.days[d] = [0, 0]);
+        q[0] += u[0]; q[1] += u[1];
+      });
+      // The shoulders add up across months: each month's payload holds the
+      // part of them its own export covered, units, money and days alike.
+      ['before', 'after'].forEach(side => {
+        (v[side] || []).forEach((n, i) => { r[side][i] += n; });
+      });
+    }));
+    Object.values(all).forEach(runs => runs.sort((a, b) =>
+      (a.start < b.start ? -1 : a.start > b.start ? 1 : 0)));
+    return all;
+    })();
+
   return {
     levels, series, combos,
     // The list price per SKU, kept per month: a price drop is a new list
@@ -481,28 +530,10 @@ function unify(months) {
     custDepth: shape.custDepth,
     // What the build left out, said once however many months say it.
     dropped: [...new Set(months.flatMap(m => m.dropped || []))],
-    // One campaign's days, gathered from whichever months carry them. A
-    // campaign runs across month ends, and each month's payload holds only
-    // its own part of it.
-    campaigns: (() => {
-      const all = {};
-      months.forEach(m => Object.entries(m.campaigns || {}).forEach(([k, v]) => {
-        const c = all[k] || (all[k] = { start: v.start, end: v.end, days: {},
-                                        before: [0, 0, 0], after: [0, 0, 0] });
-        if (v.start && (!c.start || v.start < c.start)) c.start = v.start;
-        if (v.end && (!c.end || v.end > c.end)) c.end = v.end;
-        Object.entries(v.days || {}).forEach(([d, u]) => {
-          const q = c.days[d] || (c.days[d] = [0, 0]);
-          q[0] += u[0]; q[1] += u[1];
-        });
-        // The shoulders add up across months: each month's payload holds the
-        // part of them its own export covered, units, money and days alike.
-        ['before', 'after'].forEach(side => {
-          (v[side] || []).forEach((n, i) => { c[side][i] += n; });
-        });
-      }));
-      return all;
-    })(),
+    campaignRuns: campRuns,
+
+    // The whole page's window, for anything that asks without a view.
+    campaigns: campaignsIn(campRuns, ...spanOf(months)),
     // Where the promotion chain starts, carried up from the months the same
     // way custDepth is. Left off, the chain came out empty and the button sat
     // disabled on a page whose data had the levels in it.
@@ -523,6 +554,54 @@ function unify(months) {
       return want === null ? -1 : vAt[0].get(want) ?? -1;
     })(),
   };
+}
+
+/* The run of a campaign that a stretch of time is asking about.
+
+   A name holds several runs once it has come round again, and which one is
+   meant depends on what is on screen: the daily chart of October means
+   October's run, and a chart of last spring means that one. The run that
+   overlaps the window wins; failing that the last one to have opened before
+   it, which is the run those days were trading in the wake of. */
+function runIn(runs, lo, hi) {
+  if (!runs || !runs.length) return null;
+  const over = runs.filter(r => r.start <= hi && lo <= r.end);
+  if (over.length) {
+    // Two runs inside one window: the one that sold the most is the one the
+    // window is really about.
+    const sold = r => Object.values(r.days || {}).reduce((a, d) => a + d[0], 0);
+    return over.reduce((a, r) => (sold(r) > sold(a) ? r : a));
+  }
+  const before = runs.filter(r => r.start <= hi);
+  return before.length ? before[before.length - 1] : runs[0];
+}
+
+/* Every campaign's run for a window, keyed by name the way the level is. */
+function campaignsIn(runs, lo, hi) {
+  const out = {};
+  Object.entries(runs || {}).forEach(([k, list]) => {
+    const r = runIn(list, lo, hi);
+    if (r) out[k] = r;
+  });
+  return out;
+}
+
+/* The window a set of months covers: a day is one day, a month is all of it. */
+function spanOf(months) {
+  const iso = d => `${Math.floor(d / 10000)}-`
+                   + String(Math.floor(d / 100) % 100).padStart(2, '0')
+                   + `-${String(d % 100).padStart(2, '0')}`;
+  const lo = [], hi = [];
+  months.forEach(m => {
+    if (m.d) { lo.push(iso(m.d)); hi.push(iso(m.d)); return; }
+    if (m.ym == null) return;
+    const y = Math.floor(m.ym / 100), mo = m.ym % 100;
+    lo.push(`${y}-${String(mo).padStart(2, '0')}-01`);
+    hi.push(new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10));
+  });
+  if (!lo.length) return ['0000-01-01', '9999-12-31'];
+  lo.sort(); hi.sort();
+  return [lo[0], hi[hi.length - 1]];
 }
 
 /* The months the profit exports cover, and the days the order export covers,
@@ -555,6 +634,9 @@ function viewOf(all, src, want) {
     s => { if (!mine.has(s.key)) mine.set(s.key, s.label); }));
   const take = all.series.map((s, i) => i).filter(i => mine.has(all.series[i].key));
   return { ...all, months: keep,
+           // Each view's own campaigns: the daily chart of October means
+           // October's run of a name, not the first time that name ran.
+           campaigns: campaignsIn(all.campaignRuns, ...spanOf(keep)),
            // Each view names its own figures too: the order export's money is
            // the order's value and not gross sales, and the page says which.
            series: take.map(i => ({ ...all.series[i],
@@ -2123,7 +2205,7 @@ function drawDayTrend() {
     camps.forEach(i => liveCamp.add(D.levels[i].values[c.k[i]]));
   }
   const pins = [];
-  Object.entries(DATA.campaigns || {}).forEach(([name, c]) => {
+  Object.entries(D.campaigns || {}).forEach(([name, c]) => {
     const i = dayAt.get((c.start || '').slice(0, 10));
     if (i === undefined || !liveCamp.has(name)) return;
     pins.push({ name, at: i });
@@ -2352,7 +2434,7 @@ function drawDayTrend() {
   const cv = document.getElementById('dayTrendBars');
   cv.onclick = e => {
     const name = pinAt(dayTrend, { native: e });
-    if (name) defer(() => openCampaign(name));
+    if (name) defer(() => openCampaign(name, D.campaigns));
   };
   cv.onmousemove = e => {
     if (pinAt(dayTrend, { native: e })) cv.style.cursor = 'pointer';
@@ -3089,8 +3171,15 @@ const campaignWindow = {
    the campaign was still running. */
 let dayChart = null;
 
-function campaignDays(name) {
-  const c = (DATA.campaigns || {})[name];
+/* Which run a pick from the menu means. The open month is what the page is
+   read for, so the day view answers when there is one; without it the page is
+   closed months and its own window is the question. */
+function liveCampaigns() {
+  return ((VIEWS.day || DATA).campaigns) || {};
+}
+
+function campaignDays(name, from) {
+  const c = (from || liveCampaigns())[name];
   if (!c) return null;
   const start = c.start, end = c.end;
   if (!start || !end) return null;
@@ -3143,8 +3232,8 @@ const dayLabel = (iso, year) => {
     + (year ? ` ${String(d.getFullYear()).slice(2)}` : '');
 };
 
-function openCampaign(name) {
-  const got = campaignDays(name);
+function openCampaign(name, from) {
+  const got = campaignDays(name, from);
   if (!got) return false;
   readColours();
   const { start, end, days, weekly, before, after, during } = got;
