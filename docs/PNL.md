@@ -685,8 +685,31 @@ the daily chart, off orders_2610.csv (202610):
   the money is Net Value (Item); --currency picks another
 ```
 
-Only lines carrying a store-stamped reference count, and nothing rejected -
-the same filter the rest of the page runs on.
+#### The marketplaces are not in it
+
+Only lines carrying a **store-stamped reference** count: `AU260930-46262020`
+is the store's own order number, and Amazon, eBay, Myer and MyDeal carry
+something else. The shape of the reference is the whole filter - there is
+nothing to configure and nothing to keep in step.
+
+So the daily chart and the achievement table are **the store's own orders**.
+The build says what that left out, with the shapes, so a store order whose
+numbering changed is not mistaken for a marketplace:
+
+```
+  left out, not the store's own order: 3 line(s), 10 unit(s), 9,000
+    reference shapes: ###-#######-## x2, EBAY-######## x1  (# is a digit)
+```
+
+Two things follow, and both are worth checking rather than assuming:
+
+- **The monthly chart below is not on the same scope.** It is the profit
+  export, keyed by customer, so a marketplace is in it under whatever account
+  the customer master gives it. The two charts on the page answer slightly
+  different questions.
+- **The target has to match.** If the Blue File's DTC Sokbo covers marketplace
+  sales, the denominator includes Amazon while the numerator does not, and
+  every achievement on the card is understated by that much.
 
 #### It is a different export
 

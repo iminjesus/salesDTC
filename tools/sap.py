@@ -83,6 +83,11 @@ class Months:
         # it. Past that, a despatch date is a plan and not a measurement, and
         # a caller drawing days has to cut somewhere.
         self.asof = None
+        # Lines whose reference is not the store's own: Amazon, eBay, Myer,
+        # MyDeal. Counted rather than only skipped, because "is Amazon in
+        # this figure" is a question about a number and deserves one.
+        self.other = [0, 0.0, 0.0]        # lines, units, amount
+        self.other_refs: dict = {}
         self.files: list[str] = []
         self.amount_col = None
         # Units per promotion band, on the same key. Filled only when the
@@ -178,8 +183,20 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
 
         for r in body:
             out.lines += 1
-            if not STAMPED.match(cell(r, col['ref']).upper()):
-                continue                       # a marketplace, not the store
+            ref = cell(r, col['ref']).upper()
+            if not STAMPED.match(ref):
+                # A marketplace, not the store. Tallied before it is dropped:
+                # the shape of the reference is the only thing separating
+                # them, so the shapes themselves are worth reporting.
+                made_m = month_of_date(to_date(cell(r, col['made'])))
+                gi_m = month_of_date(to_date(cell(r, col['gi'])))
+                if month in (made_m, gi_m):
+                    out.other[0] += 1
+                    out.other[1] += parse_number(cell(r, col['qty'])) or 0.0
+                    out.other[2] += parse_number(cell(r, col['amt'])) or 0.0
+                    shape = re.sub(r'\d', '#', ref)[:14] or '(blank)'
+                    out.other_refs[shape] = out.other_refs.get(shape, 0) + 1
+                continue
             if cell(r, col['reject']):
                 out.rejected += 1
                 continue
@@ -243,6 +260,25 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
             if daily is not None:
                 daily(tuple(key), gi, made, which, qty, amt, sku)
     return out if out.files else None
+
+
+def say_other(m: Months, month: int, say=print) -> None:
+    """What was left out for not being the store's own order.
+
+    The filter is the shape of the reference and nothing else, so the shapes
+    are printed with it: a reader can see at a glance whether what was dropped
+    is the marketplaces or a store order whose numbering changed.
+    """
+    if not m.other[0]:
+        say(f'  every {month} line carries a store reference - no marketplace '
+            'in these figures')
+        return
+    shapes = sorted(m.other_refs.items(), key=lambda kv: -kv[1])[:4]
+    say(f'  left out, not the store\'s own order: {m.other[0]:,} line(s), '
+        f'{m.other[1]:,.0f} unit(s), {m.other[2]:,.0f}')
+    say('    reference shapes: '
+        + ', '.join(f'{k} x{v:,}' for k, v in shapes)
+        + ('  (# is a digit)' if shapes else ''))
 
 
 def report(m: Months, month: int, say=print) -> None:

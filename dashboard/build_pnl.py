@@ -772,6 +772,7 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     # from. The reader was silenced to keep the run short and that took this
     # with it - and "where does Actual to date come from" is a question the
     # build should answer without being asked.
+    SAP.say_other(got, want, say)
     say(f'  the money is {got.amount_col or "-- no money column --"}'
         + ('' if got.amount_col else
            ', so every amount here is zero')
