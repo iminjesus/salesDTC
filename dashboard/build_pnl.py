@@ -480,8 +480,22 @@ def day_watcher(basis: str = 'mixed', band_of=None, fold: dict | None = None,
     many days before month end, it is a rollover. "Maybe" is the word on the
     chart because that is exactly what it is.
 
+    Two readings come out of the same pass, because they answer different
+    questions about the same month:
+
+        payment   what the month will be paid for - carried in, plus this
+                  month's orders that leave inside it. The first three buckets
+                  above, minus the rollover
+        order     what the month took in - every order placed in it, on the
+                  day it was placed, whether or not it leaves inside the
+                  month. Nothing carried in: that was last month's demand
+
+    Neither is the other's total and they are not added up. A month can take
+    good orders and be paid for few of them, and that is the thing worth
+    seeing, not an average of the two.
+
     Returns (daily, tally) with tally {(day, key): [units, amount, roll units,
-    roll amount]}, the last pair being the part that leaves after the month.
+    roll amount, order units, order amount]}.
     """
     tally: dict = {}
     fold = {} if fold is None else fold
@@ -519,9 +533,15 @@ def day_watcher(basis: str = 'mixed', band_of=None, fold: dict | None = None,
             band, c1, c2 = band_of(sku, made)
             band = fold.get(band, band)
             key = key + (PROMO_LABEL.get(band, band), c1, c2)
-        v = tally.setdefault((day.isoformat(), key), [0.0, 0.0, 0.0, 0.0])
+        v = tally.setdefault((day.isoformat(), key),
+                             [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         v[2 if roll else 0] += qty
         v[3 if roll else 1] += amt
+        # The order reading: everything placed this month, on the day it was
+        # placed. Carried in is last month's demand and is no part of it.
+        if basis == 'mixed' and which != SAP.CARRIED_IN:
+            v[4] += qty
+            v[5] += amt
 
     return daily, tally
 
@@ -571,6 +591,11 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
               # month will not be paid.
               {'key': 'rqty', 'label': 'Maybe rollover (qty)'},
               {'key': 'rgross', 'label': 'Maybe rollover'}]
+    if basis == 'mixed':
+        # The month as orders rather than as revenue. Not a total to add to
+        # the others - a second reading of the same lines.
+        series += [{'key': 'oqty', 'label': 'Ordered (qty)'},
+                   {'key': 'ogross', 'label': 'Ordered'}]
     by_day: dict = {}
     for (day, key), v in tally.items():
         by_day.setdefault(day, {})[key] = v
@@ -624,9 +649,12 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
         f'{sum(len(r) for r in by_day.values()):,} combination(s)')
     roll = sum(v[3] for r in by_day.values() for v in r.values())
     kept = sum(v[1] for r in by_day.values() for v in r.values())
+    took = sum(v[5] for r in by_day.values() for v in r.values())
     if roll:
         say(f'    {kept:,.0f} counted; {roll:,.0f} leaves after the month and '
             'is drawn dashed, out of the total')
+    if took:
+        say(f'    on orders placed this month instead: {took:,.0f}')
     return out
 
 

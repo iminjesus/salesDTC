@@ -706,6 +706,18 @@ it and which are behind.
 | Actual to date | the days above, added up |
 | **Achievement** | actual to date over target to date |
 
+**Payment base or Order base.** Two readings of the same month, from the same
+lines, and neither is the other's total:
+
+| | what the actual is |
+|---|---|
+| **Payment base** (default) | what the month will be **paid** for: carried in from last month on the day it left, plus this month's orders that leave inside it. The rollover is out |
+| **Order base** | what the month **took in**: every order placed in it, on the day it was placed. Nothing carried in - that was last month's demand - and the part leaving after the month is still in |
+
+A month can take good orders and be paid for few of them, which is the thing
+worth seeing; an average of the two would hide it. The card's heading says
+`payable` or `ordered` so a screenshot carries which one it is.
+
 **The rows are the product tree the page drills** - Biz, then Div 1, Div 2,
 Div 3 - each parent carrying its children's total, so a division is its groups
 added up and the total is the tree rather than the column. The target is set

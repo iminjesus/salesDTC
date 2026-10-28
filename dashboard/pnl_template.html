@@ -336,6 +336,10 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="chartHead">
       <div class="legend"><span class="t" id="achTitle"></span></div>
       <div class="tools">
+        <span class="seg" id="achBase">
+          <button class="ctl" id="achPay" title="what the month will be paid for: carried in from last month, plus this month's orders that leave inside it">Payment base</button
+          ><button class="ctl" id="achOrd" title="what the month took in: every order placed in it, on the day it was placed">Order base</button>
+        </span>
         <button class="ctl" id="achAll" title="every level at once, down to the product group the target is set at">Expand all</button>
       </div>
     </div>
@@ -786,6 +790,10 @@ const state = {
   // open ones survive a narrowing and a redraw.
   achFlip: new Set(),
   achAll: false,
+  // Which reading of the month the table measures. Payment is what it will be
+  // paid for; order is what it took in. Neither is the other's total, and a
+  // month can take good orders and be paid for few of them.
+  achBase: 'payment',
 };
 
 /* Where the drill starts: one channel - the online business - with everything
@@ -1676,14 +1684,26 @@ const MON = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 
 const ACH_TREE = ['Biz', 'Div 1', 'Div 2', 'Div 3'];
 
-function drawAch(D, lastDay, money) {
+function drawAch(D, lastDay) {
   const card = document.getElementById('achCard');
   const T = TARGET;
+  // Two readings of the same month, from two columns of the same payload.
+  // The order one is only written where the build read the month that way,
+  // so the switch is there when there is something to switch to.
+  const series = k => D.series.findIndex(x => x.key === k);
+  const canOrd = series('ogross') >= 0;
+  const base = canOrd && state.achBase === 'order' ? 'order' : 'payment';
+  const money = series(base === 'order' ? 'ogross' : 'gross');
   if (!state.ach || !T || !T.rows || !T.rows.length || !D || money < 0) {
     card.hidden = true;
     return;
   }
   card.hidden = false;
+  document.getElementById('achBase').hidden = !canOrd;
+  document.getElementById('achPay').classList.toggle('active',
+                                                     base === 'payment');
+  document.getElementById('achOrd').classList.toggle('active',
+                                                     base === 'order');
   const li = ACH_TREE.map(n => D.levels.findIndex(lv => lv.name === n));
   const tj = ACH_TREE.map(n => T.levels.indexOf(n));
   const at = T.levels.map(n => D.levels.findIndex(lv => lv.name === n));
@@ -1803,6 +1823,7 @@ function drawAch(D, lastDay, money) {
                 'Achievement'];
   document.getElementById('achTitle').textContent =
     `Achievement  \u00b7  ${MON[T.ym % 100]} ${Math.floor(T.ym / 100)}  `
+    + `\u00b7  ${base === 'order' ? 'ordered' : 'payable'}  `
     + `\u00b7  ${T.version} (${T.currency})  \u00b7  `
     + `${tot.ach == null ? '-' : Math.round(tot.ach) + '%'} to ${lastDay} `
     + MON[T.ym % 100];
@@ -1822,6 +1843,12 @@ function drawAch(D, lastDay, money) {
   const whole = T.rows.reduce((a, r) => a + r.v, 0);
   const left = Math.round(whole - tot.target);
   const an = [];
+  if (base === 'order') {
+    an.push('Order base: every order placed this month, on the day it was '
+            + 'placed - nothing carried in from last month, and the part '
+            + 'leaving after the month still in. It is what the month took '
+            + 'in, not what it will be paid.');
+  }
   if (outside.length) {
     an.push(`${outside.join(' and ')} ${outside.length > 1 ? 'are' : 'is'} `
             + 'narrowed, and the target is set by product group, not below '
@@ -2029,7 +2056,7 @@ function drawDayTrend() {
   // The table under the chart: the same month and the same target, by
   // product. Money whatever the chart is showing, so it is handed the money
   // column rather than the figure the menu happens to be on.
-  drawAch(D, lastDay, D.series.findIndex(x => x.key === 'gross'));
+  drawAch(D, lastDay);
 
   // Drilling needs a level to drill into, and a level with something in it.
   const canDrill = sl !== null;
@@ -3102,6 +3129,11 @@ document.getElementById('filterBtn').onclick = () => {
   state.filters = !state.filters; render(); };
 document.getElementById('achAll').onclick = () => {
   state.achAll = !state.achAll; state.achFlip.clear(); render(); };
+[['achPay', 'payment'], ['achOrd', 'order']].forEach(([id, v]) => {
+  document.getElementById(id).onclick = () => {
+    state.achBase = v; render();
+  };
+});
 // One handler on the table rather than one per row: the table is rebuilt on
 // every render, and handlers attached to rows that no longer exist are how a
 // page comes to leak a listener a second.
