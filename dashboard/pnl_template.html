@@ -677,6 +677,7 @@ let C = {};
 function readColours() {
   C = { ink: css('--ink'), ink2: css('--ink-2'), ink3: css('--ink-3'),
         grid: css('--grid'), surface: css('--surface'), neg: css('--neg'),
+        accent: css('--accent'),
         gross: css('--c-gross'), deduction: css('--c-deduction'),
         cogs: css('--c-cogs'), opex: css('--c-opex'), profit: css('--c-profit'),
         stack: [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => css('--k' + n)) };
@@ -1880,6 +1881,18 @@ function drawAch(D, lastDay) {
   ah.hidden = !an.length;
 }
 
+/* Which pin the pointer is on, if any. The dot and its label are one target:
+   a 7px circle is not something to ask anyone to hit. */
+function pinAt(ch, e) {
+  if (!ch.$pins || !ch.$pins.length || !e.native) return null;
+  const r = ch.canvas.getBoundingClientRect();
+  const x = e.native.clientX - r.left;
+  const y = e.native.clientY - r.top;
+  const hit = ch.$pins.find(q => Math.abs(y - q.y) <= 7
+                            && x >= q.x - 6 && x <= q.x + 8 + q.w);
+  return hit ? hit.name : null;
+}
+
 let dayTrend = null;
 /* The month's target over the days: the Blue File's Sokbo, split to the
    customer by the last six months' mix at build time, divided evenly over the
@@ -2082,6 +2095,53 @@ function drawDayTrend() {
   const his = document.getElementById('stkPlot');
   mine.style.height = his.style.height || '';
 
+  /* The promotions that began inside this month, pinned above the day they
+     began on. A campaign is a band inside the bars when Stack by Promo is on,
+     which says what it sold and nothing about when it opened - and when it
+     opened is what a daily chart is read for. The pins do not care what the
+     bars are split by: they are there on any stack, and each one opens that
+     campaign's own sheet, so "what did that one do" is a click. */
+  const iso = d => (d ? `${Math.floor(d / 10000)}-`
+                    + String(Math.floor(d / 100) % 100).padStart(2, '0')
+                    + `-${String(d % 100).padStart(2, '0')}` : '');
+  const dayAt = new Map(D.months.map((m, i) => [iso(m.d), i]));
+  /* Which of them belong to what is on screen. The campaign levels are part
+     of the key, so a campaign that sold nothing under this customer or this
+     product simply is not among the slice's values - that is the filter, and
+     it is the same one the bars use.
+
+     A campaign the levels have never heard of is a nationwide one: the band
+     records that a nationwide campaign was live, not which, so there is
+     nothing to narrow it by and it stays. Dropping it on a narrowing would be
+     claiming it did not apply, which the page does not know. */
+  const camps = D.promoAt == null ? []
+    : [D.promoAt + 1, D.promoAt + 2].filter(i => i < D.levels.length);
+  const anyCamp = new Set();        // every campaign the levels can name
+  const liveCamp = new Set();       // and the ones inside this slice
+  camps.forEach(i => {
+    D.levels[i].values.forEach(v => anyCamp.add(v));
+  });
+  for (const c of D.combos) {
+    if (!inSlice(c)) continue;
+    camps.forEach(i => liveCamp.add(D.levels[i].values[c.k[i]]));
+  }
+  const pins = [];
+  Object.entries(DATA.campaigns || {}).forEach(([name, c]) => {
+    const i = dayAt.get((c.start || '').slice(0, 10));
+    if (i === undefined) return;
+    if (anyCamp.has(name) && !liveCamp.has(name)) return;
+    pins.push({ name, at: i });
+  });
+  // Several opening on one day stack upwards, so one never hides another.
+  pins.sort((a, b) => a.at - b.at || a.name.localeCompare(b.name));
+  const lane = new Map();
+  pins.forEach(q => {
+    const n = lane.get(q.at) || 0;
+    q.row = n;
+    lane.set(q.at, n + 1);
+  });
+  const rows = Math.max(0, ...pins.map(q => q.row + 1));
+
   // Which Monday each column belongs to, so the weeks can be banded and the
   // Mondays marked. Taken off the day itself, not off the column's position:
   // a day with no orders is not drawn, and counting columns would shift every
@@ -2097,6 +2157,52 @@ function drawDayTrend() {
       // Every other week shaded, behind the bars. A line at each Monday was
       // the other way to draw this and it reads as a divider rather than as
       // a block, which is the wrong shape for "this week against last".
+      // The pins, in the strip the layout padding leaves above the plot.
+      // Above rather than inside it: a bar reaching the top of the chart is
+      // common, and a label over it is unreadable exactly when the day is
+      // interesting.
+      id: 'promoPins',
+      afterDraw(ch) {
+        ch.$pins = [];
+        if (!pins.length) return;
+        const sx = ch.scales.x;
+        const g = ch.ctx;
+        g.save();
+        g.font = '600 10px ui-sans-serif, system-ui, sans-serif';
+        g.textBaseline = 'middle';
+        const used = [];
+        pins.forEach(q => {
+          const x = sx.getPixelForValue(q.at);
+          const y = ch.chartArea.top - 9 - q.row * 12;
+          const text = q.name.length > 22 ? q.name.slice(0, 21) + '\u2026'
+                       : q.name;
+          const w = g.measureText(text).width;
+          // A label that would land on one already drawn is left off; its dot
+          // stays, so the day still says a campaign opened on it.
+          const box = { x0: x - 4, x1: x + 8 + w, y, row: q.row };
+          const clash = used.some(u => u.row === box.row
+                                  && box.x0 < u.x1 + 6 && u.x0 < box.x1 + 6);
+          g.strokeStyle = C.accent;
+          g.globalAlpha = 0.35;
+          g.beginPath();
+          g.moveTo(x, y + 4);
+          g.lineTo(x, ch.chartArea.top);
+          g.stroke();
+          g.globalAlpha = 1;
+          g.fillStyle = C.accent;
+          g.beginPath();
+          g.arc(x, y, 3.5, 0, 7);
+          g.fill();
+          if (!clash) {
+            g.fillStyle = C.ink2;
+            g.fillText(text, x + 7, y);
+            used.push(box);
+          }
+          ch.$pins.push({ name: q.name, x, y, w: clash ? 0 : w });
+        });
+        g.restore();
+      },
+    }, {
       id: 'weekBands',
       beforeDatasetsDraw(ch) {
         const sx = ch.scales.x;
@@ -2162,7 +2268,9 @@ function drawDayTrend() {
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
       interaction: { mode: 'index', intersect: false },
-      onHover: (e, els) => {
+      // Room above the plot for the pins, and none when there are none.
+      layout: { padding: { top: rows ? 8 + rows * 12 : 0 } },
+      onHover(e, els) {
         e.native.target.style.cursor = (els.length && canDrill) ? 'pointer' : '';
       },
       // The same click the chart below takes: a band narrows the whole page to
@@ -2241,6 +2349,20 @@ function drawDayTrend() {
     dn.push('The target is an amount, so the line is off while the bars are '
             + (pct ? 'a share of each day.' : 'a quantity.'));
   }
+  // The pins sit in the padding above the plot, and Chart.js hands onClick
+  // and onHover only the events that land inside the chart area - so a pin's
+  // click never reached it. The canvas gets its own listeners; a click that
+  // is not on a pin is left alone for the chart to drill on.
+  const cv = document.getElementById('dayTrendBars');
+  cv.onclick = e => {
+    const name = pinAt(dayTrend, { native: e });
+    if (name) defer(() => openCampaign(name));
+  };
+  cv.onmousemove = e => {
+    if (pinAt(dayTrend, { native: e })) cv.style.cursor = 'pointer';
+    else if (e.offsetY < dayTrend.chartArea.top) cv.style.cursor = '';
+  };
+
   const dh = document.getElementById('dayHint');
   dh.textContent = dn.join(' ');
   dh.hidden = !dn.length;

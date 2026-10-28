@@ -753,6 +753,15 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         else:
             say(f'  no {month_before(want)} orders to measure a lead time '
                 'from, so nothing is called a rollover')
+    # The campaigns the open month's own orders ran under. Without this the
+    # page only knows the campaigns of months that have a profit export, so
+    # the one month a reader is watching has none of them - which is the month
+    # the question is about.
+    _plan = None if args.no_promo else plan_once(folder, args.plan,
+                                                 lambda *a: None)[0]
+    watch, by_day = campaign_watcher(
+        _plan, PM.canon_campaigns(_plan.rows, say=lambda *a: None)
+        if _plan else {})
     daily, tally = day_watcher(
         args.day_basis, bander,
         {} if args.promo_bands == 'all' else PROMO_FOLD,
@@ -764,7 +773,7 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         currency=args.currency,
         skip_sku=tuple(t.strip().upper()
                        for t in args.skip_sku.split(',') if t.strip()),
-        daily=daily, say=lambda *a: None)
+        daily=daily, watch=watch, say=lambda *a: None)
     if got is None:
         say('  the order export could not be read as orders')
         return []
@@ -785,6 +794,21 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         say('  no promotion plan, so the daily chart has no band on it')
     say(f'  {got.counted:,} of {got.lines:,} line(s) counted - the rest are '
         'another month, a marketplace, or rejected')
+    # On the first day only: the page gathers campaigns across every payload,
+    # and the same dictionary on all thirty-one would count every campaign day
+    # thirty-one times over.
+    if out:
+        found = campaign_payload(by_day, folder, args)
+        out[0]['campaigns'] = found
+        opened = [k for k, v in found.items()
+                  if (v.get('start') or '')[:7]
+                  == f'{want // 100}-{want % 100:02d}']
+        if found:
+            say(f'  {len(found)} campaign(s) touched the month'
+                + (f', {len(opened)} opened in it: '
+                   + ', '.join(sorted(opened)[:5])
+                   + (' ...' if len(opened) > 5 else '')
+                   if opened else ' and none opened in it'))
     return out
 
 

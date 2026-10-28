@@ -729,6 +729,35 @@ week a day belongs to is taken off the **date**, not off the column's
 position: a day with no orders is not drawn at all, and counting columns would
 shift every week after it.
 
+#### Which day a promotion opened
+
+A campaign that opened on the 8th shows up in the bars as a step on the 8th,
+and only if it was big enough to move the day. The pins say it outright: a
+**dot and the campaign's name above the chart** on the day it started, drawn
+on every stack, and **clicking one opens that campaign's own sheet** - launch
+date, end date, the daily shape, the same popup the Promo bands open.
+
+They sit in the strip *above* the plot, not inside it. A bar reaching the top
+of the chart is common and a label over it is unreadable exactly on the day
+that is interesting. Several opening on one day stack upwards so none hides
+another; a name that would land on one already drawn is left off and its dot
+stays, so the day still says a campaign opened on it.
+
+The pins are on the **daily chart only**. On twelve monthly columns every
+campaign of the year would land on the same few bars and the strip would be a
+wall of names.
+
+**They follow the narrowing.** With nothing selected, every campaign that
+opened in the month is pinned. Once a product or a customer is chosen, only
+the campaigns that sold something inside that slice stay - the campaign levels
+are part of the combination key, so this is the same filter the bars use, not
+a second one that could disagree with them.
+
+A **nationwide** campaign is the exception and stays pinned either way. The
+band records *that* a nationwide campaign was live, not which one, so there is
+nothing to narrow it by; dropping it on a narrowing would be the page claiming
+it did not apply to that product, which the page does not know.
+
 #### It is a different export
 
 The monthly chart is the profit export - gross sales, deduction, COGS,
