@@ -2322,7 +2322,10 @@ function drawStack() {
   // goes away rather than greying out: a disabled button still costs a row of
   // the menu, and this menu is already tall.
   const pctMode = state.stkScale === 'pct' && !pnlMode;
-  document.getElementById('scaleBox').hidden = pnlMode;
+  // Scale stays on the menu while P&L is on, the way Stack by and Figure do.
+  // Hidden, it was a control that vanished with nothing saying why - and the
+  // reader who looks for it is looking for it precisely because the view they
+  // are in has no use for it.
   [['perMonth', 'month'], ['perQtr', 'quarter']]
     .forEach(([id, v]) => document.getElementById(id)
       .classList.toggle('active', state.period === v));
@@ -3233,7 +3236,10 @@ document.getElementById('pnlBtn').onclick = () => {
 document.getElementById('stkAmt').onclick = () => {
   state.stkScale = 'amount'; render(); };
 document.getElementById('stkPct').onclick = () => {
-  state.stkScale = 'pct'; render(); };
+  // A share of a bar is a split, and the P&L view has none - so asking for
+  // one leaves the P&L, which is what pressing a control that is plainly
+  // there should do.
+  state.stkScale = 'pct'; state.pnl = false; render(); };
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 
 
