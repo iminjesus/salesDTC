@@ -313,6 +313,9 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         <button class="btn" id="perMonth">Month</button
         ><button class="btn" id="perQtr">Quarter</button></span></label>
       <button class="btn" id="cumulBtn" title="each bar is the running total up to and including it, so the last bar is the whole span">Cumulative</button>
+      <label class="f" id="curBox"><span>Currency</span><span class="seg">
+        <button class="btn" id="curAud">AUD</button
+        ><button class="btn" id="curUsd" title="every month at its own rate, from fx_rate">USD</button></span></label>
       <label class="f" id="scaleBox"><span>Scale</span><span class="seg">
         <button class="btn" id="stkAmt">Amount</button
         ><button class="btn" id="stkPct">% of bar</button></span></label>
@@ -583,11 +586,67 @@ function viewOf(all, src, want) {
 }
 const ALL_SRC = (ALL.months || []).concat(ALL.days || []);
 const ALL_ONE = unify(ALL_SRC);
-const VIEWS = { month: viewOf(ALL_ONE, ALL_SRC, false),
-                day: viewOf(ALL_ONE, ALL_SRC, true) };
+
+/* The same payload in two currencies.
+
+   Converted once, at the combinations, rather than at each of the dozen
+   places that add money up: the chart, the table, the tiles, the target, the
+   workbook. One of those missed would be a chart with one column in the other
+   currency and nothing saying so, which is the kind of wrong that gets
+   believed. Here there is one place that knows a rate exists.
+
+   A month is converted at its own rate, because that is what a monthly rate
+   is for. A month with no rate is not converted badly - the build leaves the
+   whole table out and the button stays off, named in its title. */
+const MONEY = k => !/qty$/i.test(k);
+const FX = ALL.fx || {};
+
+function convert(view) {
+  const money = view.series.map(s => MONEY(s.key));
+  const scale = (o, r) => Object.fromEntries(
+    Object.entries(o || {}).map(([k, v]) =>
+      [k, Number.isFinite(v) ? v * r : v]));
+  return { ...view,
+    months: view.months.map(m => ({ ...m, rrp: scale(m.rrp, FX[m.ym] || 1) })),
+    combos: view.combos.map(c => {
+      const r = FX[view.months[c.m].ym];
+      return r ? { ...c, v: c.v.map((x, i) => (money[i] ? x * r : x)) } : c;
+    }) };
+}
+
+function convertTarget(T) {
+  const r = T && FX[T.ym];
+  return r ? { ...T, currency: 'USD',
+               rows: T.rows.map(x => ({ ...x, v: x.v * r })) } : T;
+}
+
+const BOOKS = { AUD: { month: viewOf(ALL_ONE, ALL_SRC, false),
+                       day: viewOf(ALL_ONE, ALL_SRC, true),
+                       target: ALL.target } };
+BOOKS.AUD.code = 'AUD';
+const book = code => BOOKS[code] || (BOOKS[code] = {
+  code,
+  month: BOOKS.AUD.month && convert(BOOKS.AUD.month),
+  day: BOOKS.AUD.day && convert(BOOKS.AUD.day),
+  target: convertTarget(BOOKS.AUD.target) });
+
 // The page is the monthly chart. The days are a chart of their own above it,
 // off a different export, and they never take the page's own payload over.
+const VIEWS = { month: BOOKS.AUD.month, day: BOOKS.AUD.day };
+let TARGET = BOOKS.AUD.target;
+let CUR = 'AUD';
 let DATA = VIEWS.month || VIEWS.day;
+
+function setCurrency(code) {
+  const b = book(code);
+  CUR = code;
+  const wasDay = DATA === VIEWS.day;
+  VIEWS.month = b.month;
+  VIEWS.day = b.day;
+  TARGET = b.target;
+  DATA = (wasDay && VIEWS.day) || VIEWS.month || VIEWS.day;
+  rebind();
+}
 
 /* Chart.js cannot resolve a custom property, so the series colours are read off
    the stylesheet once per render - that way light and dark live in one place. */
@@ -1350,7 +1409,7 @@ function render() {
   document.getElementById('numbersBtn').classList.toggle('active', state.numbers);
   document.getElementById('tableBtn').classList.toggle('active', state.table);
   const ab = document.getElementById('achBtn');
-  ab.hidden = !VIEWS.day || !ALL.target;
+  ab.hidden = !VIEWS.day || !TARGET;
   ab.classList.toggle('active', state.ach);
   // The basis only exists where an order export was read alongside the profit.
 
@@ -1619,7 +1678,7 @@ const ACH_TREE = ['Biz', 'Div 1', 'Div 2', 'Div 3'];
 
 function drawAch(D, lastDay, money) {
   const card = document.getElementById('achCard');
-  const T = ALL.target;
+  const T = TARGET;
   if (!state.ach || !T || !T.rows || !T.rows.length || !D || money < 0) {
     card.hidden = true;
     return;
@@ -1788,7 +1847,7 @@ let dayTrend = null;
    model - so a narrowing below that, or on the promotion chain, has no target
    to draw and the line comes off with the reason in the hint. */
 function dayTarget(D) {
-  const T = ALL.target;
+  const T = TARGET;
   if (!T || !T.rows || !T.rows.length) return null;
   const at = T.levels.map(n => D.levels.findIndex(lv => lv.name === n));
   const mine = new Set(at.filter(i => i >= 0));
@@ -2080,7 +2139,7 @@ function drawDayTrend() {
             + 'day: it is not part of the day it was ordered in.');
   }
   if (tg && tg.off) dn.push(`No target line: ${tg.off}.`);
-  else if (!tg && ALL.target) {
+  else if (!tg && TARGET) {
     dn.push('The target is an amount, so the line is off while the bars are '
             + (pct ? 'a share of each day.' : 'a quantity.'));
   }
@@ -2133,7 +2192,7 @@ function drawStack() {
   // when Stack by changes: there is no figure that one mode has and another
   // does not, so nothing has to be swapped out underneath the reader.
   const MEASURES = [
-    [has.net !== undefined ? 'net' : 'gross', 'Net Amount (AUD)'],
+    [has.net !== undefined ? 'net' : 'gross', `Net Amount (${CUR})`],
     ['qty', 'Qty'],
   ];
   const figBox = document.getElementById('stkFig');
@@ -2170,6 +2229,14 @@ function drawStack() {
     .forEach(([id, v]) => document.getElementById(id)
       .classList.toggle('active', state.period === v));
   document.getElementById('cumulBtn').classList.toggle('active', state.cumul);
+  // One rate a month, and no button at all without one for every month drawn:
+  // a chart with one column in the other currency says nothing true.
+  const curBox = document.getElementById('curBox');
+  curBox.hidden = !Object.keys(FX).length;
+  curBox.title = (ALL.fxShort || []).length
+    ? 'no rate for ' + ALL.fxShort.join(', ') : '';
+  document.getElementById('curAud').classList.toggle('active', CUR === 'AUD');
+  document.getElementById('curUsd').classList.toggle('active', CUR === 'USD');
   document.getElementById('stkAmt').classList.toggle('active', !pctMode);
   document.getElementById('stkPct').classList.toggle('active', pctMode);
 
@@ -3046,6 +3113,12 @@ document.getElementById('achBox').onclick = e => {
   else state.achFlip.add(k);
   render();
 };
+[['curAud', 'AUD'], ['curUsd', 'USD']].forEach(([id, code]) => {
+  document.getElementById(id).onclick = () => {
+    if (CUR !== code) setCurrency(code);
+    render();
+  };
+});
 document.getElementById('dayVals').onclick = () => {
   state.dayVals = !state.dayVals; render(); };
 document.getElementById('pnlBtn').onclick = () => {

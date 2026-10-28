@@ -827,6 +827,44 @@ full of zeroes - a P&L saying the day made nothing, rather than a day that was
 never asked - and each view titles itself from its own exports, or a page with
 closed months through September comes out called "Aug 2026 - 3 Oct Profit".
 
+### AUD or USD
+
+**Currency** switches every money figure on the page - the charts, the tiles,
+the achievement table, the target line, the workbook - between AUD and USD. It
+needs `rawdata/fx_rate.csv`, two columns:
+
+```
+month,Rate
+2601,0.67698
+2602,0.70473
+...
+```
+
+**A month is converted at its own rate**, which is what a monthly rate is for.
+Quantities are left alone: a column whose key ends in `qty` is units, and
+everything else is money.
+
+The conversion happens **once, at the combinations**, rather than at each of
+the dozen places that add money up. One of those missed would be a chart with
+one column in the other currency and nothing saying so, which is the kind of
+wrong that gets believed; here there is a single place that knows a rate
+exists. Ratios are unaffected by construction - an achievement of 123% is 123%
+in either currency, being two converted numbers divided.
+
+**A month with no rate turns the button off**, rather than drawing that month
+in AUD among USD ones. The build says which month is short:
+
+```
+the currency button:
+  fx_rate.csv: 10 month(s) with a rate, 0.67698 .. 0.71818
+  no rate for 202611 - the button stays off rather than drawing one month in
+  a currency the others are not in
+```
+
+Blank rows in the file are months not set yet and are simply absent; they only
+matter if the page is drawing that month. `--fx STEM` names a different file
+and `--no-fx` leaves the button off.
+
 ### Month, quarter, year
 
 **Period** sets how wide a bar is - a month or a quarter. Nothing else

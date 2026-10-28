@@ -630,6 +630,45 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
     return out
 
 
+def read_fx(folder: Path, stem: str, say=print) -> dict:
+    """{YYYYMM: rate} off a two-column file: a month, and what a dollar is.
+
+    The page draws one currency at a time and converts a whole month at its
+    own rate, so a month with no rate is not a month converted badly - it is
+    a month the button has to stay off for, and the build says which.
+    """
+    path = pick_file(folder, stem)
+    if path is None:
+        return {}
+    try:
+        rows, _ = read_any(path)
+    except (ValueError, OSError) as e:
+        say(f'  {path.name}: {e} - no currency button')
+        return {}
+    if not rows:
+        return {}
+    head = [h.strip() for h in rows[0]]
+    mi = find(head, 'month', 'Month', 'ym', 'YM', 'Period')
+    ri = find(head, 'Rate', 'rate', 'FX', 'fx', 'USD', 'Exchange Rate')
+    if mi is None or ri is None:
+        say(f'  {path.name}: needs a month column and a rate column - it has '
+            + ', '.join(h for h in head if h)[:120])
+        return {}
+    out = {}
+    for r in rows[1:]:
+        m = parse_number(r[mi].strip() if mi < len(r) else '')
+        v = parse_number(r[ri].strip() if ri < len(r) else '')
+        if m is None or v is None or v <= 0:
+            continue                       # a month not set yet, left blank
+        m = int(m)
+        ym = m if m > 9999 else (2000 + m // 100) * 100 + m % 100
+        out[ym] = v
+    say(f'  {path.name}: {len(out)} month(s) with a rate, '
+        f'{min(out.values()):.5f} .. {max(out.values()):.5f}' if out
+        else f'  {path.name}: no month has a rate')
+    return out
+
+
 def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     """The daily chart, read off the order export on its own terms.
 
@@ -998,6 +1037,11 @@ def main() -> int:
                     help='the promotion plan(s) the promotion split is read '
                          'from (default: ' + ' '.join(PM.PLAN_STEMS)
                          + ', a bar between the names one division has gone by)')
+    ap.add_argument('--fx', default='fx_rate', metavar='STEM',
+                    help='a month-and-rate file, for the currency button '
+                         '(default fx_rate)')
+    ap.add_argument('--no-fx', action='store_true',
+                    help='leave the currency button off')
     ap.add_argument('--no-days', action='store_true',
                     help='leave the daily chart out. It is built from the '
                          'order export, so a build with no order source has '
@@ -1113,6 +1157,28 @@ def main() -> int:
         m.pop('_masters', None)
     days = (day_chart(folder, args, masters[0], masters[1])
             if masters[0] is not None else [])
+    # The currency button, and what it cannot cover. A month drawn without a
+    # rate would be the one AUD column in a USD chart, so the page is told
+    # which months are short and keeps the button off rather than mixing.
+    fx, fx_missing = {}, []
+    if not args.no_fx:
+        print('\nthe currency button:')
+        fx = read_fx(folder, args.fx)
+        if fx:
+            want = sorted({m['ym'] for m in months if m.get('ym')}
+                          | {d['ym'] for d in days if d.get('ym')})
+            fx_missing = [m for m in want if m not in fx]
+            if fx_missing:
+                print('  no rate for ' + ', '.join(str(m) for m in fx_missing)
+                      + ' - the button stays off rather than drawing one '
+                      'month in\n  a currency the others are not in')
+            else:
+                print(f'  every month drawn has a rate '
+                      f'({", ".join(str(m) for m in want[:3])}'
+                      f'{" .." if len(want) > 3 else ""})')
+        elif pick_file(folder, args.fx) is None:
+            print(f'  no {args.fx}_* file in the folder, so no currency '
+                  'button')
     target = None
     if days and not args.no_target:
         tf = TGT.find_target(folder, args.target)
@@ -1131,7 +1197,9 @@ def main() -> int:
                     target = TGT.split(t, months)
     html = template.replace('/*__DATA__*/null',
                             json.dumps({'months': months, 'days': days,
-                                        'target': target},
+                                        'target': target,
+                                        'fx': {} if fx_missing else fx,
+                                        'fxShort': fx_missing},
                                        ensure_ascii=False,
                                        separators=(',', ':')))
     if not args.cdn:
