@@ -1904,6 +1904,25 @@ const BAND_COLOUR = { 'DTC only': 0, 'DTC + Nation-wide': 2,
 const MON = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
              'Oct', 'Nov', 'Dec'];
 
+/* The tab, and the name a browser gives the file when someone saves it. Three
+   of these pages get opened side by side and the static title had every tab
+   reading "Profit", which is the one thing they all have in common. The month
+   it covers, the day the open month is read to, and the day it was built - in
+   plain characters, because this becomes a file name.
+
+   Set once rather than in render(): a title that moved as the page was
+   narrowed would rename the file a reader is about to save. */
+document.title = (() => {
+  const d = VIEWS.day;
+  const last = d && d.months.length ? d.months[d.months.length - 1].d : null;
+  const asof = last ? `to ${Number(String(last).slice(6))} `
+                      + MON[Number(String(last).slice(4, 6))] : '';
+  const built = ALL.built
+    ? `built ${Number(ALL.built.slice(8, 10))} `
+      + `${MON[Number(ALL.built.slice(5, 7))]} ${ALL.built.slice(0, 4)}` : '';
+  return [DATA.title, asof, built].filter(Boolean).join(' - ');
+})();
+
 const ACH_TREE = ['Biz', 'Div 1', 'Div 2', 'Div 3'];
 
 function drawAch(D, lastDay) {

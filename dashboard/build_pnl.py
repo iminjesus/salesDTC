@@ -1315,7 +1315,13 @@ def main() -> int:
                             json.dumps({'months': months, 'days': days,
                                         'target': target, 'plan': plan,
                                         'fx': {} if fx_missing else fx,
-                                        'fxShort': fx_missing},
+                                        'fxShort': fx_missing,
+                                        # When this page was made. It goes in
+                                        # the tab, so a reader with three of
+                                        # them open can tell which is the one
+                                        # that was sent this morning - and a
+                                        # saved copy is named by it.
+                                        'built': date.today().isoformat()},
                                        ensure_ascii=False,
                                        separators=(',', ':')))
     if not args.cdn:

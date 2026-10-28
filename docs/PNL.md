@@ -1284,6 +1284,25 @@ internet).
 anyone who opens it, in the browser or in a text editor. Sending the page is
 sending the data.
 
+### The tab says which page this is
+
+The page's `<title>` is built rather than fixed, because it is two things at
+once: the browser tab, and the name a browser offers when someone saves the
+file. Three of these get opened side by side, and a static `Profit` had every
+tab reading the one thing they all have in common.
+
+```
+Aug 2026 - Sep 2026 Profit - to 27 Oct - built 28 Oct 2026
+```
+
+The months it covers, the day the open month is read to, and the day it was
+built. Plain characters and hyphens, since this becomes a file name. It is set
+once at load rather than in `render()`: a title that moved as the page was
+narrowed would rename the file a reader is about to save.
+
+The build date comes from the build (`built` in the payload), not from the
+browser, so a page opened next March still says when it was made.
+
 ## If a figure looks wrong
 
 The build prints what it matched, and that is usually the answer:
