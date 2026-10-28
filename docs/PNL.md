@@ -894,47 +894,63 @@ Two honesty notes the table prints rather than leaves to be discovered:
 
 #### Planned price vs actual
 
-Under the daily chart, two tables that only the open month has: what it was
-**planned** to sell at, beside what it sold at. The source is the GSCM sheet
-(`rawdata/gscm*`, read by `tools/plan_price.py` - see `docs/PLAN_PRICE.md`),
-which is the same month target the chart's line comes from, written one level
-further down: a planned price and a planned quantity per **material**.
+Under the daily chart, three tiles, a table and two lists that only the open
+month has: what it was **planned** to sell at, beside what it sold at. The
+source is the GSCM sheet (`rawdata/gscm*`, read by `tools/plan_price.py` - see
+`docs/PLAN_PRICE.md`), which is the same month target the chart's line comes
+from, written one level further down: a planned price and a planned quantity
+per **material**.
 
 The question is price, not volume. We expected $1,100 for this fridge - what
 did it actually leave at.
 
-**The first table** is the gap by Biz -> Div 1 -> Div 2, the same collapsible
-tree as the achievement table above it:
+**The tiles** are the whole slice, whatever the table below is filtered to -
+two figures headed *Actual* that meant different things would be the worse
+trade:
 
-| column | what it is |
+- **Negative price impact** - the money given away by the models that sold
+  under their planned price, with how many they were and what the net comes
+  to once the ones above plan are counted back in.
+- **Actual amt** - what the slice sold, against the plan's own amount.
+- **Actual qty** - the same for units.
+
+**The table** is Biz -> Div 1 -> Div 2 -> Div 3 -> model, collapsible, under
+three grouped headings:
+
+| group | columns |
 | --- | --- |
-| Planned price | the group's materials' planned prices, at the mix actually sold |
-| Sold at | the group's actual money over its actual units |
-| Gap | the difference, per unit |
-| Gap % | the same as a share of the planned price, with a bar either side of plan |
-| Units sold | what the gap is multiplied by |
-| Price impact | Gap x Units - the money in the gap |
+| Actual | Qty, Amt, Gross ASP |
+| Plan (GSCM) | Qty, Amt, Gross ASP |
+| Actual vs plan | Diff, Diff %, Price impact |
 
-A group's planned price is deliberately taken **at the mix actually sold** -
-plan price times the units that really went out, over those units. Taking the
-plan's own mix instead would fold *we sold more of the cheap one* into a
-column headed price, and a reader would go looking for a discount nobody gave.
-Built this way, `Gap x Units` is the impact exactly, on every row.
+A row only expands where there is a real step under it: `MX / MX / MX` in the
+product master is one row, not three, because a level that repeats the one
+above it is a spelling and not a division. The chain comes from the page's own
+product master, not from the GSCM sheet - the sheet's `Biz / DIV 1 / DIV 2`
+are read but only ever used to name a planned code that never sold.
 
-**The second table** is the Top 30 materials. A division average says a
-division is 3% light and nothing about whether that is every model or one of
-them, which is the next question every time. It orders two ways:
+**Plan Gross ASP** is the plan's own amount over its own units: what the month
+would have averaged had it gone to plan. **Diff is taken against something
+else** - the planned price of the units that *actually* sold - so the column
+is price and not mix. The plan's own mix would fold *we sold more of the cheap
+one* into a figure headed price and send a reader looking for a discount
+nobody gave. Built this way, `Diff x Qty` is the impact exactly, and the model
+rows add up to the category they sit in.
 
-- **By impact** (the default) - the money in the gap, so a small gap on a big
-  seller outranks a large one on a slow mover.
-- **By gap %** - how far the price moved, whatever the volume. Codes selling
-  under a tenth of a per cent of the month's units are left out here: a 30%
-  gap on two of them is a rounding, not a finding.
+**Negative only** is on by default: the table is pulled up to find what is
+being given away, and every row is then a number to act on. Off, it is every
+model with a line in the plan and the total is the net.
 
-Both tables answer the page's narrowing, its currency and the same
+**The two lists** are the Top 10 models of the two businesses giving the most
+away - CE and MX on the real plan. Side by side rather than one list of twenty,
+because a single ranking reads as a league table and MX against CE is not a
+comparison anyone wants: they are two sets of models with two sets of prices.
+Each list's bars are scaled to its own worst line for the same reason.
+
+Everything follows the page's narrowing, its currency and the same
 Order/Payment base the achievement table is on, so the two agree.
 
-Three notes the tables print rather than leave to be discovered: codes that
+Three notes the card prints rather than leaves to be discovered: codes that
 sold with no line in the plan (not in the table, with their units and money
 said); planned materials that sold nothing in this slice (a volume question,
 not a price one); and, in USD, that **both sides are converted at the page's

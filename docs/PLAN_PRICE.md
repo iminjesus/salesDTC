@@ -47,9 +47,9 @@ the sheet prices is read, and the run says which months were on offer.
 
 ## How the page uses it
 
-Two tables under the daily chart, in `docs/PNL.md` under **Planned price vs
-actual**: the gap by Biz / Div 1 / Div 2, and the Top 30 materials making it.
-Both follow the page's slice, its currency and its Order/Payment base.
+Three tiles, a table and two Top 10 lists under the daily chart, in
+`docs/PNL.md` under **Planned price vs actual**. All of it follows the page's
+slice, its currency and its Order/Payment base.
 
 The join is on the material code, upper-cased, and the build says how many of
 the planned materials the order export actually holds. If that number is zero
