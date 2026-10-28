@@ -19,6 +19,8 @@ __pycache__/
 /docs/structure.md
 /rawdata/
 /dashboard/pnl_*.html
+/dashboard/PNL_*.html
+/dashboard/PNL.html
 # The pages the promotion tools write hold real order lines. The digit
 # keeps the pattern off promo_template.html, which is source.
 /dashboard/promo_[0-9]*.html

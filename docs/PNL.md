@@ -19,7 +19,7 @@ Two commands. The first loads and analyses, the second draws.
 
 ```powershell
 py tools\analyze_structure.py          # -> rawdata\sales.db, docs\structure.md, docs\structure.json
-py dashboard\build_pnl.py --open       # -> dashboard\pnl_2608.html
+py dashboard\build_pnl.py --open       # -> dashboard\PNL_OCT.html
 ```
 
 ## 1. The database
@@ -1284,6 +1284,26 @@ internet).
 anyone who opens it, in the browser or in a text editor. Sending the page is
 sending the data.
 
+### What the file is called
+
+```
+dashboard/PNL_OCT.html
+```
+
+Named after the month the page is **read for**, in capitals, with no year:
+the folder holds one page per month and a rebuild replaces the page it
+supersedes rather than leaving a `_2`, a `_final` and a `_v3` beside it.
+
+That month is the **order export's**, not the profit exports' - October's
+orders are what the page is opened for while September's profit is the newest
+closed month behind it. Nor is it the calendar's: taking it off the clock
+would rename the October page to November on the first of the month, which is
+exactly when October is still being closed. Without a daily chart there is no
+open month and the newest profit month names the file instead.
+
+`--out` overrides it, and `--no-promo` adds `_NOPROMO` so the two builds do
+not overwrite each other.
+
 ### The tab says which page this is
 
 The page's `<title>` is built rather than fixed, because it is two things at
@@ -1577,13 +1597,15 @@ same test `promo_match --dtc-only` and `promo_profit` use, so the three cannot
 disagree about one order.
 
 ```
-py dashboard\build_pnl.py                      # -> dashboard/pnl_promo_<yymm>.html
+py dashboard\build_pnl.py                      # -> dashboard/PNL_OCT.html
 py dashboard\build_pnl.py --promo-bands all    # five bands, not three
-py dashboard\build_pnl.py --no-promo           # -> dashboard/pnl_<yymm>.html, as before
+py dashboard\build_pnl.py --no-promo           # -> dashboard/PNL_OCT_NOPROMO.html
 ```
 
-**A different file on purpose.** The promotion split is new and the page being
-read today is not replaced by it. `--plan` names the plan files.
+**The split keeps the plain name.** It once went to a file of its own so a new
+page would not replace the one being read that day; it is the page now, and
+the build without it is the one that gets marked. `--plan` names the plan
+files.
 
 **One division has gone by several names.** The MX plan was `MX_product` and is
 now `MX_promo_<yymm>`, so the default is written with a bar -

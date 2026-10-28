@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Draw the profit chart: what came in, where it went, what was left.
 
-    py dashboard\\build_pnl.py                 # -> dashboard/pnl_<month>.html
+    py dashboard\\build_pnl.py                 # -> dashboard/PNL_<MONTH>.html
     py dashboard\\build_pnl.py --open
 
 One bar for gross sales, a stack beside it for sales deduction, cost of goods
@@ -1014,7 +1014,9 @@ def main() -> int:
     # Both default to the month the export turns out to cover, so a new month
     # does not quietly overwrite the last one's page under the last one's name.
     ap.add_argument('--out', default=None,
-                    help='default: dashboard/pnl_<month>.html')
+                    help='default: dashboard/PNL_<MONTH>.html, the month '
+                         'the page is read for - the order export\'s where '
+                         'there is one, otherwise the newest profit month')
     ap.add_argument('--title', default=None,
                     help="default: the export's month, e.g. September 2026 Profit")
     ap.add_argument('--structure', default=str(ROOT / 'docs' / 'structure.json'),
@@ -1213,10 +1215,10 @@ def main() -> int:
             return 1
         months.append(got)
 
-    # A different file from pnl_*.html, deliberately: the promotion split is
-    # new and the page it is on should not replace the one being read today.
-    # --no-promo gives the plain page back under its own name.
-    tag = '' if args.no_promo else '_promo'
+    # The promotion split used to go to a file of its own, so a new page would
+    # not replace the one being read that day. It is the page now, and it
+    # keeps the plain name; the odd one out is the build without it.
+    tag = '_NOPROMO' if args.no_promo else ''
     # A button that disables itself is indistinguishable from a button that is
     # broken, and this one did exactly that for a whole build: the split was
     # only ever read off the store export, so every run SAP answered produced a
@@ -1226,9 +1228,6 @@ def main() -> int:
               'by promotion.\n  It needs an order source (SAP orders_* or the '
               'store export) and a plan\n  (--plan, default '
               + ' '.join(PM.PLAN_STEMS) + ') that lists the products sold.')
-    out = Path(args.out) if args.out else HERE / (
-        f'pnl{tag}_{str(months[-1]["ym"])[-4:]}.html' if months[-1].get('ym')
-        else f'pnl{tag}.html')
     template = (HERE / 'pnl_template.html').read_text(encoding='utf-8')
     # The days come out of the months that read them and go in beside them:
     # the page unifies both sets together so a member is the same number in
@@ -1277,6 +1276,19 @@ def main() -> int:
                           f"{', '.join(str(x) for x in sorted(dm))} - left off")
                 else:
                     target = TGT.split(t, months)
+    # Named after the month it is about: PNL_OCT.html while October is the
+    # month being traded, whatever the profit exports behind it are dated. The
+    # open month is the order export's, because that is the month the page is
+    # read for - and taking it off the calendar instead would rename the
+    # October page to November on the first of the month, which is exactly
+    # when October is still being closed. No year in it, so the folder holds
+    # one page per month and a rebuild replaces the page it supersedes.
+    name = next((d['ym'] for d in reversed(days or []) if d.get('ym')),
+                months[-1].get('ym'))
+    out = (Path(args.out) if args.out else HERE / (
+        f'PNL_{MONTHS[(name % 100) - 1].upper()}{tag}.html' if name
+        else f'PNL{tag}.html'))
+
     # What the open month was planned to sell at, material by material. The
     # Blue File sets the month's target by product group; this is the same
     # plan one level down, and the only place a price per material is written
