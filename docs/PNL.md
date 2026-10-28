@@ -892,6 +892,55 @@ Two honesty notes the table prints rather than leaves to be discovered:
   or one the customer mix could not split) is not in the total, and the hint
   says how much. Otherwise a reader adds the column up and believes it.
 
+#### Planned price vs actual
+
+Under the daily chart, two tables that only the open month has: what it was
+**planned** to sell at, beside what it sold at. The source is the GSCM sheet
+(`rawdata/gscm*`, read by `tools/plan_price.py` - see `docs/PLAN_PRICE.md`),
+which is the same month target the chart's line comes from, written one level
+further down: a planned price and a planned quantity per **material**.
+
+The question is price, not volume. We expected $1,100 for this fridge - what
+did it actually leave at.
+
+**The first table** is the gap by Biz -> Div 1 -> Div 2, the same collapsible
+tree as the achievement table above it:
+
+| column | what it is |
+| --- | --- |
+| Planned price | the group's materials' planned prices, at the mix actually sold |
+| Sold at | the group's actual money over its actual units |
+| Gap | the difference, per unit |
+| Gap % | the same as a share of the planned price, with a bar either side of plan |
+| Units sold | what the gap is multiplied by |
+| Price impact | Gap x Units - the money in the gap |
+
+A group's planned price is deliberately taken **at the mix actually sold** -
+plan price times the units that really went out, over those units. Taking the
+plan's own mix instead would fold *we sold more of the cheap one* into a
+column headed price, and a reader would go looking for a discount nobody gave.
+Built this way, `Gap x Units` is the impact exactly, on every row.
+
+**The second table** is the Top 30 materials. A division average says a
+division is 3% light and nothing about whether that is every model or one of
+them, which is the next question every time. It orders two ways:
+
+- **By impact** (the default) - the money in the gap, so a small gap on a big
+  seller outranks a large one on a slow mover.
+- **By gap %** - how far the price moved, whatever the volume. Codes selling
+  under a tenth of a per cent of the month's units are left out here: a 30%
+  gap on two of them is a rounding, not a finding.
+
+Both tables answer the page's narrowing, its currency and the same
+Order/Payment base the achievement table is on, so the two agree.
+
+Three notes the tables print rather than leave to be discovered: codes that
+sold with no line in the plan (not in the table, with their units and money
+said); planned materials that sold nothing in this slice (a volume question,
+not a price one); and, in USD, that **both sides are converted at the page's
+own rate** rather than the sheet's USD column, so what is left in the gap is
+price and not the difference between two exchange rates.
+
 #### The drops apply
 
 `--drop` takes its values out of the daily chart as well - Memory and the

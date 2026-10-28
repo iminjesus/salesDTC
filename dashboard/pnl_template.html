@@ -242,15 +242,43 @@ body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
   top: 0; bottom: 0; width: 2px; background: var(--surface); }
 #achBox .achNum { font-weight: 650; min-width: 44px; }
 #achBox tfoot .achBar { height: 11px; }
-#achBox td.tree { text-align: left; }
-#achBox td.tree[data-kids="1"] { cursor: pointer; }
-#achBox td.tree .tw { display: inline-block; width: 14px; color: var(--ink-3);
-                      font-size: 10px; }
-#achBox td.d0 { font-weight: 600; }
-#achBox td.d1 { padding-left: 22px; }
-#achBox td.d2 { padding-left: 40px; color: var(--ink-2); }
-#achBox td.d3 { padding-left: 58px; color: var(--ink-2); }
-#achBox tr.d0 td { border-top: 1px solid var(--grid); }
+#achBox td.tree, #gapBox td.tree { text-align: left; }
+#achBox td.tree[data-kids="1"],
+#gapBox td.tree[data-kids="1"] { cursor: pointer; }
+#achBox td.tree .tw,
+#gapBox td.tree .tw { display: inline-block; width: 14px;
+                      color: var(--ink-3); font-size: 10px; }
+#achBox td.d0, #gapBox td.d0 { font-weight: 600; }
+#achBox td.d1, #gapBox td.d1 { padding-left: 22px; }
+#achBox td.d2, #gapBox td.d2 { padding-left: 40px;
+                               color: var(--ink-2); }
+#achBox td.d3, #gapBox td.d3 { padding-left: 58px;
+                               color: var(--ink-2); }
+#achBox tr.d0 td, #gapBox tr.d0 td {
+  border-top: 1px solid var(--grid); }
+/* The price gap, as a bar either side of plan. The notch is in
+   the middle rather than two thirds along, because this number
+   has a sign: below plan runs left and above it runs right, and
+   which way a row points is the thing being looked for. The
+   track is +/-20%, past which a bar is pinned rather than
+   rescaling every other row to one outlier. */
+#gapBox .gapWrap, #gapTopBox .gapWrap { display: inline-flex;
+  align-items: center; gap: 9px; justify-content: flex-end;
+  width: 100%; }
+#gapBox .gapBar, #gapTopBox .gapBar { position: relative;
+  flex: none; width: 92px; height: 9px; border-radius: 5px;
+  background: var(--grid); overflow: hidden; }
+#gapBox .gapBar i, #gapTopBox .gapBar i { position: absolute;
+  top: 0; bottom: 0; border-radius: 3px; }
+#gapBox .gapBar::after, #gapTopBox .gapBar::after {
+  content: ""; position: absolute; left: 50%; top: 0; bottom: 0;
+  width: 2px; margin-left: -1px; background: var(--surface); }
+#gapBox .gapNum, #gapTopBox .gapNum { font-weight: 650;
+  min-width: 50px; }
+#gapTopBox td.code { font-family: ui-monospace, SFMono-Regular,
+  Menlo, monospace; font-size: 12px; }
+/* The division a material sits in is a name, not a figure. */
+#gapTopBox th:nth-child(2), #gapTopBox td:nth-child(2) { text-align: left; }
 /* The campaign's own days, over the page. A sheet rather than another card:
    it answers a question asked of one band and is done with, and the page
    underneath should still be visible behind it. */
@@ -372,6 +400,38 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     </div>
     <div class="chart" id="dayPlot"><canvas id="dayTrendBars"></canvas></div>
     <div class="hint" id="dayHint"></div>
+  </div>
+
+  <!-- What the month was planned to sell at, beside what it sold at. Under
+       the daily chart because it is that month and no other: the plan is a
+       material-level cut of the same target the chart's line comes from, and
+       it exists for the open month only. Two tables rather than one - where
+       the gap is, and which materials are making it - because a division
+       average says a division is 3% light and nothing about whether that is
+       every model or one of them. -->
+  <div class="card" id="gapCard" hidden>
+    <div class="chartHead">
+      <div class="legend"><span class="t" id="gapTitle"></span></div>
+      <div class="tools">
+        <button class="ctl" id="gapAll" title="every level at once, down to Div 2">Expand all</button>
+      </div>
+    </div>
+    <div id="gapBox"></div>
+    <div class="hint" id="gapHint"></div>
+  </div>
+
+  <div class="card" id="gapTopCard" hidden>
+    <div class="chartHead">
+      <div class="legend"><span class="t" id="gapTopTitle"></span></div>
+      <div class="tools">
+        <span class="seg" id="gapSort">
+          <button class="ctl" id="gapByAmt" title="the gap in money: the price difference over the units actually sold">By impact</button
+          ><button class="ctl" id="gapByPct" title="the gap as a share of the planned price, whatever the volume behind it">By gap %</button>
+        </span>
+      </div>
+    </div>
+    <div id="gapTopBox"></div>
+    <div class="hint" id="gapTopHint"></div>
   </div>
 
   <div class="card" id="stkCard">
@@ -889,6 +949,11 @@ const state = {
   // open ones survive a narrowing and a redraw.
   achFlip: new Set(),
   achAll: false,
+  // The planned-price tables: the same tree idea, its own fold state, and
+  // which way the Top 30 is ordered.
+  gapFlip: new Set(),
+  gapAll: false,
+  gapSort: 'amount',
   // Which reading of the month the table measures. Payment is what it will be
   // paid for; order is what it took in. Neither is the other's total, and a
   // month can take good orders and be paid for few of them.
@@ -1963,6 +2028,274 @@ function drawAch(D, lastDay) {
   ah.hidden = !an.length;
 }
 
+
+/* ───────────────────────── planned price vs actual ──────────────────────
+   The GSCM sheet is the month's plan at material level: how many of each code
+   the month was meant to sell and at what price. Its amounts come to the same
+   month target the Blue File sets, so this is that target read one level
+   further down - and a price per material is the one thing a target by
+   product group cannot give.
+
+   The question is the price, not the volume: we expected $241 for this
+   fridge, what did it actually leave at. So a group's planned price is its
+   materials' planned prices **at the mix actually sold** - plan price times
+   the units that really went out, over those units. Taking the plan's own
+   mix instead would fold "we sold more of the cheap one" into a column headed
+   price, and a reader would go looking for a discount that was never given.
+   Built this way, Gap times Qty is exactly the impact, on every row.
+
+   Everything else on the page applies: the slice, the currency, and the same
+   Order/Payment base the achievement table is on, so the two agree. */
+const PLAN = ALL.plan || null;
+const GAP_TREE = ['Biz', 'Div 1', 'Div 2'];
+const GAP_TOP = 30;
+const GAP_SPAN = 20;            // the bar's ends, in percent either way
+
+function gapJoin(D) {
+  if (!PLAN || !PLAN.items || !D) return null;
+  const at = n => D.levels.findIndex(lv => lv.name === n);
+  const skuAt = at('SKU');
+  if (skuAt < 0) return null;
+  const series = k => D.series.findIndex(x => x.key === k);
+  const canOrd = series('ogross') >= 0 && series('oqty') >= 0;
+  const base = canOrd && state.achBase === 'order' ? 'order' : 'payment';
+  const mi = series(base === 'order' ? 'ogross' : 'gross');
+  const qi = series(base === 'order' ? 'oqty' : 'qty');
+  if (mi < 0 || qi < 0) return null;
+  /* The plan is written in AUD and the page may be in USD. Both sides are
+     converted with the page's own rate, so what is left in the gap is price
+     and not the difference between two exchange rates - the sheet carries a
+     USD column of its own, at its own rate, and mixing the two would put a
+     cent of FX in every row. Without a rate for the month, the sheet's own
+     column is the only one there is and the hint says so. */
+  const rate = CUR === 'AUD' ? 1 : (FX[PLAN.ym] || null);
+  const li = GAP_TREE.map(at);
+
+  const act = new Map();
+  for (const c of D.combos) {
+    if (!inSlice(c)) continue;
+    const code = D.levels[skuAt].values[c.k[skuAt]];
+    let o = act.get(code);
+    if (!o) {
+      act.set(code, o = { code, q: 0, a: 0,
+                          chain: li.map(i => (i < 0 ? ''
+                                              : D.levels[i].values[c.k[i]])) });
+    }
+    o.q += c.v[qi] || 0;
+    o.a += c.v[mi] || 0;
+  }
+
+  const rows = [];
+  const off = { n: 0, q: 0, a: 0 };      // sold, but nothing in the plan
+  act.forEach(o => {
+    const p = PLAN.items[o.code];
+    // A code can end the month at or below zero units on returns alone, and
+    // an amount over a quantity like that is not a price.
+    if (o.q <= 0) return;
+    const plan = !p ? 0 : (rate === null ? p[1] : p[0] * rate);
+    if (!plan) { off.n++; off.q += o.q; off.a += o.a; return; }
+    rows.push({ code: o.code, chain: o.chain, q: o.q, a: o.a, plan,
+                pv: plan * o.q, got: o.a / o.q,
+                gap: o.a / o.q - plan, impact: o.a - plan * o.q });
+  });
+  // Planned and not sold: real plan, no price to compare, and it belongs in
+  // the note rather than silently nowhere.
+  let idle = 0, idleAmt = 0;
+  Object.entries(PLAN.items).forEach(([code, p]) => {
+    const o = act.get(code);
+    if (o && o.q > 0) return;
+    idle++;
+    idleAmt += (rate === null ? p[4] : p[3] * rate);
+  });
+  return { rows, off, idle, idleAmt, base, canOrd, rate };
+}
+
+/* The same tree the achievement table draws, over the gap instead of the
+   ratio. One walker would have served both and did not get written as one:
+   the nodes carry different sums, and a shared walker parameterised by three
+   key names reads worse than the forty lines it saves. */
+function gapTree(rows) {
+  const root = { kids: new Map(), q: 0, pv: 0, a: 0 };
+  for (const r of rows) {
+    let node = root;
+    node.q += r.q; node.pv += r.pv; node.a += r.a;
+    for (const name of r.chain) {
+      let k = node.kids.get(name);
+      if (!k) node.kids.set(name, k = { name, kids: new Map(),
+                                        q: 0, pv: 0, a: 0 });
+      k.q += r.q; k.pv += r.pv; k.a += r.a;
+      node = k;
+    }
+  }
+  const shownTo = state.gapAll ? 99 : 1;
+  const open = (key, depth) => (depth < shownTo) !== state.gapFlip.has(key);
+  const list = [];
+  const walk = (node, depth, above, path) => {
+    const kids = [...node.kids.values()]
+      .sort((a, b) => Math.abs(b.a - b.pv) - Math.abs(a.a - a.pv));
+    for (const k of kids) {
+      // A level repeating the one above it is not a step - MX under MX under
+      // MX is one row, not three.
+      if (k.name === above) { walk(k, depth, above, path); continue; }
+      const key = path + '\u0001' + k.name;
+      let under = k;
+      while (under.kids.size === 1
+             && [...under.kids.values()][0].name === under.name) {
+        under = [...under.kids.values()][0];
+      }
+      const has = under.kids.size > 0;
+      const up = has && open(key, depth);
+      list.push({ name: k.name, depth, key, kids: has, open: up,
+                  q: k.q, pv: k.pv, a: k.a });
+      if (up) walk(k, depth + 1, k.name, key);
+    }
+  };
+  walk(root, 0, null, '');
+  return { list, root };
+}
+
+function drawGap(D) {
+  const card = document.getElementById('gapCard');
+  const top = document.getElementById('gapTopCard');
+  const got = gapJoin(D);
+  if (!got || !got.rows.length) {
+    card.hidden = true;
+    top.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  top.hidden = false;
+  const { rows, off, idle, idleAmt, base, rate } = got;
+  const { list, root } = gapTree(rows);
+
+  // Below plan is the thing being looked for, so it is the colour that
+  // carries: a row that sold under its planned price is the negative one
+  // however welcome a cheap clearance may have been.
+  const hue = v => (v == null ? 'var(--ink-3)'
+                    : v >= 0 ? 'var(--c-profit)' : 'var(--neg)');
+  const pc = v => (v == null ? '-'
+                   : (v > 0 ? '+' : '') + v.toFixed(1) + '%');
+  const signed = v => (v > 0 ? '+' : v < 0 ? '−' : '')
+                      + fmt(Math.abs(v));
+  const bar = v => {
+    if (v == null) return '';
+    const w = Math.min(Math.abs(v), GAP_SPAN) / GAP_SPAN * 50;
+    const side = v >= 0 ? `left:50%;width:${w.toFixed(1)}%`
+                        : `right:50%;width:${w.toFixed(1)}%`;
+    return `<span class="gapBar"><i style="${side};background:${
+      hue(v)}"></i></span>`;
+  };
+  const num = v => Math.round(v).toLocaleString();
+  const cell = r => {
+    const plan = r.q ? r.pv / r.q : 0;
+    const gotP = r.q ? r.a / r.q : 0;
+    const pct = plan ? (gotP / plan - 1) * 100 : null;
+    return [
+      `<td>${num(plan)}</td>`,
+      `<td>${num(gotP)}</td>`,
+      `<td class="${gotP - plan < 0 ? 'neg' : ''}">${signed(gotP - plan)}</td>`,
+      `<td><span class="gapWrap">${bar(pct)}<span class="gapNum" style="color:${
+        hue(pct)}">${pc(pct)}</span></span></td>`,
+      `<td>${fmt(r.q)}</td>`,
+      `<td class="${r.a - r.pv < 0 ? 'neg' : ''}">${signed(r.a - r.pv)}</td>`,
+    ].join('');
+  };
+  const line = r => `<td class="tree d${r.depth}"${
+    r.key === undefined ? '' : ` data-k="${r.key.replace(/"/g, '&quot;')}"`
+    + ` data-kids="${r.kids ? 1 : 0}"`}><span class="tw">${
+    r.kids === undefined ? '' : r.kids ? (r.open ? '▾' : '▸') : ''
+  }</span>${r.name}</td>` + cell(r);
+
+  const head = ['Product', `Planned price (${CUR})`, `Sold at (${CUR})`,
+                'Gap', 'Gap %', 'Units sold', `Price impact (${CUR})`];
+  const totPct = root.pv ? (root.a / root.pv - 1) * 100 : null;
+  document.getElementById('gapTitle').textContent =
+    `Planned price vs actual  ·  ${MON[PLAN.ym % 100]} `
+    + `${Math.floor(PLAN.ym / 100)}  ·  `
+    + `${base === 'order' ? 'ordered' : 'payable'}  ·  ${CUR}  ·  `
+    + `${signed(root.a - root.pv)} (${pc(totPct)}) on ${fmt(root.q)} units`;
+  document.getElementById('gapAll').classList.toggle('active', state.gapAll);
+  document.getElementById('gapAll').textContent =
+    state.gapAll ? 'Collapse' : 'Expand all';
+  document.getElementById('gapBox').innerHTML = `<table>
+    <thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${list.map(r => `<tr class="d${r.depth}">${line(r)}</tr>`)
+                 .join('')}</tbody>
+    <tfoot><tr>${line({ name: 'Total', depth: 0, q: root.q, pv: root.pv,
+                        a: root.a })}</tr></tfoot></table>`;
+
+  const gh = [];
+  gh.push('A group’s planned price is its materials’ planned prices '
+          + 'at the mix actually sold, so the gap is price and not mix - '
+          + 'Gap × Units is the impact exactly.');
+  if (off.n) {
+    gh.push(`${off.n} code${off.n === 1 ? '' : 's'} sold `
+            + `${fmt(off.q)} unit${off.q === 1 ? '' : 's'} `
+            + `(${fmt(off.a)}) with no line in the plan, and are not in this `
+            + 'table.');
+  }
+  if (idle) {
+    gh.push(`${idle} planned material${idle === 1 ? '' : 's'} sold nothing `
+            + `in this slice (${fmt(idleAmt)} of plan), which is a volume `
+            + 'question and not a price one.');
+  }
+  if (CUR !== 'AUD') {
+    gh.push(rate === null
+      ? 'No rate for the month, so the plan’s own USD column is used; '
+        + 'it is struck at its own rate.'
+      : 'Both sides are converted at the page’s rate, not the sheet’s '
+        + 'own USD column, so the gap is price rather than FX.');
+  }
+  document.getElementById('gapHint').textContent = gh.join(' ');
+
+  // ── and which materials are making it ──────────────────────────────────
+  const byPct = state.gapSort === 'pct';
+  // A gap per cent on two units is a rounding, not a finding, so the share
+  // ordering still asks for a run worth looking at. One per mille of the
+  // month's units is the floor: enough to be a decision, low enough that a
+  // genuinely small line is not hidden.
+  const floor = Math.max(1, root.q * 0.001);
+  const pool = byPct ? rows.filter(r => r.q >= floor) : rows;
+  const ord = [...pool].sort((a, b) => (byPct
+    ? Math.abs(b.got / b.plan - 1) - Math.abs(a.got / a.plan - 1)
+    : Math.abs(b.impact) - Math.abs(a.impact))).slice(0, GAP_TOP);
+  const where = r => {
+    const out = [];
+    r.chain.forEach(v => { if (v && v !== out[out.length - 1]) out.push(v); });
+    return out.join(' / ');
+  };
+  document.getElementById('gapByAmt').classList.toggle('active', !byPct);
+  document.getElementById('gapByPct').classList.toggle('active', byPct);
+  document.getElementById('gapTopTitle').textContent =
+    `Top ${ord.length} materials by `
+    + (byPct ? 'price gap' : 'price impact')
+    + `  ·  ${MON[PLAN.ym % 100]} ${Math.floor(PLAN.ym / 100)}  ·  `
+    + `${signed(ord.reduce((a, r) => a + r.impact, 0))} of `
+    + `${signed(root.a - root.pv)}`;
+  const th = ['Material', 'Where', `Planned (${CUR})`, `Sold at (${CUR})`,
+              'Gap', 'Gap %', 'Units', `Impact (${CUR})`];
+  document.getElementById('gapTopBox').innerHTML = `<table>
+    <thead><tr>${th.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${ord.map(r => {
+      const pct = (r.got / r.plan - 1) * 100;
+      return `<tr><td class="code">${r.code}</td><td>${where(r)}</td>`
+        + `<td>${num(r.plan)}</td><td>${num(r.got)}</td>`
+        + `<td class="${r.gap < 0 ? 'neg' : ''}">${signed(r.gap)}</td>`
+        + `<td><span class="gapWrap">${bar(pct)}<span class="gapNum" `
+        + `style="color:${hue(pct)}">${pc(pct)}</span></span></td>`
+        + `<td>${fmt(r.q)}</td>`
+        + `<td class="${r.impact < 0 ? 'neg' : ''}">${signed(r.impact)}</td>`
+        + '</tr>';
+    }).join('')}</tbody></table>`;
+  document.getElementById('gapTopHint').textContent = byPct
+    ? 'Ordered by how far the price moved, whatever the volume behind it.'
+      + (floor > 1
+         ? ` Codes that sold fewer than ${fmt(floor)} units are left out: a `
+           + '30% gap on two of them is a rounding, not a finding.' : '')
+    : 'Ordered by the money in the gap - the price difference over the units '
+      + 'actually sold, which is what a small gap on a big seller comes to.';
+}
+
 /* Which pin the pointer is on, if any. The dot and its label are one target:
    a 7px circle is not something to ask anyone to hit. */
 function pinAt(ch, e) {
@@ -2016,6 +2349,8 @@ function drawDayTrend() {
   if (!D || !D.months.length) {
     card.hidden = true;
     document.getElementById('achCard').hidden = true;
+    document.getElementById('gapCard').hidden = true;
+    document.getElementById('gapTopCard').hidden = true;
     return;
   }
   card.hidden = false;
@@ -2168,6 +2503,9 @@ function drawDayTrend() {
   // product. Money whatever the chart is showing, so it is handed the money
   // column rather than the figure the menu happens to be on.
   drawAch(D, lastDay);
+  // And under it, the same month against the price it was planned at. The
+  // day view is the only one that has it: the plan is for the open month.
+  drawGap(D);
 
   // Drilling needs a level to drill into, and a level with something in it.
   const canDrill = sl !== null;
@@ -3418,6 +3756,19 @@ document.getElementById('achAll').onclick = () => {
 // One handler on the table rather than one per row: the table is rebuilt on
 // every render, and handlers attached to rows that no longer exist are how a
 // page comes to leak a listener a second.
+document.getElementById('gapAll').onclick = () => {
+  state.gapAll = !state.gapAll; state.gapFlip.clear(); render(); };
+[['gapByAmt', 'amount'], ['gapByPct', 'pct']].forEach(([id, v]) => {
+  document.getElementById(id).onclick = () => { state.gapSort = v; render(); };
+});
+document.getElementById('gapBox').onclick = e => {
+  const td = e.target.closest('td.tree');
+  if (!td || !td.dataset.k || td.dataset.kids !== '1') return;
+  const k = td.dataset.k;
+  if (state.gapFlip.has(k)) state.gapFlip.delete(k);
+  else state.gapFlip.add(k);
+  render();
+};
 document.getElementById('achBox').onclick = e => {
   const td = e.target.closest('td.tree');
   if (!td || !td.dataset.k || td.dataset.kids !== '1') return;

@@ -33,6 +33,7 @@ import orders as ORD                                           # noqa: E402
 import promo_match as PM                                       # noqa: E402
 import lead_time as LT                                        # noqa: E402
 import sap as SAP                                              # noqa: E402
+import plan_price as PP                                        # noqa: E402
 import target as TGT                                           # noqa: E402
 from rawdata import (MASTER_RAW as RAW, find, is_return,        # noqa: E402
                      key_norm, master,
@@ -1141,6 +1142,12 @@ def main() -> int:
                          'the file name)')
     ap.add_argument('--no-target', action='store_true',
                     help='leave the target line off the daily chart')
+    ap.add_argument('--gscm', default='gscm', metavar='STEM',
+                    help='the GSCM sheet whose prices the open month is '
+                         'measured against (default gscm). --plan is the '
+                         'promotion plan and is a different file')
+    ap.add_argument('--no-gscm', action='store_true',
+                    help='leave the planned-price tables off the page')
     ap.add_argument('--no-orders', action='store_true',
                     help='draw sales only, even when an order export is there')
     ap.add_argument('--shipped', metavar='LIST',
@@ -1270,9 +1277,43 @@ def main() -> int:
                           f"{', '.join(str(x) for x in sorted(dm))} - left off")
                 else:
                     target = TGT.split(t, months)
+    # What the open month was planned to sell at, material by material. The
+    # Blue File sets the month's target by product group; this is the same
+    # plan one level down, and the only place a price per material is written
+    # before the month is traded.
+    plan = None
+    if days and not args.no_gscm:
+        pf = PP.find_plan(folder, args.gscm)
+        if pf is None:
+            print(f'\nno {args.gscm}_* file in the folder, so no planned '
+                  'price to compare against')
+        else:
+            print('\nthe planned prices:')
+            # The month the daily chart draws, since that is the month the
+            # comparison is about.
+            want = sorted({d['ym'] for d in days})[-1]
+            got = PP.read_plan(pf, want)
+            if got is not None:
+                plan = PP.payload(got)
+                # Whether the two files are talking about the same codes. A
+                # plan whose materials are spelled differently from the order
+                # export joins on nothing and draws an empty table, and that
+                # is worth knowing here rather than from a blank card.
+                sold = {v.upper() for d in days
+                        for lv in d.get('levels', [])
+                        if lv.get('name') == 'SKU'
+                        for v in lv.get('values', [])}
+                hit = [k for k in got['items'] if k in sold]
+                print(f'  {len(hit):,} of {len(got["items"]):,} planned '
+                      f'material(s) are in the order export'
+                      + ('' if hit else
+                         ' - the two files do not share a code, so the '
+                         'tables would be empty'))
+                if not hit:
+                    plan = None
     html = template.replace('/*__DATA__*/null',
                             json.dumps({'months': months, 'days': days,
-                                        'target': target,
+                                        'target': target, 'plan': plan,
                                         'fx': {} if fx_missing else fx,
                                         'fxShort': fx_missing},
                                        ensure_ascii=False,
