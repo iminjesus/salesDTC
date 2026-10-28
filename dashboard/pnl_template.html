@@ -603,6 +603,22 @@ const ALL_ONE = unify(ALL_SRC);
    is for. A month with no rate is not converted badly - the build leaves the
    whole table out and the button stays off, named in its title. */
 const MONEY = k => !/qty$/i.test(k);
+
+/* The Monday a day belongs to, as a number, and whether the day is one.
+
+   A month of bars is a month of bars: which of them are one week and which
+   are the next is not visible at all unless the chart says so, and "is this
+   week ahead of last" is the question a daily chart gets asked. Monday
+   because the business week starts there, not because the data does. */
+const asDate = d => (d ? new Date(Date.UTC(Math.floor(d / 10000),
+                                           Math.floor(d / 100) % 100 - 1,
+                                           d % 100)) : null);
+const mondayOf = d => {
+  const t = asDate(d);
+  if (!t) return null;
+  return t.getTime() - ((t.getUTCDay() + 6) % 7) * 86400000;
+};
+const isMonday = d => { const t = asDate(d); return !!t && t.getUTCDay() === 1; };
 const FX = ALL.fx || {};
 
 function convert(view) {
@@ -2066,10 +2082,50 @@ function drawDayTrend() {
   const his = document.getElementById('stkPlot');
   mine.style.height = his.style.height || '';
 
+  // Which Monday each column belongs to, so the weeks can be banded and the
+  // Mondays marked. Taken off the day itself, not off the column's position:
+  // a day with no orders is not drawn, and counting columns would shift every
+  // week after it.
+  const weeks = D.months.map(m => mondayOf(m.d));
+  const mondays = D.months.map(m => isMonday(m.d));
+  const band = [...new Set(weeks.filter(w => w !== null))].sort((a, b) => a - b);
+
   if (dayTrend) dayTrend.destroy();
   dayTrend = new Chart(document.getElementById('dayTrendBars'), {
     type: 'bar', data: { labels: xs.map(x => x.name), datasets },
     plugins: [{
+      // Every other week shaded, behind the bars. A line at each Monday was
+      // the other way to draw this and it reads as a divider rather than as
+      // a block, which is the wrong shape for "this week against last".
+      id: 'weekBands',
+      beforeDatasetsDraw(ch) {
+        const sx = ch.scales.x;
+        if (!sx || band.length < 2) return;
+        const g = ch.ctx;
+        g.save();
+        g.fillStyle = C.grid;
+        g.globalAlpha = 0.55;
+        // getPixelForValue, not getPixelForTick: a tick index is a position
+        // in the ticks that survived autoSkip, and with a month of days most
+        // of them do not - which painted one block over the whole chart.
+        const at = i => sx.getPixelForValue(i);
+        const edge = i => (i <= 0 ? ch.chartArea.left
+                           : (at(i) + at(i - 1)) / 2);
+        const clip = x => Math.max(ch.chartArea.left,
+                                   Math.min(ch.chartArea.right, x));
+        weeks.forEach((w, i) => {
+          if (band.indexOf(w) % 2) return;         // every other week
+          const l = clip(edge(i));
+          const r = clip(i + 1 < weeks.length ? edge(i + 1)
+                         : ch.chartArea.right);
+          if (r > l) {
+            g.fillRect(l, ch.chartArea.top, r - l,
+                       ch.chartArea.bottom - ch.chartArea.top);
+          }
+        });
+        g.restore();
+      },
+    }, {
       // The totals over the bars, when they are asked for. Nothing on hover
       // here either: a figure that appears under the pointer is read by
       // whoever is moving the mouse and by nobody else.
@@ -2129,8 +2185,23 @@ function drawDayTrend() {
       scales: {
         x: { stacked: true, offset: true, grid: { display: false },
              border: { display: false },
-             ticks: { color: C.ink3, autoSkip: true, maxRotation: 0,
-                      maxTicksLimit: 16 } },
+             ticks: {
+               maxRotation: 0,
+               // Over a fortnight the axis is labelled by week, not by
+               // whichever days autoSkip happened to leave: every Monday and
+               // the two ends, so each shaded block carries its own date and
+               // the bold ones are not an arbitrary half of them. Under a
+               // fortnight every day fits and every day is named.
+               autoSkip: xs.length <= 14,
+               maxTicksLimit: 16,
+               callback(v, i) {
+                 const l = this.getLabelForValue(v);
+                 if (xs.length <= 14) return l;
+                 return (mondays[i] || i === 0 || i === xs.length - 1)
+                        ? l : '';
+               },
+               color: c => (mondays[c.index] ? C.ink2 : C.ink3),
+               font: c => ({ weight: mondays[c.index] ? 700 : 400 }) } },
         y: { stacked: true, beginAtZero: true, grid: { color: C.grid },
              border: { display: false },
              ticks: { color: C.ink3,

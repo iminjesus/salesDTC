@@ -711,6 +711,24 @@ Two things follow, and both are worth checking rather than assuming:
   sales, the denominator includes Amazon while the numerator does not, and
   every achievement on the card is understated by that much.
 
+#### Weeks on the daily chart
+
+A month of bars is a month of bars: which of them are one week and which are
+the next is not visible at all unless the chart says so, and *is this week
+ahead of last* is what a daily chart gets asked. So **every other week is
+shaded**, Monday to Sunday, behind the bars - a block rather than a line at
+each Monday, because the question is about a stretch and not a boundary.
+
+Over a fortnight the axis is labelled **by week**: every Monday, in bold, plus
+the first and last day. Under a fortnight every day fits and every day is
+named. Either way each shaded block carries its own date rather than only an
+edge.
+
+Monday because the business week starts there, not because the data does. The
+week a day belongs to is taken off the **date**, not off the column's
+position: a day with no orders is not drawn at all, and counting columns would
+shift every week after it.
+
 #### It is a different export
 
 The monthly chart is the profit export - gross sales, deduction, COGS,
