@@ -2105,22 +2105,19 @@ function drawDayTrend() {
                     + String(Math.floor(d / 100) % 100).padStart(2, '0')
                     + `-${String(d % 100).padStart(2, '0')}` : '');
   const dayAt = new Map(D.months.map((m, i) => [iso(m.d), i]));
-  /* Which of them belong to what is on screen. The campaign levels are part
-     of the key, so a campaign that sold nothing under this customer or this
-     product simply is not among the slice's values - that is the filter, and
-     it is the same one the bars use.
+  /* Only the DTC campaigns, and only the ones on screen. The DTC campaign
+     levels name a campaign per line, so a campaign that sold nothing under
+     this customer or this product is simply not among the slice's values -
+     that is the filter, and it is the same one the bars use.
 
-     A campaign the levels have never heard of is a nationwide one: the band
-     records that a nationwide campaign was live, not which, so there is
-     nothing to narrow it by and it stays. Dropping it on a narrowing would be
-     claiming it did not apply, which the page does not know. */
+     A campaign those levels never name is a nationwide one. The band records
+     that a nationwide campaign was live, not which, so it can be neither
+     narrowed nor attributed, and a nationwide run is the trading backdrop
+     rather than something this page's channel did. It is left off: the strip
+     is for the campaigns that are ours. */
   const camps = D.promoAt == null ? []
     : [D.promoAt + 1, D.promoAt + 2].filter(i => i < D.levels.length);
-  const anyCamp = new Set();        // every campaign the levels can name
-  const liveCamp = new Set();       // and the ones inside this slice
-  camps.forEach(i => {
-    D.levels[i].values.forEach(v => anyCamp.add(v));
-  });
+  const liveCamp = new Set();       // the DTC campaigns inside this slice
   for (const c of D.combos) {
     if (!inSlice(c)) continue;
     camps.forEach(i => liveCamp.add(D.levels[i].values[c.k[i]]));
@@ -2128,8 +2125,7 @@ function drawDayTrend() {
   const pins = [];
   Object.entries(DATA.campaigns || {}).forEach(([name, c]) => {
     const i = dayAt.get((c.start || '').slice(0, 10));
-    if (i === undefined) return;
-    if (anyCamp.has(name) && !liveCamp.has(name)) return;
+    if (i === undefined || !liveCamp.has(name)) return;
     pins.push({ name, at: i });
   });
   // Several opening on one day stack upwards, so one never hides another.

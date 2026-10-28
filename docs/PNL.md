@@ -747,16 +747,18 @@ The pins are on the **daily chart only**. On twelve monthly columns every
 campaign of the year would land on the same few bars and the strip would be a
 wall of names.
 
-**They follow the narrowing.** With nothing selected, every campaign that
+**Only the DTC campaigns are pinned.** A campaign the DTC campaign levels
+never name is a nationwide one, and the band records *that* a nationwide
+campaign was live rather than which - it can be neither narrowed nor
+attributed, and a nationwide run is the trading backdrop rather than something
+this channel did. The strip is for the campaigns that are ours.
+
+**They follow the narrowing.** With nothing selected, every DTC campaign that
 opened in the month is pinned. Once a product or a customer is chosen, only
 the campaigns that sold something inside that slice stay - the campaign levels
 are part of the combination key, so this is the same filter the bars use, not
-a second one that could disagree with them.
-
-A **nationwide** campaign is the exception and stays pinned either way. The
-band records *that* a nationwide campaign was live, not which one, so there is
-nothing to narrow it by; dropping it on a narrowing would be the page claiming
-it did not apply to that product, which the page does not know.
+a second one that could disagree with them. A product no campaign touched
+shows no pins at all, which is the honest answer to *what was running on this*.
 
 #### It is a different export
 
