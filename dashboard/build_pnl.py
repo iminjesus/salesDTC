@@ -768,6 +768,14 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     if got is None:
         say('  the order export could not be read as orders')
         return []
+    # Which column the money on this chart and in the achievement table came
+    # from. The reader was silenced to keep the run short and that took this
+    # with it - and "where does Actual to date come from" is a question the
+    # build should answer without being asked.
+    say(f'  the money is {got.amount_col or "-- no money column --"}'
+        + ('' if got.amount_col else
+           ', so every amount here is zero')
+        + (f'; --currency picks another' if got.amount_col else ''))
     out = day_payloads(tally, args.day_basis, want,
                        ', '.join(f.name for f in months[want]),
                        banded=bander is not None, drops=drop_rules(args),

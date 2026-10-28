@@ -662,6 +662,32 @@ Two things it cannot follow, and the hint says so when they are on:
 - **When ordered** is not a level: it cuts a month by where its orders came
   from, and a day *is* the orders. The split stays on the level the drill is on.
 
+#### Which column the money comes from
+
+`Actual to date` - and every bar on the daily chart - is the order export's
+own money column, summed over the lines the basis keeps. The reader takes the
+first of these the file has:
+
+1. `Net Value (Item)`
+2. `AUD Revenue excl. GST`
+3. `USD Revenue excl. GST`
+4. `Net Value`
+
+and `--currency USD` makes it prefer a column whose name carries that code,
+for an export that holds more than one. Units come from `Confirmed Quantity
+(Item)` under the same first-match rule.
+
+The build names the one it used, so this never has to be worked out from the
+code again:
+
+```
+the daily chart, off orders_2610.csv (202610):
+  the money is Net Value (Item); --currency picks another
+```
+
+Only lines carrying a store-stamped reference count, and nothing rejected -
+the same filter the rest of the page runs on.
+
 #### It is a different export
 
 The monthly chart is the profit export - gross sales, deduction, COGS,
