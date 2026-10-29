@@ -1247,6 +1247,14 @@ The deduction is hatched rather than filled because it is not a cost of the
 month. It is the step from gross to net, and a reader should not have to
 remember that.
 
+**Each stack carries its own total over it** - `Gross Sales 2,558,120` over
+the left bar, `Cost 2,432,090` over the right - because the two questions
+asked of this chart are how big gross is and how big the cost is, and
+answering either meant adding blocks up by eye. Expanded, the tooltip carries
+the same pair under the blocks, with the operating profit and the quantity.
+Hovering says nothing until the chart is expanded; the totals over the bars
+are there either way.
+
 **Where gross is not net plus the deduction**, the left bar is short of gross
 by the difference and the hint says by how much. Nothing is drawn for it: a
 block with no name anyone recognises was worse than the question it answered.

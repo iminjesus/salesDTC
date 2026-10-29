@@ -1870,6 +1870,54 @@ const barValues = {
   }
 };
 
+/* What each stack comes to, written over it. The P&L is two bars a side and
+   the question asked of them - how big is gross, how big is the cost - was
+   answerable only by adding the blocks up by eye or opening the tooltip. */
+const stackTotals = {
+  id: 'stackTotals',
+  afterDatasetsDraw(c) {
+    const o = c.options.plugins.stackTotals;
+    if (!o || !o.on) return;
+    const groups = new Map();
+    c.data.datasets.forEach((d, i) => {
+      if (d.type === 'line' || !d.stack) return;
+      if (c.getDatasetMeta(i).hidden) return;
+      if (!groups.has(d.stack)) groups.set(d.stack, []);
+      groups.get(d.stack).push(i);
+    });
+    const { ctx } = c;
+    ctx.save();
+    ctx.font = '700 10px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    groups.forEach((ids, stack) => {
+      const n = c.data.labels.length;
+      for (let j = 0; j < n; j++) {
+        let sum = 0, top = Infinity, x = null;
+        ids.forEach(i => {
+          const el = c.getDatasetMeta(i).data[j];
+          if (!el) return;
+          sum += Math.abs(c.data.datasets[i].data[j] || 0);
+          if (el.y < top) { top = el.y; x = el.x; }
+        });
+        if (!sum || x == null) continue;
+        const name = o.names ? o.names[stack] : '';
+        const text = (name ? name + ' ' : '') + fmt(sum);
+        const w = ctx.measureText(text).width;
+        ctx.globalAlpha = .9;
+        ctx.fillStyle = C.surface;
+        ctx.beginPath();
+        ctx.roundRect(x - w / 2 - 4, top - 18, w + 8, 15, 4);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = C.ink2;
+        ctx.fillText(text, x, top - 5);
+      }
+    });
+    ctx.restore();
+  },
+};
+
 /* The percentage above each point of the line, on a plate in the surface
    colour so it stays readable where the line crosses a bar. */
 const pointLabels = {
@@ -3557,7 +3605,7 @@ function drawStack() {
   if (stkChart) stkChart.destroy();
   stkChart = new Chart(document.getElementById('stkBars'), {
     type: 'bar', data: { labels: xs.map(r => r.name), datasets: shownSeries },
-    plugins: [pointLabels, barValues],
+    plugins: [pointLabels, barValues, stackTotals],
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
       // The pointer still drills: a click is a choice, a hover is not.
@@ -3630,6 +3678,10 @@ function drawStack() {
       plugins: {
         legend: { display: false },
         barValues: { on: state.zoom === 'stk', pct: pctMode, share: pnlMode },
+        // Only on the P&L, where two stacks sit side by side and neither
+        // total is otherwise readable without adding blocks up by eye.
+        stackTotals: { on: pnlMode,
+                       names: { in: label('gross'), out: 'Cost' } },
       // Expanded, there is room for every line's figures and that is what the
       // room is for; the switch beside the chart takes them away again.
       pointLabels: { all: state.zoom === 'stk' && state.lineVals },
@@ -3639,9 +3691,15 @@ function drawStack() {
         // is a number nobody asked for. Expand is the deliberate step: it
         // gives the chart the window and labels every value at once, for
         // everyone looking at it. So the tooltip belongs to that mode.
+        // Hovering says nothing until the chart is expanded - the figures
+        // are behind that button on purpose. The two stack totals are over
+        // the bars either way, which is where they are read from.
         tooltip: { enabled: state.zoom === 'stk',
           backgroundColor: C.surface, titleColor: C.ink,
           bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
+          // The footer carries the two totals and the profit, and its default
+          // colour is near-white on a surface-coloured plate.
+          footerColor: C.ink2, footerFont: { weight: '600' },
           // A span's parsed.y is its top edge, not its size, so what the band
           // is worth comes off `amounts` wherever it has one.
           filter: c => (c.dataset.amounts ? c.dataset.amounts[c.dataIndex]
@@ -3660,8 +3718,10 @@ function drawStack() {
               const r = xs[items[0].dataIndex];
               const f = fin[r.mi];
               return [...(pnlMode
-                       ? [`Costs: ${fmt(COSTS.reduce(
-                           (a, k) => a + Math.abs(f[k] || 0), 0))}`]
+                       ? (into
+                          ? [`${label(into)}: ${fmt(Math.abs(f[into] || 0))}`]
+                          : [`${label('gross')}: ${fmt(pnlLeft(items[0].dataIndex))}`,
+                             `Cost: ${fmt(pnlSide(items[0].dataIndex))}`])
                        : [`${(figs.find(x => x.key === state.stkFig) || {}).label}`
                           + `: ${fmt(r.total)}`]),
                       ...(hasLine ? [`${label('profit')}: ${fmt(f.profit || 0)}`]
