@@ -1290,13 +1290,20 @@ own: `*Sales Deduction = *Net Sales - *S.Gross Sales` is perfectly true and no
 use at all to a reader asking what the deduction is made of.
 
 So the build reads the **layout**, which is where a P&L puts the answer: the
-detail lines sit immediately to the left of the total they make up. Walking
-left from a total and adding columns until they match it finds them. One
-wrinkle - a block can hold a sub-total of its own, and `*Marketing` counted
-beside `*Media` and `*Agency Fee` would count those twice, so a column that is
-itself a total of the run behind it covers that run and the walk steps over
-it. Nothing is taken on trust: a block is kept only where the sum matches on
-the column totals **and** on every sampled row.
+detail lines sit beside the total they make up. Walking out from a total and
+adding columns until they match it finds them - **left first**, where a P&L
+usually closes a block with its total, then **right**, for an export that
+leads with the total instead. One wrinkle either way: a block can hold a
+sub-total of its own, and `*Marketing` counted beside `*Media` and `*Agency
+Fee` would count those twice, so a column that is itself a total of the run
+behind it covers that run and the walk steps over it. Nothing is taken on
+trust: a block is kept only where the sum matches on the column totals **and**
+on every sampled row.
+
+Where no block holds, there is nothing to click into, and both ends say so -
+the build under *the cost breakdown*, and the chart in its own hint. The
+pointer is asked the same question the click is, so a block that does not open
+does not offer a hand cursor.
 
 The run prints the tree it found, with each line's total:
 

@@ -3543,9 +3543,18 @@ function drawStack() {
       // The pointer still drills: a click is a choice, a hover is not.
       interaction: { mode: 'index', intersect: false },
       datasets: { bar: { categoryPercentage: 0.8, barPercentage: 0.95 } },
-      onHover: (e, els) => {
-        e.native.target.style.cursor =
-          (els.length && (canDrill || canOpen)) ? 'pointer' : '';
+      onHover(e, els) {
+        // A pointer over a block that does not open is a promise the click
+        // will not keep, so the cursor is asked the same question the click
+        // is.
+        let on = !!els.length && canDrill;
+        if (canOpen) {
+          const hit = this.getElementsAtEventForMode(
+            e, 'nearest', { intersect: true }, true)[0];
+          const d = hit && this.data.datasets[hit.datasetIndex];
+          on = !!(d && d.costKey && PARTS[d.costKey]);
+        }
+        e.native.target.style.cursor = on ? 'pointer' : '';
       },
       onClick(e, els) {
         if (!canDrill && !canOpen) return;
@@ -3658,7 +3667,12 @@ function drawStack() {
                + 'without it a gross bar taller than the whole stack sat over '
                + 'a profit line in the red.');
   }
-  if (pnlMode && Object.keys(PARTS).length) {
+  if (pnlMode && !Object.keys(PARTS).length) {
+    notes.push('No breakdown to click into: this export carries no detail '
+               + 'lines under Sales Deduction, COGS or Operating Cost that '
+               + 'add up to them. The build says so too, under "the cost '
+               + 'breakdown".');
+  } else if (pnlMode) {
     notes.push(into
       ? `Inside ${label(into)}: the bars are its own lines and the figures a `
         + 'share of it, not of net sales. Back steps out, and a line with '

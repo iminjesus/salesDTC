@@ -1049,25 +1049,35 @@ def cost_blocks(head, body, measures, claimed) -> dict:
 
     found: dict = {}
 
+    width = max(at) + 1 if at else 0
+
+    def run(c, step):
+        """The contiguous columns one way from c that add up to it."""
+        kids, cover, i = [], set(), c + step
+        while 0 <= i < width and i in at and len(kids) < A.MAX_CHILDREN:
+            if i in cover:
+                i += step
+                continue
+            if i in claimed:
+                break
+            kids.append(i)
+            if holds(kids, c):
+                return sorted(kids)
+            # A sub-total inside the block: its own lines are already in it,
+            # and counting them beside it would count them twice.
+            cover |= {k for k, _ in block(i)}
+            i += step
+        return []
+
     def block(c):
         if c in found:
             return found[c]
         found[c] = []                      # guards the recursion
-        kids, cover, i = [], set(), c - 1
-        while i >= 0 and i in at and len(kids) < A.MAX_CHILDREN:
-            if i in cover or i in claimed and i != c:
-                if i in cover:
-                    i -= 1
-                    continue
-                break
-            kids.append(i)
-            if holds(kids, c):
-                found[c] = [(k, 1) for k in reversed(kids)]
-                return found[c]
-            # A sub-total inside the block: its own lines are already in it.
-            sub = block(i)
-            cover |= {k for k, _ in sub}
-            i -= 1
+        # Left first, which is where a P&L puts its detail lines - the total
+        # closes the block. Some exports lead with the total instead, so the
+        # other direction is tried before giving up.
+        kids = run(c, -1) or run(c, 1)
+        found[c] = [(k, 1) for k in kids]
         return found[c]
 
     for c in sorted(at, reverse=True):
