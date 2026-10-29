@@ -27,7 +27,11 @@ ACCOUNT_NAMES = ('Account Name', 'account_name', 'Cus_group', 'Customer Group')
 # --customer-name-column names one these miss.
 NAME_COLS = ('Customer Name', 'Sold-to Name', 'Sold To Name', 'Sold-To Name',
              'Name 1', 'Name1', 'Cus_name', 'customer_name', 'Payer Name',
-             'Customer Desc', 'Customer Description', 'Account', 'Name')
+             'Customer Desc', 'Customer Description', 'Name',
+             # These are channel-marker spellings too, and the marker is
+             # matched first and struck off - so by the time they are read
+             # here they are whatever else the master calls the customer.
+             'Customer', 'Cus_group', 'Customer Group', 'Account')
 
 # The customer drill, top first. Reordering this list reorders both pages.
 LEVELS = [

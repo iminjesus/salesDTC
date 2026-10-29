@@ -133,31 +133,35 @@ the answer happens to fit in six of them.
 
 It is read from the master's own name column, and **`Account Name` is not
 it** - that column holds `E-STORE`, `E-STORE_B2B` and `off-line`, which is all
-this page has ever asked of it. The build looks for the name in three passes
+this page has ever asked of it. The build looks for the name in four passes
 and says which column it took and how:
 
-1. the usual SAP spellings - `Customer Name`, `Sold-to Name`, `Name 1`,
-   `Cus_name` and a few more;
-2. failing those, any header with `name` in it that no other level is already
-   reading, because the list of spellings is always one short - `Cust Name 1`,
-   `SoldTo Name`, `Name of Customer` have all turned up;
-3. nothing - and then the **account code** stands in. A column picked by
-   shape alone is as likely to be an address as a name, so nothing is guessed
-   at; but a code is still one customer per value and still something to
-   search, where a level that went away is a search box that is sometimes
-   there. Only `--no-customer-name` removes it.
-
-On that third case the run prints the master's columns, widest first, with how
-many distinct values each holds and a sample of them. The customer name is
-almost always the widest, so the right header is usually obvious at a glance
-and goes back in as `--customer-name-column "<header>"`:
+1. `--customer-name-column`, where it was named by hand;
+2. the usual SAP spellings - `Customer Name`, `Sold-to Name`, `Name 1`,
+   `Cus_name`, and `Customer`, `Cus_group` and `Customer Group` where the
+   channel marker did not already claim them;
+3. any header with `name` in it that no other level is reading, because the
+   list of spellings is always one short - `Cust Name 1`, `SoldTo Name`,
+   `Name of Customer` have all turned up;
+4. the **widest column left**, by shape rather than by its header. In a
+   customer master the account code and the account name are the two columns
+   with a value per customer, and the code is the key and already spoken for,
+   so what is left is the name. This pass can be wrong, which is why the run
+   says it took it:
 
 ```
-customer.csv has no column naming the customer. Its columns, widest first:
-    Cus_desc                      1,284 value(s)   AMAZON AU, ARMSTRONG...
-    Sold-To                       1,284 value(s)   0010000123, 0010000124
-    City                            312 value(s)   Adelaide, Albury
+the customer name comes from 'Cus_desc' in customer.csv
+    (the widest column left, by shape rather than by its header)
 ```
+
+A wrong guess shows in one glance - the menu fills with towns instead of
+customers - and `--customer-name-column "<header>"` fixes it in one run.
+Codes in the search box help nobody, so guessing and saying so beats refusing
+and leaving it unusable.
+
+Where there is no master at all, the **account code** stands in: still one
+customer per value, still something to search. Only `--no-customer-name`
+removes the level.
 
 **The page opens on `E-STORE`**, so a marketplace account is narrowed out
 before it is searched for. The search says so rather than coming back empty:

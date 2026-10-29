@@ -1119,6 +1119,9 @@ def name_column(folder: Path, args) -> None:
         taken = {chan} | {find(head, *ns) for _, s, ns in CUST.LEVELS
                           if ns and s != 'name'}
         taken.discard(None)
+        key = find(head, 'Sold-To', 'sold To', 'sold_to')
+        if key is not None:
+            taken.add(key)
         at = find(head, *names)
         how = 'by name'
         if at is None or at in taken:
@@ -1129,6 +1132,20 @@ def name_column(folder: Path, args) -> None:
             at = next((i for i, h in enumerate(head)
                        if 'name' in h.lower() and i not in taken), None)
             how = 'the only unused header with "name" in it'
+        if at is None or at in taken:
+            # Still nothing, so take the shape instead of the spelling. In a
+            # customer master the account code and the account name are the
+            # two columns with a value per customer, and the code is the key
+            # and already spoken for - so the widest column left is the name.
+            # This can be wrong, which is why it is said out loud and why
+            # --customer-name-column is there; codes in the menu are no use to
+            # anyone, and a wrong guess is visible in one glance.
+            wide = [(len({r[i].strip() for r in rows[1:]
+                          if i < len(r) and r[i].strip()}), i)
+                    for i in range(len(head)) if i not in taken and head[i]]
+            wide.sort(reverse=True)
+            at = wide[0][1] if wide and wide[0][0] > 1 else None
+            how = 'the widest column left, by shape rather than by its header'
         if at is not None and at not in taken:
             print(f'the customer name comes from {head[at]!r} in {path.name}'
                   + ('' if how == 'by name' else f' ({how})'))
