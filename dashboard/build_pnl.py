@@ -1162,8 +1162,25 @@ def main() -> int:
                     help='list what every profit export carries, side by side, '
                          'and stop. The quickest way to see why one month draws '
                          'a figure another one does not')
+    ap.add_argument('--no-customer-name', action='store_true',
+                    help='leave the account name out of the customer drill. '
+                         'It is the deepest level and the one that multiplies '
+                         'combinations, so this is the switch to reach for if '
+                         'the page gets too heavy to send')
     ap.add_argument('--open', action='store_true')
     args = ap.parse_args()
+
+    # The level list is a module constant because everything downstream reads
+    # it, and this is the one thing that changes it - before any of that
+    # downstream work starts.
+    if args.no_customer_name:
+        global FILTERS, CUST_DEPTH, PROMO_AT
+        CUST.LEVELS = [lv for lv in CUST.LEVELS if lv[1] != 'account']
+        FILTERS = CUST.LEVELS + PRODUCT_LEVELS
+        CUST_DEPTH = len(CUST.LEVELS)
+        PROMO_AT = len(FILTERS)
+        print('the customer drill stops at Type2; --no-customer-name left the '
+              'account name out')
 
     folder = Path(args.dir)
     if not folder.is_dir():

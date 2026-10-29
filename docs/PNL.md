@@ -113,14 +113,32 @@ own - drawn across the members of a dimension rather than across months.
 
 ### How customers are divided
 
-The account name only says which side of the business a row is on, so it is
-reduced to a **Channel**: anything marked off-line becomes `OFF-LINE`, anything
-else - `E-STORE`, `E-STORE_B2B` and the rest - becomes `E-STORE`. The detail
-comes from the levels underneath:
+At the top, the account name only says which side of the business a row is
+on, so it is reduced to a **Channel**: anything marked off-line becomes
+`OFF-LINE`, anything else - `E-STORE`, `E-STORE_B2B` and the rest - becomes
+`E-STORE`. The detail comes from the levels underneath, and the account's own
+name comes back at the bottom:
 
 ```
-Channel  ->  Type  ->  Portal Group  ->  Type2
+Channel  ->  Type  ->  Portal Group  ->  Type2  ->  Customer name
 ```
+
+**Customer name is the account itself**, and it is there because *show me
+Myer* had no answer anywhere else on the page: Myer is not a Channel, a Type,
+a Portal Group or a Type2 - it is an account underneath all four, and the
+levels above it stopped one step short of naming it. It always gets the
+**search box** rather than a row of buttons, whatever its count: an account is
+looked up by name, and buttons are the wrong shape for that question even when
+the answer happens to fit in six of them.
+
+It is also the level that multiplies combinations, since it sits in the key
+with the SKU. `--no-customer-name` leaves it out - the switch to reach for if
+the page gets too heavy to send.
+
+A narrowing to one account turns the achievement table's comparison off and
+says so: the Blue File sets a target by product group with a customer mix
+down to Type2, and there is no per-account target to put beside it. The
+actuals, the daily chart and the planned-price tables all narrow normally.
 
 `tools/customer.py` holds that rule, so this page and `build_dashboard.py`
 divide customers the same way. Reordering `LEVELS` there reorders both.
@@ -282,8 +300,9 @@ PRODUCT   BIZ [All|CE|MX|Memory]  DIV 1 [All|DA|MX|VD]  ...  DIV 3 [All|Mobile|T
 The **name** puts the bars on that level; the one they are on is underlined in
 the accent colour. The **members** narrow to one value, and *All* widens back.
 
-A level whose members outnumber `BTN_MAX` (eight) gets a **search box** instead
-- Range and SKU are lists to search, not rows to scan. The search is loose on
+A level whose members outnumber `BTN_MAX` (eight) gets a **search box**
+instead - Range and SKU are lists to search, not rows to scan - and so does
+Customer name at any size, for the reason above. The search is loose on
 purpose, because these lists are zero-padded keys and half-remembered names:
 
 | Typing | Finds | |

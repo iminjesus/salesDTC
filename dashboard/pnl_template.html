@@ -1471,6 +1471,11 @@ function setFilter(i, v) {
    A level with more members than fit on a row keeps a select - Range and SKU
    are lists to search, not rows to scan. */
 const BTN_MAX = 8;
+/* Levels that are searched rather than scanned, whatever their count. An
+   account is looked up by name - "do we have Myer" - and a row of buttons is
+   the wrong shape for that question even when the answer happens to fit in
+   six of them. Everything else earns its search box by being long. */
+const FIND_ALWAYS = new Set(['Customer name']);
 function buildFilters() {
   const box = document.getElementById('filters');
   box.hidden = !state.filters;
@@ -1525,8 +1530,9 @@ function levelCell(i) {
   cell.appendChild(name);
 
   const vals = document.createElement('div');
-  vals.className = 'vals' + (seen.size > BTN_MAX ? '' : ' seg');
-  if (seen.size > BTN_MAX) {
+  const search = seen.size > BTN_MAX || FIND_ALWAYS.has(lv.name);
+  vals.className = 'vals' + (search ? '' : ' seg');
+  if (search) {
     vals.appendChild(picker(i, lv, seen));
   } else {
     const add = (text, v, title) => {
