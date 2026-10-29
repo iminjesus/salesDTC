@@ -131,6 +131,22 @@ levels above it stopped one step short of naming it. It always gets the
 looked up by name, and buttons are the wrong shape for that question even when
 the answer happens to fit in six of them.
 
+It is read from the master's own name column, and **`Account Name` is not
+it** - that column holds `E-STORE`, `E-STORE_B2B` and `off-line`, which is all
+this page has ever asked of it. The build tries the usual SAP spellings
+(`Customer Name`, `Sold-to Name`, `Name 1`, `Cus_name` and a few more) and
+says which one it took. Where the master has none, the level is **dropped**
+rather than quietly showing the channel marker again under a heading that
+promised customers, and the run prints the master's columns so
+`--customer-name-column` can name the right one.
+
+**The page opens on `E-STORE`**, so a marketplace account is narrowed out
+before it is searched for. The search says so rather than coming back empty:
+*"MYER PTY LTD" is here, but Channel E-STORE narrows it out.* Set Channel to
+*All* and it is there. "Nothing matches" and "nothing matches in what you are
+looking at" are different answers, and only one of them means we do not sell
+to them.
+
 It is also the level that multiplies combinations, since it sits in the key
 with the SKU. `--no-customer-name` leaves it out - the switch to reach for if
 the page gets too heavy to send.

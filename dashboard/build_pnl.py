@@ -999,6 +999,59 @@ MONTHS_LONG = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
 MONTHS = tuple(m[:3] for m in MONTHS_LONG)
 
 
+def drop_name(folder: Path, args) -> None:
+    """Keep the Customer name level only if the master actually names anyone.
+
+    The level list is a module constant because everything downstream reads
+    it, so this is the one place it changes - and it happens before any of
+    that downstream work starts.
+
+    The check is worth making up front. Account Name holds E-STORE,
+    E-STORE_B2B and off-line, so a level that fell back to it would offer
+    those three under a heading that promised customers, and look like a bug
+    in the search rather than a column that is not there.
+    """
+    global FILTERS, CUST_DEPTH, PROMO_AT
+
+    def without(why: str) -> None:
+        global FILTERS, CUST_DEPTH, PROMO_AT
+        CUST.LEVELS = [lv for lv in CUST.LEVELS if lv[1] != 'name']
+        FILTERS = CUST.LEVELS + PRODUCT_LEVELS
+        CUST_DEPTH = len(CUST.LEVELS)
+        PROMO_AT = len(FILTERS)
+        print(f'the customer drill stops at Type2: {why}')
+
+    if args.no_customer_name:
+        return without('--no-customer-name')
+    if args.customer_name_column:
+        # Named explicitly, so it goes to the front and the usual spellings
+        # stay behind it as a fallback.
+        CUST.LEVELS = [(n, s, ((args.customer_name_column,) + tuple(names))
+                        if s == 'name' else names)
+                       for n, s, names in CUST.LEVELS]
+    names = next((ns for _, s, ns in CUST.LEVELS if s == 'name'), ())
+    for path in pick_series(folder, 'customer'):
+        try:
+            rows, _ = read_any(path)
+        except (ValueError, OSError):
+            continue
+        if not rows:
+            continue
+        head = [h.strip() for h in rows[0]]
+        at = find(head, *names)
+        chan = find(head, *CUST.ACCOUNT_NAMES)
+        if at is not None and at != chan:
+            print(f'the customer name comes from {head[at]!r} in {path.name}')
+            return
+        # One file is enough to answer: the masters are the same shape.
+        print(f'{path.name} has no column naming the customer'
+              + (f" ({head[at]!r} is the channel marker)"
+                 if at is not None else '')
+              + '. Its columns: ' + ', '.join(h for h in head if h)[:220])
+        return without('name one with --customer-name-column')
+    return without('no customer master could be read')
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1162,30 +1215,23 @@ def main() -> int:
                     help='list what every profit export carries, side by side, '
                          'and stop. The quickest way to see why one month draws '
                          'a figure another one does not')
+    ap.add_argument('--customer-name-column', default=None, metavar='NAME',
+                    help='the customer master column that names the customer, '
+                         'where the usual spellings miss it. Account Name is '
+                         'not it - that one holds E-STORE and off-line')
     ap.add_argument('--no-customer-name', action='store_true',
-                    help='leave the account name out of the customer drill. '
-                         'It is the deepest level and the one that multiplies '
+                    help='leave the customer name out of the drill. It is the '
+                         'deepest level and the one that multiplies '
                          'combinations, so this is the switch to reach for if '
                          'the page gets too heavy to send')
     ap.add_argument('--open', action='store_true')
     args = ap.parse_args()
 
-    # The level list is a module constant because everything downstream reads
-    # it, and this is the one thing that changes it - before any of that
-    # downstream work starts.
-    if args.no_customer_name:
-        global FILTERS, CUST_DEPTH, PROMO_AT
-        CUST.LEVELS = [lv for lv in CUST.LEVELS if lv[1] != 'account']
-        FILTERS = CUST.LEVELS + PRODUCT_LEVELS
-        CUST_DEPTH = len(CUST.LEVELS)
-        PROMO_AT = len(FILTERS)
-        print('the customer drill stops at Type2; --no-customer-name left the '
-              'account name out')
-
     folder = Path(args.dir)
     if not folder.is_dir():
         print(f'no such folder: {folder.resolve()}', file=sys.stderr)
         return 2
+    drop_name(folder, args)
     # One page, every month the folder holds. They stay whole rather than
     # merged: a month has its own customers, its own products and its own
     # levels, and merging them would invent a key that was in neither.

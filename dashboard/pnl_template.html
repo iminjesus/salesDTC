@@ -1360,7 +1360,24 @@ function picker(i, lv, seen) {
         opts.appendChild(o);
       });
       none.hidden = rows.length > 0;
-      none.textContent = `Nothing here matches "${q}"`;
+      /* "Nothing matches" and "nothing matches in what you are looking at"
+         are different answers, and only one of them means we do not sell to
+         them. Myer is off-line and the page opens on E-STORE, so a search for
+         it came back empty on a page that had the name all along. */
+      const out = rows.length ? [] : [...lv.values.keys()].filter(
+        j => !seen.has(j) && looseScore(lv.values[j], q) !== null);
+      const by = state.filter
+        .map((v, k) => (v >= 0 && k !== i
+                        ? `${DATA.levels[k].name} ${DATA.levels[k].values[v]}`
+                        : null))
+        .filter(Boolean);
+      none.textContent = !out.length ? `Nothing here matches "${q}"`
+        : (out.length === 1 ? `"${lv.values[out[0]]}" is here`
+                            : `${out.length} values match`)
+          + (by.length ? `, but ${by.join(', ')} narrows ${
+               out.length === 1 ? 'it' : 'them'} out.`
+                       : `, but nothing in this slice sold under ${
+               out.length === 1 ? 'it' : 'them'}.`);
     };
 
     find.oninput = draw;
