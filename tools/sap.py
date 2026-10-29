@@ -93,6 +93,11 @@ class Months:
         # leaves a daily chart with nothing on it and no way to tell an empty
         # month from a filter. This is what lets the page say which.
         self.other_who: dict = {}         # customer -> [lines, units, amount]
+        # And which side of the business they land on. Counting them changed
+        # nothing for a reader on E-STORE only while every marketplace is
+        # marked off-line in the master - so the run says whether that holds
+        # rather than leaving it assumed.
+        self.other_chan: dict = {}        # channel -> [lines, units, amount]
         self.files: list[str] = []
         self.amount_col = None
         # Units per promotion band, on the same key. Filled only when the
@@ -140,7 +145,8 @@ class Months:
 
 def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
          products: dict, skip_sku: tuple = (), currency: str | None = None,
-         band_of=None, watch=None, daily=None, say=print) -> Months | None:
+         band_of=None, watch=None, daily=None, marketplace: bool = True,
+         say=print) -> Months | None:
     """Read every SAP export and total the month onto the profit file's key.
 
     `month` is the month being drawn, as YYYYMM. A line counts when it left in
@@ -190,9 +196,17 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
             out.lines += 1
             ref = cell(r, col['ref']).upper()
             if not STAMPED.match(ref):
-                # A marketplace, not the store. Tallied before it is dropped:
-                # the shape of the reference is the only thing separating
-                # them, so the shapes themselves are worth reporting.
+                # A marketplace, not the store. Counted all the same - a
+                # customer on the monthly chart has to be on the daily one,
+                # and the profit export this page is built around has no such
+                # filter, so dropping them here made two charts of one month
+                # that disagreed about who the month's customers were. The
+                # page's own Channel and Customer name levels are where that
+                # line gets drawn now, by a reader who wants it drawn.
+                #
+                # Still tallied, because the shape of the reference is the
+                # only thing separating them and "is Amazon in this figure"
+                # is a question about a number.
                 made_m = month_of_date(to_date(cell(r, col['made'])))
                 gi_m = month_of_date(to_date(cell(r, col['gi'])))
                 if month in (made_m, gi_m):
@@ -212,7 +226,13 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
                     t[0] += 1
                     t[1] += q
                     t[2] += a
-                continue
+                    ch = CUST.channel_of(cc.get('account'), bool(cc))
+                    t = out.other_chan.setdefault(ch, [0, 0.0, 0.0])
+                    t[0] += 1
+                    t[1] += q
+                    t[2] += a
+                if not marketplace:
+                    continue
             if cell(r, col['reject']):
                 out.rejected += 1
                 continue
@@ -284,23 +304,36 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
     return out if out.files else None
 
 
-def say_other(m: Months, month: int, say=print) -> None:
-    """What was left out for not being the store's own order.
+def say_other(m: Months, month: int, kept: bool = True, say=print) -> None:
+    """How much of the month is not the store's own order.
 
     The filter is the shape of the reference and nothing else, so the shapes
-    are printed with it: a reader can see at a glance whether what was dropped
-    is the marketplaces or a store order whose numbering changed.
+    are printed with it: a reader can see at a glance whether what is in
+    question is the marketplaces or a store order whose numbering changed.
     """
     if not m.other[0]:
         say(f'  every {month} line carries a store reference - no marketplace '
             'in these figures')
         return
     shapes = sorted(m.other_refs.items(), key=lambda kv: -kv[1])[:4]
-    say(f'  left out, not the store\'s own order: {m.other[0]:,} line(s), '
-        f'{m.other[1]:,.0f} unit(s), {m.other[2]:,.0f}')
+    say(f'  not the store\'s own order: {m.other[0]:,} line(s), '
+        f'{m.other[1]:,.0f} unit(s), {m.other[2]:,.0f}'
+        + ('  - counted; narrow by Channel or Customer name to take them out'
+           if kept else '  - left out (--no-marketplace)'))
     say('    reference shapes: '
         + ', '.join(f'{k} x{v:,}' for k, v in shapes)
         + ('  (# is a digit)' if shapes else ''))
+    who = sorted(m.other_who.items(), key=lambda kv: -kv[1][2])[:5]
+    if who:
+        say('    whose: ' + ', '.join(f'{k} ({v[0]:,})' for k, v in who))
+    if kept:
+        chan = sorted(m.other_chan.items(), key=lambda kv: -kv[1][2])
+        say('    on ' + ', '.join(f'{k} {v[2]:,.0f}' for k, v in chan))
+        on = m.other_chan.get(CUST.ONLINE)
+        say(f'    {on[2]:,.0f} of that is on {CUST.ONLINE}, so the page\'s '
+            'opening slice moves by that much' if on else
+            f'    none of it is on {CUST.ONLINE}, so the page\'s opening '
+            'slice is unchanged')
 
 
 def report(m: Months, month: int, say=print) -> None:

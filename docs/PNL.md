@@ -739,57 +739,46 @@ the daily chart, off orders_2610.csv (202610):
   the money is Net Value (Item); --currency picks another
 ```
 
-#### The marketplaces are not in it
+#### Marketplaces are on it
 
-Only lines carrying a **store-stamped reference** count: `AU260930-46262020`
-is the store's own order number, and Amazon, eBay, Myer and MyDeal carry
-something else. The shape of the reference is the whole filter - there is
-nothing to configure and nothing to keep in step.
+`AU260930-46262020` is the store's own order number; Amazon, Myer, MyDeal and
+eBay carry something else, and the shape of the reference is the only thing
+separating them. The daily chart used to drop those lines.
 
-So the daily chart and the achievement table are **the store's own orders**.
-The build says what that left out, with the shapes, so a store order whose
-numbering changed is not mistaken for a marketplace:
+That was wrong, and visibly so: the profit export has no such filter, so a
+marketplace customer sat plainly on the monthly chart and drew **nothing** on
+the daily one - which reads exactly like a customer that sold nothing, the
+opposite of the truth. A customer on one chart belongs on the other.
+
+They are counted now, and where that line gets drawn is the page's own job:
+**Channel** and **Customer name** take them out for anyone who wants them out,
+the same way every other row on the page is narrowed.
+
+The build still reports them, because the reference shape is the only thing
+that knows which they are, and *is Amazon in this figure* is a question about
+a number:
 
 ```
-  left out, not the store's own order: 3 line(s), 10 unit(s), 9,000
-    reference shapes: ###-#######-## x2, EBAY-######## x1  (# is a digit)
+  not the store's own order: 1,284 line(s), 3,910 unit(s), 2,106,400
+      - counted; narrow by Channel or Customer name to take them out
+    reference shapes: MD-###### x842, AMZ-####### x442  (# is a digit)
+    whose: MyDeal.com.au (842), Amazon AU (442)
+    on OFF-LINE 2,106,400
+    none of it is on E-STORE, so the page's opening slice is unchanged
 ```
 
-Two things follow, and both are worth checking rather than assuming:
+That last line is the one to read after a rebuild. The page opens on
+`E-STORE`, so while every marketplace is marked off-line in the customer
+master, counting them changes no figure anyone was already reading - and the
+build says whether that holds rather than leaving it assumed.
 
-- **The monthly chart below is not on the same scope.** It is the profit
-  export, keyed by customer, so a marketplace is in it under whatever account
-  the customer master gives it. The two charts on the page answer slightly
-  different questions.
-- **The target has to match.** If the Blue File's DTC Sokbo covers marketplace
-  sales, the denominator includes Amazon while the numerator does not, and
-  every achievement on the card is understated by that much.
+`--no-marketplace` restores the old behaviour. On such a build, a marketplace
+customer's empty chart says so rather than looking like a quiet month - and
+the achievement card is then worth a second look, because if the Blue File's
+Sokbo covers marketplace sales, the denominator includes Amazon while the
+numerator no longer does, and every achievement is understated by that much.
 
-#### A customer with no daily bars
-
-The daily chart counts **the store's own orders**. `AU260930-46262020` is the
-store's order number; Amazon, Myer, MyDeal and eBay carry something else, and
-the shape of the reference is the whole filter - nothing to configure and
-nothing to keep up to date. Those lines are dropped before anything is
-totalled.
-
-The profit export has no such filter, so a marketplace customer is on the
-monthly chart and absent from the daily one. Narrow to it and the result is an
-empty chart, which reads exactly like a customer that sold nothing - the
-opposite of the truth.
-
-So the build carries the dropped lines to the page, with whose they were, and
-the chart says it:
-
-> MyDeal.com.au sells through a marketplace: 1,284 of its order lines this
-> month (3,910 units, 2,106,400) carry a marketplace reference, not the
-> store's own, and this chart counts the store's own orders only. The monthly
-> chart above has no such filter, which is why it still shows them.
-
-With nothing narrowed and nothing drawn at all, it says the same for the month
-as a whole. The achievement table and the planned-price tables read the same
-export, so a marketplace customer is outside those too.
-
+#### Weeks on the daily chart
 #### Weeks on the daily chart
 
 A month of bars is a month of bars: which of them are one week and which are

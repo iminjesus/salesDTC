@@ -788,7 +788,8 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         currency=args.currency,
         skip_sku=tuple(t.strip().upper()
                        for t in args.skip_sku.split(',') if t.strip()),
-        daily=daily, watch=watch, say=lambda *a: None)
+        daily=daily, watch=watch, marketplace=not args.no_marketplace,
+        say=lambda *a: None)
     if got is None:
         say('  the order export could not be read as orders')
         return []
@@ -796,7 +797,7 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     # from. The reader was silenced to keep the run short and that took this
     # with it - and "where does Actual to date come from" is a question the
     # build should answer without being asked.
-    SAP.say_other(got, want, say)
+    SAP.say_other(got, want, kept=not args.no_marketplace, say=say)
     say(f'  the money is {got.amount_col or "-- no money column --"}'
         + ('' if got.amount_col else
            ', so every amount here is zero')
@@ -820,6 +821,7 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         # empty chart, which looks exactly like a customer that sold nothing.
         # Carried to the page so it can say which.
         out[0]['offStore'] = {
+            'kept': not args.no_marketplace,
             'total': [got.other[0], round(got.other[1]), round(got.other[2])],
             'who': {k: [v[0], round(v[1]), round(v[2])]
                     for k, v in sorted(got.other_who.items(),
@@ -1258,6 +1260,13 @@ def main() -> int:
                     help='list what every profit export carries, side by side, '
                          'and stop. The quickest way to see why one month draws '
                          'a figure another one does not')
+    ap.add_argument('--no-marketplace', action='store_true',
+                    help='count only orders carrying the store\'s own '
+                         'reference, leaving Amazon, eBay, Myer and MyDeal '
+                         'out of the daily chart and the achievement table. '
+                         'They are in by default: a customer on the monthly '
+                         'chart belongs on the daily one, and Channel and '
+                         'Customer name are where that line gets drawn')
     ap.add_argument('--customer-name-column', default=None, metavar='NAME',
                     help='the customer master column that names the customer, '
                          'where the usual spellings miss it. Account Name is '
@@ -2093,7 +2102,8 @@ def build_month(folder, target, args):
                 currency=args.currency,
                 skip_sku=tuple(t.strip().upper()
                                for t in args.skip_sku.split(',') if t.strip()),
-                band_of=bander, watch=watch)
+                band_of=bander, watch=watch,
+                marketplace=not args.no_marketplace)
             if got_sap:
                 SAP.report(got_sap, ym)
                 carry_in_known = any(
