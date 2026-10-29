@@ -1014,6 +1014,15 @@ MONTHS_LONG = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
 MONTHS = tuple(m[:3] for m in MONTHS_LONG)
 
 
+def col_letter(i: int) -> str:
+    """The spreadsheet letter of a 0-based column, so A is 0 and AK is 36."""
+    out, n = '', i + 1
+    while n:
+        n, r = divmod(n - 1, 26)
+        out = chr(65 + r) + out
+    return out
+
+
 def cost_blocks(head, body, measures, claimed) -> dict:
     """{column: [(child column, sign), ...]} - what adds up to what, per the layout.
 
@@ -1805,7 +1814,20 @@ def build_month(folder, target, args):
     parts: dict = {}            # figure -> the figures it is made of
     sign_of: dict = {}          # and which way each one goes into its parent
     if args.cost_parts:
-        kid_of = cost_blocks(head, body, measures, set(pos_of.values()))
+        figs = set(pos_of.values())
+        kid_of = cost_blocks(head, body, measures, figs)
+        # Where the layout did not answer, take the relation the analysis
+        # found. One rule on it: a child that is itself one of the page's own
+        # figures is no answer at all - `Sales Deduction = Net Sales -
+        # Gross Sales` is perfectly true and says nothing about what the
+        # deduction is made of.
+        for n in nodes:
+            kids = list(zip(n['children'], n['signs']))
+            if n['pos'] in kid_of or not kids:
+                continue
+            if any(k in figs for k, _ in kids):
+                continue
+            kid_of[n['pos']] = kids
         clean = lambda h: re.sub(r'^[*\s]+', '', h).strip() or f'column {h}'
         taken = {i for i in pos_of.values()}
         queue = [(k, pos_of[k], 0) for k in ('deduction', 'cogs', 'opex')
@@ -1843,9 +1865,40 @@ def build_month(folder, target, args):
                 if parts.get(k):
                     print(f'  {dict((a, b) for a, b, _ in SERIES).get(k, k)}:')
                     say_tree(k, 1)
-        else:
-            print('\nno cost breakdown: the analysis found no lines under '
-                  'Sales Deduction, COGS or Operating Cost')
+        # Whichever costs came up empty, say what is actually around them.
+        # "No breakdown" on its own leaves a reader clicking a chart that will
+        # not open and no idea why; the layout and the relation are what
+        # decide it, so they are what gets printed.
+        blank = [k for k in ('deduction', 'cogs', 'opex')
+                 if k in pos_of and not parts.get(k)]
+        if blank:
+            if not parts:
+                print('\nno cost breakdown: nothing in this export adds up to '
+                      'Sales Deduction, COGS or Operating Cost')
+            names = dict((a, b) for a, b, _ in SERIES)
+            for k in blank:
+                pos = pos_of[k]
+                lo, hi = max(0, pos - 5), min(len(head), pos + 6)
+                print(f'  {names.get(k, k)} is column {col_letter(pos)} '
+                      f'{head[pos]!r}; around it:')
+                for i in range(lo, hi):
+                    if not head[i]:
+                        continue
+                    mark = ('  <- this one' if i == pos
+                            else '  (a figure the page already draws)'
+                            if i in figs else
+                            '' if i in measures else '  (not an amount)')
+                    print(f'    {col_letter(i):>4} {head[i]:<34}'
+                          + f'{col_total.get(i, 0.0):>16,.0f}' + mark)
+                node = next((n for n in nodes if n['pos'] == pos), None)
+                if node:
+                    print('    the analysis reads it as '
+                          + ' + '.join(('' if sg > 0 else '-')
+                                       + head[c] for c, sg in
+                                       zip(node['children'], node['signs']))
+                          + f"  [{node['how']}]")
+                else:
+                    print('    the analysis found nothing that adds up to it')
 
     # ── masters ────────────────────────────────────────────────────────────
     # The newest name is not always the readable one: a workbook saved in a
