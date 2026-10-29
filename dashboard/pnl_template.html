@@ -161,6 +161,11 @@ select:disabled { opacity: .5; }
 #priceCard .kpis { margin: 0; }
 /* How far through the plan the month is, under the figure rather than beside
    it: the number is the answer and the bar is only how far along that is. */
+/* The legend's mark for a bar that is drawn hatched: the same colour, cut
+   with the surface so it reads as a pattern at 10 pixels rather than as a
+   second solid block of the same hue. */
+.pick i.hatched { background-image: repeating-linear-gradient(
+  45deg, transparent 0 2px, var(--surface) 2px 3px); }
 .kpi .pbar { display: inline-block; vertical-align: middle; width: 86px;
   height: 6px; border-radius: 3px; background: var(--grid);
   overflow: hidden; margin-right: 6px; }
@@ -935,14 +940,8 @@ let COSTS = [];
 let PARTS = {};
 let COST_UP = {};
 const REST = '\u0000rest';     // the part of a cost its detail lines miss
-/* The part of the step from gross to net that the deduction column does not
-   carry. Without it the two sides of the P&L do not reconcile on the page: a
-   gross bar standing taller than the whole cost stack over a profit line in
-   the red is a chart arguing with itself. */
-const TONET = '\u0000tonet';
 let CHAINS = { customer: [], product: [] };
-const label = k => (k === TONET ? 'Gross to net, other'
-                    : k === REST ? 'Other'
+const label = k => (k === REST ? 'Other'
                     : has[k] === undefined ? k : DATA.series[has[k]].label);
 /* The blocks the cost side of the P&L is drawn in: the three totals, or the
    lines inside whichever one is being looked at. Where those lines do not
@@ -953,12 +952,20 @@ function costsNow() {
   if (!state.costAt || !PARTS[state.costAt]) return top;
   return PARTS[state.costAt].concat(REST);
 }
-/* One extra block in the stack, right after the one it belongs beside. */
-function spliceAfter(list, after, extra) {
-  const out = list.slice();
-  const i = out.indexOf(after);
-  out.splice(i < 0 ? out.length : i + 1, 0, extra);
-  return out;
+/* A bar that is a prediction, a step rather than a cost, or anything else
+   the eye should not read as solid money. One pattern, made once per render
+   off whatever colour it is given. */
+function hatch(colour) {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 6;
+  const g = cv.getContext('2d');
+  g.strokeStyle = colour;
+  g.globalAlpha = 0.75;
+  g.lineWidth = 1.6;
+  [[0, 6, 6, 0], [-1, 1, 1, -1], [5, 7, 7, 5]].forEach(q => {
+    g.beginPath(); g.moveTo(q[0], q[1]); g.lineTo(q[2], q[3]); g.stroke();
+  });
+  return g.createPattern(cv, 'repeat');
 }
 
 /* Where a drill sits, top first, for the crumb and for Back. */
@@ -3342,9 +3349,10 @@ function drawStack() {
     return Math.max(0, whole - kids);
   };
   /* gross - deduction should be net, and in some exports it is not: there is
-     more between the two than the one column the page draws. Drawn as its own
-     block, the cost side adds up to gross minus operating profit again, which
-     is what a reader is measuring by eye when they look at the two bars. */
+     more between the two than the one column the page draws. Nothing is drawn
+     for it - a block with no name anyone recognises was worse than the
+     question it answered - but the hint says so, because the left bar is then
+     short of gross by that much. */
   const toNetAt = i => {
     const f = fin[i];
     if (!f.net || f.gross === undefined) return 0;
@@ -3352,7 +3360,6 @@ function drawStack() {
                        - Math.abs(f.net));
   };
   const at = (i, k) => (k === 'gross' ? (fin[i].gross || 0)
-                        : k === TONET ? toNetAt(i)
                         : k === REST ? restAt(i)
                         : Math.abs(fin[i][k] || 0));
   // What each block is worth as a share of net sales - the same denominator
@@ -3364,38 +3371,45 @@ function drawStack() {
      sales" is true and not what anyone opened Marketing to find out; "Media
      is 73% of Marketing" is. */
   const into = pnlMode && state.costAt ? state.costAt : null;
-  // Only when it is big enough to be the reason the two sides disagree.
-  const toNet = pnlMode && !into
-    && xs.some(r => toNetAt(r.mi) > 0.005 * Math.abs(fin[r.mi].net || 0));
+  /* One denominator for the whole chart: net sales, the same one the margin
+     line is read on. The left bar is net with the deduction that came off
+     gross laid over it, so its solid part is the 100% every other block is a
+     share of - and the right bar is what the costs take out of that 100%.
+     What is left between them is the operating profit, which is the thing the
+     eye was trying to measure all along. */
   const shareOf = k => xs.map(r => {
     const base = into ? Math.abs(fin[r.mi][into] || 0)
                       : (fin[r.mi].net || fin[r.mi].gross);
     return base ? (at(r.mi, k) / base) * 100 : null;
   });
+  // The deduction is not a cost of the month: it never arrived. Hatched over
+  // net rather than stacked beside COGS, it reads as what it is - the step
+  // from gross to net - and the cost side is left saying only what the month
+  // spent.
+  const LEFT = ['net', 'deduction'].filter(k => has[k] !== undefined);
+  const RIGHT = into ? COSTS : COSTS.filter(k => k !== 'deduction');
   if (pnlMode) {
-    /* The gross bar comes off inside a drill, and so does the margin line.
-       Operating Cost is a tenth of gross and its own lines a tenth of that,
-       so drawn beside it they were slivers - a reader who opened the cost is
+    /* The left bar comes off inside a drill, and so does the margin line.
+       Operating Cost is a tenth of net and its own lines a tenth of that, so
+       drawn beside it they were slivers - a reader who opened the cost is
        asking about the cost, and the chart should be of the cost. */
-    if (!into) series.push({
-      label: label('gross'), stack: 'in',
-      data: xs.map(r => at(r.mi, 'gross')), shares: shareOf('gross'),
-      backgroundColor: C.gross, borderRadius: 4, borderSkipped: false,
-      borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
-    });
-    (toNet ? spliceAfter(COSTS, 'deduction', TONET) : COSTS)
-      .forEach((k, i) => series.push({
+    if (!into) LEFT.forEach(k => series.push({
+      label: label(k), stack: 'in',
+      data: xs.map(r => at(r.mi, k)), shares: shareOf(k),
+      backgroundColor: k === 'deduction' ? hatch(C.deduction) : C.gross,
+      swatch: k === 'deduction' ? C.deduction : null,
+      borderColor: k === 'deduction' ? C.deduction : C.surface,
+      borderWidth: k === 'deduction' ? 1 : 2,
+      borderRadius: 4, borderSkipped: false, maxBarThickness: 64,
+    }));
+    RIGHT.forEach((k, i) => series.push({
       label: label(k), stack: 'out', data: xs.map(r => at(r.mi, k)),
       shares: shareOf(k),
-      // Only the three totals have a colour of their own. A detail line takes
+      // Only the named totals have a colour of their own. A detail line takes
       // the stack palette, and Other the grey the page uses for a remainder.
       costKey: k,
-      backgroundColor: C[k]
-        || (k === REST ? C.grid
-            // It belongs with the deduction it is missing from, so it is that
-            // colour at half strength rather than a sixth hue nobody can place.
-            : k === TONET ? fade(C.deduction, 0.45)
-            : C.stack[i % C.stack.length]),
+      backgroundColor: C[k] || (k === REST ? C.grid
+                                : C.stack[i % C.stack.length]),
       borderRadius: 4, borderSkipped: false,
       borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
     }));
@@ -3404,11 +3418,14 @@ function drawStack() {
   const hasLine = has.profit !== undefined && !into;
   // P&L draws two bars a side, and the cost stack can be taller than the gross
   // bar; everything else is one bar of the figure itself.
-  const pnlSide = i => COSTS.reduce((a, k) => a + at(i, k), 0)
-                      + (toNet ? at(i, TONET) : 0);
+  const pnlSide = i => RIGHT.reduce((a, k) => a + at(i, k), 0);
+  const pnlLeft = i => LEFT.reduce((a, k) => a + at(i, k), 0);
+  // How far the left bar falls short of gross, over the whole span, for the
+  // one sentence that says so.
+  const gapToNet = pnlMode && !into
+    ? Math.round(xs.reduce((a, r) => a + toNetAt(r.mi), 0)) : 0;
   const ceiling = xs.map((_, i) => (pnlMode
-    ? (into ? pnlSide(i)
-            : Math.max(Math.abs(fin[i].gross || 0), pnlSide(i)))
+    ? (into ? pnlSide(i) : Math.max(pnlLeft(i), pnlSide(i)))
     : Math.abs(whole[i])));
   const axisTop = Math.max(0, ...ceiling);
   const axisBottom = Math.min(0, ...(pnlMode ? [0] : whole));
@@ -3493,8 +3510,11 @@ function drawStack() {
     .map(d => `<span class="pick${state.hidden.has(d.label) ? ' off' : ''}" `
       + `data-label="${esc(d.label)}" `
       + `title="click to take it out of the bars, double-click to keep only it">`
-      + `<i style="background:${d.type === 'line' ? d.borderColor
-      : d.backgroundColor}"></i>${d.label}</span>`).join('');
+      // A hatched bar's fill is a canvas pattern and means nothing to CSS,
+      // so a dataset drawn that way carries the colour to show here.
+      + `<i class="${d.swatch ? 'hatched' : ''}" style="background:${
+        d.swatch || (d.type === 'line' ? d.borderColor : d.backgroundColor)
+      }"></i>${d.label}</span>`).join('');
   // Two things to want from a legend and both of them are wanted: take one
   // band out, or keep only that one. A single click removes, a double click
   // isolates - and a double click on the band that is already alone puts the
@@ -3659,13 +3679,18 @@ function drawStack() {
   // caption under every chart is a page a reader scrolls past; a line that
   // appears only when something has been left out is one they believe.
   const notes = [];
-  if (toNet) {
-    notes.push('Gross minus Sales Deduction does not come to Net Sales in '
-               + 'this export - there is more between the two than the one '
-               + 'column. The difference is drawn as its own block, so the '
-               + 'cost side still adds up to gross less operating profit; '
-               + 'without it a gross bar taller than the whole stack sat over '
-               + 'a profit line in the red.');
+  if (pnlMode && !into) {
+    notes.push('Left: net sales, with the deduction that came off gross '
+               + 'hatched over it - so the bar is gross and the solid part is '
+               + 'net. Right: what the month spent. Every figure is a share '
+               + 'of net, so the gap between the solid block and the cost '
+               + 'stack is the operating profit.');
+    if (gapToNet) {
+      notes.push(`The two do not quite meet: ${fmt(gapToNet)} of the step `
+                 + 'from gross to net is in neither the deduction column nor '
+                 + 'any cost, so the left bar is short of gross by that much. '
+                 + 'It is a column this export does not name.');
+    }
   }
   if (pnlMode && !Object.keys(PARTS).length) {
     notes.push('No breakdown to click into: this export carries no detail '
