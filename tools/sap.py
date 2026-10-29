@@ -230,7 +230,13 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
                 out.no_customer += 1
             key = [CUST.channel_of(c.get('account'), bool(c))]
             for _, slot, _ in cust_levels[1:]:
-                key.append(c.get(slot) or CUST.BLANK)
+                v = c.get(slot)
+                # Where nothing names the account, its code stands in - the
+                # same stand-in the profit side uses, so one customer is one
+                # value on both charts.
+                if not v and slot == 'name':
+                    v = cell(r, col['payer'])
+                key.append(v or CUST.BLANK)
             p = products.get(key_norm(sku)) or {}
             if not p:
                 out.no_product += 1

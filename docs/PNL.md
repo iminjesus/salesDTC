@@ -141,8 +141,11 @@ and says which column it took and how:
 2. failing those, any header with `name` in it that no other level is already
    reading, because the list of spellings is always one short - `Cust Name 1`,
    `SoldTo Name`, `Name of Customer` have all turned up;
-3. nothing. A column picked by shape alone is as likely to be an address as a
-   name, so the level is **dropped** rather than guessed at.
+3. nothing - and then the **account code** stands in. A column picked by
+   shape alone is as likely to be an address as a name, so nothing is guessed
+   at; but a code is still one customer per value and still something to
+   search, where a level that went away is a search box that is sometimes
+   there. Only `--no-customer-name` removes it.
 
 On that third case the run prints the master's columns, widest first, with how
 many distinct values each holds and a sample of them. The customer name is

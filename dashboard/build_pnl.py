@@ -999,17 +999,18 @@ MONTHS_LONG = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
 MONTHS = tuple(m[:3] for m in MONTHS_LONG)
 
 
-def drop_name(folder: Path, args) -> None:
-    """Keep the Customer name level only if the master actually names anyone.
+def name_column(folder: Path, args) -> None:
+    """Point the Customer name level at the column that names the customer.
+
+    The level itself stays whatever this finds. It went away twice while this
+    was conditional on the master, and a search box that is sometimes there is
+    worse than one whose list is thin: where nothing names the account, the
+    account code stands in, which is still one customer per value and still
+    something to search. Only --no-customer-name removes it.
 
     The level list is a module constant because everything downstream reads
-    it, so this is the one place it changes - and it happens before any of
-    that downstream work starts.
-
-    The check is worth making up front. Account Name holds E-STORE,
-    E-STORE_B2B and off-line, so a level that fell back to it would offer
-    those three under a heading that promised customers, and look like a bug
-    in the search rather than a column that is not there.
+    it, so this is the one place it changes, and it happens before any of that
+    downstream work starts.
     """
     global FILTERS, CUST_DEPTH, PROMO_AT
 
@@ -1074,9 +1075,12 @@ def drop_name(folder: Path, args) -> None:
             print(f'    {h or "(blank)":<28}{n:>7} value(s)   '
                   + ', '.join(v[:28] for v in eg))
         print('  the customer name is usually the widest of them: '
-              '--customer-name-column "<header>"')
-        return without('no customer name column in the master')
-    return without('no customer master could be read')
+              '--customer-name-column "<header>" points the level at it.')
+        print('  until then the level carries the account code, which still '
+              'names one customer per value')
+        return
+    print('no customer master could be read, so the customer name level '
+          'carries the account code')
 
 
 def main() -> int:
@@ -1258,7 +1262,7 @@ def main() -> int:
     if not folder.is_dir():
         print(f'no such folder: {folder.resolve()}', file=sys.stderr)
         return 2
-    drop_name(folder, args)
+    name_column(folder, args)
     # One page, every month the folder holds. They stay whole rather than
     # merged: a month has its own customers, its own products and its own
     # levels, and merging them would invent a key that was in neither.
@@ -1806,6 +1810,11 @@ def build_month(folder, target, args):
             else:
                 v = cell(r, fb)
                 from_export[n] += bool(v)
+            # Nothing anywhere names this account, so its code stands in: a
+            # code is still one customer, where (blank) for all of them is a
+            # search box with nothing in it.
+            if not v and slot == 'name':
+                v = cell(r, c_key)
             key.append(v or CUST.BLANK)
         key = tuple(key)
         vals = combos.get(key)
