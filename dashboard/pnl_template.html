@@ -650,6 +650,11 @@ function unify(months) {
 
     // The whole page's window, for anything that asks without a view.
     campaigns: campaignsIn(campRuns, ...spanOf(months)),
+    // What each cost is made of, as figure keys. Index-free, so it survives
+    // the remapping the series go through - and the same on every month,
+    // since they are the same export cut by month.
+    parts: (months.find(m => m.parts && Object.keys(m.parts).length)
+            || {}).parts || {},
     // Where the promotion chain starts, carried up from the months the same
     // way custDepth is. Left off, the chain came out empty and the button sat
     // disabled on a page whose data had the levels in it.
@@ -924,8 +929,30 @@ const unitFmt = n => n.toLocaleString(undefined, { minimumFractionDigits: 2,
 const each = (r, key) => r[key];
 let has = {};
 let COSTS = [];
+/* What each cost is made of, and the way back up. The P&L's four bars are the
+   top of a tree the export already carries: Operating Cost moved, and which
+   line inside it moved is the next question every time. */
+let PARTS = {};
+let COST_UP = {};
+const REST = '\u0000rest';     // the part of a cost its detail lines miss
 let CHAINS = { customer: [], product: [] };
-const label = k => (has[k] === undefined ? k : DATA.series[has[k]].label);
+const label = k => (k === REST ? 'Other'
+                    : has[k] === undefined ? k : DATA.series[has[k]].label);
+/* The blocks the cost side of the P&L is drawn in: the three totals, or the
+   lines inside whichever one is being looked at. Where those lines do not
+   account for all of it, Other carries the difference rather than letting a
+   stack quietly come up short of the total it is standing in for. */
+function costsNow() {
+  const top = ['deduction', 'cogs', 'opex'].filter(k => has[k] !== undefined);
+  if (!state.costAt || !PARTS[state.costAt]) return top;
+  return PARTS[state.costAt].concat(REST);
+}
+/* Where a drill sits, top first, for the crumb and for Back. */
+function costPath() {
+  const out = [];
+  for (let k = state.costAt; k; k = COST_UP[k]) out.unshift(k);
+  return out;
+}
 
 /* Everything read off the payload, recomputed when the payload changes. */
 function rebind() {
@@ -934,7 +961,17 @@ function rebind() {
   divCache = { key: null, at: new Map() };
   has = {};
   DATA.series.forEach((s, i) => { has[s.key] = i; });
-  COSTS = ['deduction', 'cogs', 'opex'].filter(k => has[k] !== undefined);
+  PARTS = {};
+  COST_UP = {};
+  Object.entries(DATA.parts || {}).forEach(([k, kids]) => {
+    const live = kids.filter(c => has[c] !== undefined);
+    if (!live.length) return;
+    PARTS[k] = live;
+    live.forEach(c => { COST_UP[c] = k; });
+  });
+  // A drill set on one payload is meaningless on another.
+  if (state.costAt && !PARTS[state.costAt]) state.costAt = null;
+  COSTS = costsNow();
   // The two chains the page drills: the customer levels, then the product ones.
   // A chain stacks the level below whichever one the bars are on.
   // Three chains now, cut at two marks. The promotion is levels of the key
@@ -1005,6 +1042,9 @@ const state = {
   // open ones survive a narrowing and a redraw.
   achFlip: new Set(),
   achAll: false,
+  // Which cost the P&L is drilled into, as a figure key. Null is the three
+  // totals, which is where it opens.
+  costAt: null,
   // The planned-price tables: the same tree idea, its own fold state, and
   // which way the Top 30 is ordered.
   gapFlip: new Set(),
@@ -1572,6 +1612,14 @@ function levelCell(i) {
 
 function render() {
   readColours();
+  // The cost side is three totals or the lines inside one of them, and which
+  // it is changes on a click rather than on a new payload - so it is settled
+  // here, not in rebind().
+  // Leaving the P&L closes whatever cost was open, so coming back to it
+  // opens where it opened the first time rather than three levels down a
+  // tree the reader left ten minutes ago.
+  if (!state.pnl || (state.costAt && !PARTS[state.costAt])) state.costAt = null;
+  COSTS = costsNow();
   document.getElementById('pageTitle').textContent = DATA.title;
   document.getElementById('pageSub').textContent =
     `${DATA.file} · ${DATA.rows.toLocaleString()} rows`;
@@ -1625,12 +1673,14 @@ function render() {
   const run = state.cumul ? ' cumulative' : '';
   step(state.stack === 'orders' ? `by ${per}${run}, split by when ordered`
        : sl === null ? `by ${per}${run}`
+       : state.pnl && state.costAt
+       ? `${costPath().map(label).join(' \u203a ')}, by ${per}${run}`
        : `by ${per}${run}, split by ${DATA.levels[sl].name}`, null);
   // Back steps back inside the stack you are on, so it is dead at that
   // stack's first level. Measured against the whole page it stayed alive at
   // the top of a chain and undid a narrowing from a different one - which is
   // how Back out of Customer came to land on Product.
-  const atTop = backLevel() < 0;
+  const atTop = backLevel() < 0 && !(state.pnl && state.costAt);
   document.getElementById('backBtn').disabled = atTop;
   document.getElementById('stkBack').disabled = atTop;
   // The daily card drills as the chart below does, so it steps back from
@@ -3103,8 +3153,11 @@ function drawStack() {
     xs[i].months.push(m);
     return i;
   });
-  const fin = xs.map(() => ({ qty: 0, net: 0, gross: 0, profit: 0,
-                              deduction: 0, cogs: 0, opex: 0 }));
+  // The three totals always, plus whichever detail lines are being drawn -
+  // a key that is not here starts undefined and every += on it is a NaN.
+  const finKeys = ['qty', 'net', 'gross', 'profit', 'deduction', 'cogs',
+                   'opex', ...COSTS, ...costPath()];
+  const fin = xs.map(() => Object.fromEntries(finKeys.map(k => [k, 0])));
   const stackTotal = new Map();
   // Each member's own profit and its own denominator, month by month, so the
   // split can carry a margin per band and not just a size per band.
@@ -3128,7 +3181,8 @@ function drawStack() {
   for (const c of slice) {
     const ci = col[c.m];
     const f = fin[ci];
-    for (const k of ['qty', 'net', 'gross', 'profit', ...COSTS]) {
+    for (const k of ['qty', 'net', 'gross', 'profit', ...COSTS,
+                     ...costPath()]) {
       if (has[k] !== undefined) f[k] += c.v[has[k]];
     }
     if (fig !== undefined) whole[ci] += c.v[fig] * flip;
@@ -3261,38 +3315,65 @@ function drawStack() {
     });
   }
 
+  // The part of a drilled cost its detail lines do not account for. Taken
+  // from the parent rather than carried in the payload: it is a subtraction,
+  // and a column for it would be a number that could disagree with the two it
+  // sits between.
+  const restAt = i => {
+    const up = state.costAt;
+    if (!up) return 0;
+    const whole = Math.abs(fin[i][up] || 0);
+    const kids = (PARTS[up] || []).reduce(
+      (a, k) => a + Math.abs(fin[i][k] || 0), 0);
+    return Math.max(0, whole - kids);
+  };
   const at = (i, k) => (k === 'gross' ? (fin[i].gross || 0)
-                                      : Math.abs(fin[i][k] || 0));
+                        : k === REST ? restAt(i)
+                        : Math.abs(fin[i][k] || 0));
   // What each block is worth as a share of net sales - the same denominator
   // the profit line is read on, so the bar and the line say one thing. Over
   // gross would have been the bar's own 100%, but nobody quotes cost of goods
   // over gross: the ratio that gets repeated in a meeting is over net, and a
   // chart that prints a different one invites the two to be compared.
+  /* Drilled, the denominator changes with the question. "Media is 2% of net
+     sales" is true and not what anyone opened Marketing to find out; "Media
+     is 73% of Marketing" is. */
+  const into = pnlMode && state.costAt ? state.costAt : null;
   const shareOf = k => xs.map(r => {
-    const base = fin[r.mi].net || fin[r.mi].gross;
+    const base = into ? Math.abs(fin[r.mi][into] || 0)
+                      : (fin[r.mi].net || fin[r.mi].gross);
     return base ? (at(r.mi, k) / base) * 100 : null;
   });
   if (pnlMode) {
-    series.push({
+    /* The gross bar comes off inside a drill, and so does the margin line.
+       Operating Cost is a tenth of gross and its own lines a tenth of that,
+       so drawn beside it they were slivers - a reader who opened the cost is
+       asking about the cost, and the chart should be of the cost. */
+    if (!into) series.push({
       label: label('gross'), stack: 'in',
       data: xs.map(r => at(r.mi, 'gross')), shares: shareOf('gross'),
       backgroundColor: C.gross, borderRadius: 4, borderSkipped: false,
       borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
     });
-    COSTS.forEach(k => series.push({
+    COSTS.forEach((k, i) => series.push({
       label: label(k), stack: 'out', data: xs.map(r => at(r.mi, k)),
       shares: shareOf(k),
-      backgroundColor: C[k], borderRadius: 4, borderSkipped: false,
+      // Only the three totals have a colour of their own. A detail line takes
+      // the stack palette, and Other the grey the page uses for a remainder.
+      costKey: k,
+      backgroundColor: C[k] || (k === REST ? C.grid : C.stack[i % C.stack.length]),
+      borderRadius: 4, borderSkipped: false,
       borderWidth: 2, borderColor: C.surface, maxBarThickness: 64,
     }));
   }
   const denom = has.net !== undefined ? label('net') : label('gross');
-  const hasLine = has.profit !== undefined;
+  const hasLine = has.profit !== undefined && !into;
   // P&L draws two bars a side, and the cost stack can be taller than the gross
   // bar; everything else is one bar of the figure itself.
-  const pnlSide = i => COSTS.reduce((a, k) => a + Math.abs(fin[i][k] || 0), 0);
+  const pnlSide = i => COSTS.reduce((a, k) => a + at(i, k), 0);
   const ceiling = xs.map((_, i) => (pnlMode
-    ? Math.max(Math.abs(fin[i].gross || 0), pnlSide(i))
+    ? (into ? pnlSide(i)
+            : Math.max(Math.abs(fin[i].gross || 0), pnlSide(i)))
     : Math.abs(whole[i])));
   const axisTop = Math.max(0, ...ceiling);
   const axisBottom = Math.min(0, ...(pnlMode ? [0] : whole));
@@ -3415,6 +3496,9 @@ function drawStack() {
   // comparison the click was asking for.
   // The origins are not a level, so there is nothing under them to open.
   const canDrill = !pnlMode && !ordMode && sl !== undefined;
+  // The P&L drills too, down its own tree rather than the customer's: a cost
+  // block with lines under it opens into them.
+  const canOpen = pnlMode && Object.keys(PARTS).length > 0;
   if (stkChart) stkChart.destroy();
   stkChart = new Chart(document.getElementById('stkBars'), {
     type: 'bar', data: { labels: xs.map(r => r.name), datasets: shownSeries },
@@ -3425,10 +3509,11 @@ function drawStack() {
       interaction: { mode: 'index', intersect: false },
       datasets: { bar: { categoryPercentage: 0.8, barPercentage: 0.95 } },
       onHover: (e, els) => {
-        e.native.target.style.cursor = (els.length && canDrill) ? 'pointer' : '';
+        e.native.target.style.cursor =
+          (els.length && (canDrill || canOpen)) ? 'pointer' : '';
       },
       onClick(e, els) {
-        if (!canDrill) return;
+        if (!canDrill && !canOpen) return;
         // The index-mode elements Chart.js hands over are the whole column,
         // line dataset first, so they say which month was clicked and not
         // which band. Asking again for what the pointer is actually inside is
@@ -3437,6 +3522,14 @@ function drawStack() {
           e, 'nearest', { intersect: true }, true)[0] || els[0];
         const d = hit && this.data.datasets[hit.datasetIndex];
         if (!d || d.type === 'line' || !d.label) return;
+        if (canOpen) {
+          // Only a block with lines under it. Gross, Other and a leaf are
+          // ends of the road, and a click that did nothing is better than one
+          // that redraws the same chart with a different heading.
+          if (!d.costKey || !PARTS[d.costKey]) return;
+          defer(() => { state.costAt = d.costKey; render(); });
+          return;
+        }
         const j = DATA.levels[sl].values.indexOf(d.label);
         if (j < 0) return;                       // the folded Other, not a member
         defer(() => setFilter(sl, j));
@@ -3522,6 +3615,14 @@ function drawStack() {
   // caption under every chart is a page a reader scrolls past; a line that
   // appears only when something has been left out is one they believe.
   const notes = [];
+  if (pnlMode && Object.keys(PARTS).length) {
+    notes.push(into
+      ? `Inside ${label(into)}: the bars are its own lines and the figures a `
+        + 'share of it, not of net sales. Back steps out, and a line with '
+        + 'more under it opens too.'
+      : 'Click a cost to see what it is made of - the export carries the '
+        + 'lines under each one, and the bars go down as far as they go.');
+  }
   if (ordMode) {
     const blind = DATA.months.filter(m => !m.carryIn).map(m => m.label);
     if (blind.length) {
@@ -3614,6 +3715,13 @@ function backLevel() {
 }
 
 document.getElementById('backBtn').onclick = () => {
+  // Inside the P&L, Back is the way out of the cost it is drilled into -
+  // that is the narrowing a reader just made, and the one they mean to undo.
+  if (state.pnl && state.costAt) {
+    state.costAt = COST_UP[state.costAt] || null;
+    render();
+    return;
+  }
   const last = backLevel();
   if (last < 0) return;
   state.filter[last] = -1;

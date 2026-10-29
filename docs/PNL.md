@@ -1225,6 +1225,69 @@ against the drill level instead of time, with a line for the share of revenue
 the month's own orders earned; the split reads better as a band of the main
 chart, on the same months as everything else.
 
+### Clicking into a cost
+
+The four bars of the P&L are the top of a tree the export already carries, and
+a reader who sees Operating Cost move wants to know **which line inside it**
+moved. **Click a cost block** and the chart redraws as that cost's own lines;
+click one of those with more under it and it goes further. **Back** steps out
+a level, and the breadcrumb shows where you are:
+
+```
+All > E-STORE > Operating Cost > Marketing, by month
+```
+
+Inside a drill the **gross bar and the margin line come off**, and the
+percentages are a share of the cost being looked at rather than of net sales.
+Operating Cost is a tenth of gross and its own lines a tenth of that, so drawn
+beside the gross bar they were slivers; and *Media is 2% of net sales* is true
+and not what anyone opened Marketing to find out. *Media is 73% of Marketing*
+is. **Other** carries whatever the detail lines do not account for, so a stack
+never comes up quietly short of the total it stands in for.
+
+Leaving the P&L closes the drill, so coming back opens where it opened the
+first time.
+
+#### Where the breakdown comes from
+
+Not from `tools/analyze_structure.py`, which answers a harder question than
+this one - which columns add up to which, judged on the values alone. It is
+right to work that way and the answer it reaches is not always the statement's
+own: `*Sales Deduction = *Net Sales - *S.Gross Sales` is perfectly true and no
+use at all to a reader asking what the deduction is made of.
+
+So the build reads the **layout**, which is where a P&L puts the answer: the
+detail lines sit immediately to the left of the total they make up. Walking
+left from a total and adding columns until they match it finds them. One
+wrinkle - a block can hold a sub-total of its own, and `*Marketing` counted
+beside `*Media` and `*Agency Fee` would count those twice, so a column that is
+itself a total of the run behind it covers that run and the walk steps over
+it. Nothing is taken on trust: a block is kept only where the sum matches on
+the column totals **and** on every sampled row.
+
+The run prints the tree it found, with each line's total:
+
+```
+the cost breakdown: 10 column(s), 3 level(s) deep
+  Sales Deduction:
+    Trade Discount                              -6,819
+    Customer Rebate                             -2,079
+  Operating Cost:
+    Paid Commission                             -5,879
+    Marketing                                   -4,604
+      Media                                       -3,373
+      Agency Fee                                  -1,231
+```
+
+#### What it costs
+
+Each line kept is another number **per combination**, because the breakdown
+rides on the same key as everything else - that is what lets it follow the
+narrowing. `--cost-parts N` caps how many columns are carried (24 by default,
+`0` for none, biggest first so a cap cuts the lines nobody would have read)
+and `--cost-depth N` how deep it goes (3). The build prints the page size, so
+the trade is visible on every run.
+
 ### The profit split
 
 Under **Numbers**, with the totals - off by default, since the page is the

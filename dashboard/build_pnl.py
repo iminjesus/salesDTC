@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import sys
 import webbrowser
@@ -1013,6 +1014,67 @@ MONTHS_LONG = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
 MONTHS = tuple(m[:3] for m in MONTHS_LONG)
 
 
+def cost_blocks(head, body, measures, claimed) -> dict:
+    """{column: [(child column, sign), ...]} - what adds up to what, per the layout.
+
+    tools/analyze_structure.py answers a harder question than this one: which
+    columns add up to which, judged on the values alone and with no regard for
+    where they sit. It is right to be that way, and the answer it reaches is
+    not always the statement's own - `*Sales Deduction = *Net Sales -
+    *S.Gross Sales` is perfectly true and no use at all to a reader asking
+    what the deduction is made of.
+
+    So this reads the layout instead, which is where a P&L puts the answer:
+    the detail lines sit immediately to the left of the total they make up.
+    Walking left from a total and adding columns until they match it finds
+    them, with one wrinkle - a block can hold a sub-total of its own, and
+    Marketing counted beside Media and Agency Fee would count those twice. A
+    column that is itself a total of the run behind it covers that run, and
+    the walk steps over it.
+
+    Nothing here is taken on trust: a block is kept only where the sum matches
+    the total on the column totals and on every sampled row.
+    """
+    cell = lambda r, i: (r[i].strip() if i < len(r) else '')
+    at = set(measures)
+    rows = body if len(body) <= A.SAMPLE else random.Random(7).sample(body, A.SAMPLE)
+    vals = {i: [parse_number(cell(r, i)) or 0.0 for r in rows] for i in at}
+    whole = {i: sum(parse_number(cell(r, i)) or 0.0 for r in body) for i in at}
+
+    def holds(kids, c):
+        if not A.near(sum(whole[k] for k in kids), whole[c]):
+            return False
+        return all(A.near(sum(vals[k][n] for k in kids), vals[c][n])
+                   for n in range(len(rows)))
+
+    found: dict = {}
+
+    def block(c):
+        if c in found:
+            return found[c]
+        found[c] = []                      # guards the recursion
+        kids, cover, i = [], set(), c - 1
+        while i >= 0 and i in at and len(kids) < A.MAX_CHILDREN:
+            if i in cover or i in claimed and i != c:
+                if i in cover:
+                    i -= 1
+                    continue
+                break
+            kids.append(i)
+            if holds(kids, c):
+                found[c] = [(k, 1) for k in reversed(kids)]
+                return found[c]
+            # A sub-total inside the block: its own lines are already in it.
+            sub = block(i)
+            cover |= {k for k, _ in sub}
+            i -= 1
+        return found[c]
+
+    for c in sorted(at, reverse=True):
+        block(c)
+    return {c: v for c, v in found.items() if v}
+
+
 def name_column(folder: Path, args) -> None:
     """Point the Customer name level at the column that names the customer.
 
@@ -1260,6 +1322,14 @@ def main() -> int:
                     help='list what every profit export carries, side by side, '
                          'and stop. The quickest way to see why one month draws '
                          'a figure another one does not')
+    ap.add_argument('--cost-parts', type=int, default=24, metavar='N',
+                    help='how many detail columns the P&L may carry for its '
+                         'drill-down (default 24, 0 for none). Each one is '
+                         'another number per combination, so this is the '
+                         'knob if the page gets too heavy')
+    ap.add_argument('--cost-depth', type=int, default=3, metavar='N',
+                    help='how many levels deep the cost drill goes '
+                         '(default 3)')
     ap.add_argument('--no-marketplace', action='store_true',
                     help='count only orders carrying the store\'s own '
                          'reference, leaving Amazon, eBay, Myer and MyDeal '
@@ -1695,6 +1765,61 @@ def build_month(folder, target, args):
                  'stands on its own in this export; the bars are not guaranteed '
                  'to account for it exactly'))
 
+    # ── what each cost is made of ──────────────────────────────────────────
+    # The analysis already worked out which column is the sum of which, and
+    # the four bars of the P&L are the top of that tree and nothing more. A
+    # reader who sees Operating Cost move wants to know which line inside it
+    # moved, and the answer is sitting in the same export, one level down.
+    #
+    # The breakdown has to ride on the combination key like every other
+    # figure, or it could not follow the narrowing - so each column kept is
+    # another number per combination, and the caps are there because a
+    # statement with forty detail lines would be a page nobody can send.
+    parts: dict = {}            # figure -> the figures it is made of
+    sign_of: dict = {}          # and which way each one goes into its parent
+    if args.cost_parts:
+        kid_of = cost_blocks(head, body, measures, set(pos_of.values()))
+        clean = lambda h: re.sub(r'^[*\s]+', '', h).strip() or f'column {h}'
+        taken = {i for i in pos_of.values()}
+        queue = [(k, pos_of[k], 0) for k in ('deduction', 'cogs', 'opex')
+                 if k in pos_of]
+        added = 0
+        while queue and added < args.cost_parts:
+            pkey, pos, depth = queue.pop(0)
+            if depth >= args.cost_depth:
+                continue
+            # Biggest first, so a cap cuts the lines nobody would have read.
+            kids = sorted(kid_of.get(pos) or [],
+                          key=lambda ks: -abs(col_total.get(ks[0], 0.0)))
+            for i, sgn in kids:
+                if added >= args.cost_parts or i in taken:
+                    continue
+                key = f'c{i}'
+                pos_of[key] = i
+                sign_of[key] = sgn
+                series.append({'key': key, 'label': clean(head[i])})
+                parts.setdefault(pkey, []).append(key)
+                taken.add(i)
+                added += 1
+                queue.append((key, i, depth + 1))
+        if parts:
+            print(f'\nthe cost breakdown: {added} column(s), '
+                  f'{args.cost_depth} level(s) deep')
+            def say_tree(key, depth=0):
+                for k in parts.get(key, []):
+                    lbl = next(x['label'] for x in series if x['key'] == k)
+                    t = col_total.get(pos_of[k], 0.0) * sign_of.get(k, 1)
+                    print(f'  {"  " * depth}{lbl:<34}{t:>16,.0f}'
+                          + ('' if parts.get(k) else ''))
+                    say_tree(k, depth + 1)
+            for k in ('deduction', 'cogs', 'opex'):
+                if parts.get(k):
+                    print(f'  {dict((a, b) for a, b, _ in SERIES).get(k, k)}:')
+                    say_tree(k, 1)
+        else:
+            print('\nno cost breakdown: the analysis found no lines under '
+                  'Sales Deduction, COGS or Operating Cost')
+
     # ── masters ────────────────────────────────────────────────────────────
     # The newest name is not always the readable one: a workbook saved in a
     # format this build cannot open sits in the folder beside a perfectly good
@@ -1786,7 +1911,9 @@ def build_month(folder, target, args):
                 break
 
     # ── roll up: one row per combination of the filter values ──────────────
-    keys = [k for k, _, _ in SERIES if k in pos_of]
+    keys = ([k for k, _, _ in SERIES if k in pos_of]
+            + [x['key'] for x in series if x['key'] not in
+               {k for k, _, _ in SERIES}])
     combos: dict[tuple, list[float]] = {}
     counts: dict[tuple, int] = {}
     matched_c = matched_p = 0
@@ -1845,7 +1972,9 @@ def build_month(folder, target, args):
         for j, k in enumerate(keys):
             n = parse_number(cell(r, pos_of[k]))
             if n is not None:
-                vals[j] += n
+                # A detail line can go into its total the other way round -
+                # the sign is what makes the parts add up to the parent.
+                vals[j] += n * sign_of.get(k, 1)
     if sent_back['rows']:
         print(f'\nreturns left out: {sent_back["rows"]:,} row(s), '
               f'{sent_back["qty"]:,.0f} unit(s), {sent_back["net"]:,.0f} in net '
@@ -2391,6 +2520,9 @@ def build_month(folder, target, args):
         'promoAt': PROMO_AT if banded_any[0] else None,
         'levels': levels,
         'series': series,
+        # What each cost is made of, as figure keys: the P&L drills into it
+        # the way the bars drill into a division.
+        'parts': parts,
         # What --drop took out. Carried into the page because a report that
         # quietly leaves a business out is the one kind of wrong a reader
         # cannot see: it says so under the menu and on the Scope sheet.
