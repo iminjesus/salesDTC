@@ -813,6 +813,18 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     # and the same dictionary on all thirty-one would count every campaign day
     # thirty-one times over.
     if out:
+        # What this chart does not count, and whose it was. The order export
+        # is the store's own orders; a marketplace line carries someone else's
+        # reference and is dropped before anything is totalled. Narrow to a
+        # customer that sells only through a marketplace and the result is an
+        # empty chart, which looks exactly like a customer that sold nothing.
+        # Carried to the page so it can say which.
+        out[0]['offStore'] = {
+            'total': [got.other[0], round(got.other[1]), round(got.other[2])],
+            'who': {k: [v[0], round(v[1]), round(v[2])]
+                    for k, v in sorted(got.other_who.items(),
+                                       key=lambda kv: -kv[1][2])[:400]},
+        }
         found = campaign_payload(by_day, folder, args)
         out[0]['campaigns'] = found
         opened = [k for k, v in found.items()

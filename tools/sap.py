@@ -88,6 +88,11 @@ class Months:
         # this figure" is a question about a number and deserves one.
         self.other = [0, 0.0, 0.0]        # lines, units, amount
         self.other_refs: dict = {}
+        # And whose they were. A customer can be entirely marketplace - MyDeal
+        # has no store-stamped order by definition - and then narrowing to it
+        # leaves a daily chart with nothing on it and no way to tell an empty
+        # month from a filter. This is what lets the page say which.
+        self.other_who: dict = {}         # customer -> [lines, units, amount]
         self.files: list[str] = []
         self.amount_col = None
         # Units per promotion band, on the same key. Filled only when the
@@ -191,11 +196,22 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
                 made_m = month_of_date(to_date(cell(r, col['made'])))
                 gi_m = month_of_date(to_date(cell(r, col['gi'])))
                 if month in (made_m, gi_m):
+                    q = parse_number(cell(r, col['qty'])) or 0.0
+                    a = parse_number(cell(r, col['amt'])) or 0.0
                     out.other[0] += 1
-                    out.other[1] += parse_number(cell(r, col['qty'])) or 0.0
-                    out.other[2] += parse_number(cell(r, col['amt'])) or 0.0
+                    out.other[1] += q
+                    out.other[2] += a
                     shape = re.sub(r'\d', '#', ref)[:14] or '(blank)'
                     out.other_refs[shape] = out.other_refs.get(shape, 0) + 1
+                    # Named the way the page names them, code and all, so the
+                    # value here is the one the menu is narrowed to.
+                    payer = cell(r, col['payer'])
+                    cc = customers.get(key_norm(payer)) or {}
+                    who = cc.get('name') or payer or CUST.BLANK
+                    t = out.other_who.setdefault(who, [0, 0.0, 0.0])
+                    t[0] += 1
+                    t[1] += q
+                    t[2] += a
                 continue
             if cell(r, col['reject']):
                 out.rejected += 1

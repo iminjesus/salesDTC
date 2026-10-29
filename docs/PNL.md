@@ -765,6 +765,31 @@ Two things follow, and both are worth checking rather than assuming:
   sales, the denominator includes Amazon while the numerator does not, and
   every achievement on the card is understated by that much.
 
+#### A customer with no daily bars
+
+The daily chart counts **the store's own orders**. `AU260930-46262020` is the
+store's order number; Amazon, Myer, MyDeal and eBay carry something else, and
+the shape of the reference is the whole filter - nothing to configure and
+nothing to keep up to date. Those lines are dropped before anything is
+totalled.
+
+The profit export has no such filter, so a marketplace customer is on the
+monthly chart and absent from the daily one. Narrow to it and the result is an
+empty chart, which reads exactly like a customer that sold nothing - the
+opposite of the truth.
+
+So the build carries the dropped lines to the page, with whose they were, and
+the chart says it:
+
+> MyDeal.com.au sells through a marketplace: 1,284 of its order lines this
+> month (3,910 units, 2,106,400) carry a marketplace reference, not the
+> store's own, and this chart counts the store's own orders only. The monthly
+> chart above has no such filter, which is why it still shows them.
+
+With nothing narrowed and nothing drawn at all, it says the same for the month
+as a whole. The achievement table and the planned-price tables read the same
+export, so a marketplace customer is outside those too.
+
 #### Weeks on the daily chart
 
 A month of bars is a month of bars: which of them are one week and which are

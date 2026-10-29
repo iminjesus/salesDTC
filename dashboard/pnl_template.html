@@ -2909,6 +2909,33 @@ function drawDayTrend() {
   // Only what would be misread without it: where the export stops, a plan
   // that does not cover these days, and a target that is off.
   const dn = [];
+  /* An empty chart under a narrowing is the one that has to speak. This chart
+     is the store's own orders: a marketplace line carries someone else's
+     reference and is dropped before anything is totalled, so a customer that
+     sells only through a marketplace draws nothing here - and that looks
+     exactly like a customer that sold nothing, which is the opposite reading.
+     The profit export has no such filter, which is why the monthly chart
+     above still has them. */
+  const offs = (ALL.days || []).reduce((a, d) => d.offStore || a, null);
+  if (offs) {
+    const ni = DATA.levels.findIndex(lv => lv.name === 'Customer name');
+    const who = ni >= 0 && state.filter[ni] >= 0
+      ? DATA.levels[ni].values[state.filter[ni]] : null;
+    const mine = who && offs.who ? offs.who[who] : null;
+    if (mine) {
+      dn.push(`${who} sells through a marketplace: ${fmt(mine[0])} of its `
+              + `order lines this month (${fmt(mine[1])} units, `
+              + `${fmt(mine[2])}) carry a marketplace reference, not the `
+              + 'store\u2019s own, and this chart counts the store\u2019s own '
+              + 'orders only. The monthly chart above has no such filter, '
+              + 'which is why it still shows them.');
+    } else if (!sum && offs.total[0]) {
+      dn.push(`Nothing here counts: ${fmt(offs.total[0])} order line(s) this `
+              + 'month carry a marketplace reference rather than the '
+              + 'store\u2019s own, and this chart counts the store\u2019s own '
+              + 'orders only.');
+    }
+  }
   if (D.asof) {
     dn.push(`The export was taken ${D.asof} and stops there - a short last `
             + 'week is the file ending, not demand.');
