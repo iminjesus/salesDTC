@@ -2079,6 +2079,18 @@ def build_month(folder, target, args):
                  if theirs else f'{head[i]!r} is empty on every row')
               + f'; {keyed}')
     print(f'{len(combos):,} filter combination(s) from {len(body):,} rows')
+    # A combination is a row of the payload, so the count is the page's size.
+    # The customer name is the level that multiplies it - one combination per
+    # SKU becomes one per SKU per account - and a reader deciding whether the
+    # search is worth the weight should be told the price, not left to guess.
+    nAt = next((i for i, (_, slot, _) in enumerate(FILTERS)
+                if slot == 'name'), None)
+    if nAt is not None and combos:
+        flat = {k[:nAt] + k[nAt + 1:] for k in combos}
+        if len(flat) < len(combos):
+            print(f'  {len(flat):,} of those without the customer name '
+                  f'({len(combos) / len(flat):.1f}x fewer) - that level is '
+                  'what the search costs; --no-customer-name leaves it out')
 
     # ── the other half of the month: what was ordered ──────────────────────
     # The order export knows its portal group and its product; it does not know
