@@ -1225,6 +1225,35 @@ against the drill level instead of time, with a line for the share of revenue
 the month's own orders earned; the split reads better as a band of the main
 chart, on the same months as everything else.
 
+### Why the gross bar can stand taller than the costs and the margin still be red
+
+The two sides of the P&L are **Gross Sales** on the left and **Sales Deduction
++ COGS + Operating Cost** on the right, and the eye reads the difference
+between them as the profit. That only works if the right-hand stack really is
+everything between gross and operating profit - and in some exports it is not:
+
+```
+gross            116.4% of net sales
+deduction         12.2%
+                 ------
+                 104.2%,  not 100%
+```
+
+Four points of the step from gross to net are in neither the deduction column
+nor any cost, so the gross bar stood 0.8% above the whole stack while the
+margin line read **-3.4%**, which is a chart arguing with itself. The profit
+line was right throughout: it is `net - COGS - Operating Cost`, over net.
+
+That difference is now drawn as its own block, **Gross to net, other**, in the
+deduction's colour at half strength and directly above it. With it the cost
+side adds up to gross less operating profit again, so the comparison the eye
+is making is the one the arithmetic makes. It appears only where it is worth
+half a per cent of net sales, and the hint under the chart says what it is.
+
+What sits in it is a question for the export, not for the page: the page can
+see that gross, the deduction column and net do not reconcile, and it cannot
+know which line is missing.
+
 ### Clicking into a cost
 
 The four bars of the P&L are the top of a tree the export already carries, and
