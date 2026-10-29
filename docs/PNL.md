@@ -133,12 +133,28 @@ the answer happens to fit in six of them.
 
 It is read from the master's own name column, and **`Account Name` is not
 it** - that column holds `E-STORE`, `E-STORE_B2B` and `off-line`, which is all
-this page has ever asked of it. The build tries the usual SAP spellings
-(`Customer Name`, `Sold-to Name`, `Name 1`, `Cus_name` and a few more) and
-says which one it took. Where the master has none, the level is **dropped**
-rather than quietly showing the channel marker again under a heading that
-promised customers, and the run prints the master's columns so
-`--customer-name-column` can name the right one.
+this page has ever asked of it. The build looks for the name in three passes
+and says which column it took and how:
+
+1. the usual SAP spellings - `Customer Name`, `Sold-to Name`, `Name 1`,
+   `Cus_name` and a few more;
+2. failing those, any header with `name` in it that no other level is already
+   reading, because the list of spellings is always one short - `Cust Name 1`,
+   `SoldTo Name`, `Name of Customer` have all turned up;
+3. nothing. A column picked by shape alone is as likely to be an address as a
+   name, so the level is **dropped** rather than guessed at.
+
+On that third case the run prints the master's columns, widest first, with how
+many distinct values each holds and a sample of them. The customer name is
+almost always the widest, so the right header is usually obvious at a glance
+and goes back in as `--customer-name-column "<header>"`:
+
+```
+customer.csv has no column naming the customer. Its columns, widest first:
+    Cus_desc                      1,284 value(s)   AMAZON AU, ARMSTRONG...
+    Sold-To                       1,284 value(s)   0010000123, 0010000124
+    City                            312 value(s)   Adelaide, Albury
+```
 
 **The page opens on `E-STORE`**, so a marketplace account is narrowed out
 before it is searched for. The search says so rather than coming back empty:

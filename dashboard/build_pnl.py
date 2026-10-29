@@ -1038,17 +1038,44 @@ def drop_name(folder: Path, args) -> None:
         if not rows:
             continue
         head = [h.strip() for h in rows[0]]
-        at = find(head, *names)
         chan = find(head, *CUST.ACCOUNT_NAMES)
-        if at is not None and at != chan:
-            print(f'the customer name comes from {head[at]!r} in {path.name}')
+        taken = {chan} | {find(head, *ns) for _, s, ns in CUST.LEVELS
+                          if ns and s != 'name'}
+        taken.discard(None)
+        at = find(head, *names)
+        how = 'by name'
+        if at is None or at in taken:
+            # The spellings are a list and the list is always one short. Any
+            # header with "name" in it that is not already spoken for is the
+            # column, whatever else is around the word - Cust Name, SoldTo
+            # Name 1, Name of Customer have all turned up.
+            at = next((i for i, h in enumerate(head)
+                       if 'name' in h.lower() and i not in taken), None)
+            how = 'the only unused header with "name" in it'
+        if at is not None and at not in taken:
+            print(f'the customer name comes from {head[at]!r} in {path.name}'
+                  + ('' if how == 'by name' else f' ({how})'))
+            CUST.LEVELS = [(n, s, ((head[at],) + tuple(ns)) if s == 'name'
+                            else ns) for n, s, ns in CUST.LEVELS]
             return
         # One file is enough to answer: the masters are the same shape.
-        print(f'{path.name} has no column naming the customer'
-              + (f" ({head[at]!r} is the channel marker)"
-                 if at is not None else '')
-              + '. Its columns: ' + ', '.join(h for h in head if h)[:220])
-        return without('name one with --customer-name-column')
+        # Nothing is guessed from here - a column picked by shape alone is as
+        # likely to be an address as a name - but the shapes are printed, so
+        # the next run can name the right one instead of this one asking
+        # again.
+        print(f'{path.name} has no column naming the customer. Its columns, '
+              'widest first:')
+        body = rows[1:]
+        seen = []
+        for i, h in enumerate(head):
+            vals = {r[i].strip() for r in body if i < len(r) and r[i].strip()}
+            seen.append((len(vals), i, h, sorted(vals)[:2]))
+        for n, i, h, eg in sorted(seen, reverse=True)[:8]:
+            print(f'    {h or "(blank)":<28}{n:>7} value(s)   '
+                  + ', '.join(v[:28] for v in eg))
+        print('  the customer name is usually the widest of them: '
+              '--customer-name-column "<header>"')
+        return without('no customer name column in the master')
     return without('no customer master could be read')
 
 
