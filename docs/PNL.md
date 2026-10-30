@@ -1001,10 +1001,22 @@ above it is a spelling and not a division. The chain comes from the page's own
 product master, not from the GSCM sheet - the sheet's `Biz / DIV 1 / DIV 2`
 are read but only ever used to name a planned code that never sold.
 
+**Diff is not the difference between the two columns it sits beside:**
+
+```
+Diff = ASP  -  the price these units were planned at
+```
+
+That second figure is **not on the row** - it is the plan's own price
+re-weighted onto the units that actually sold - which is why hovering a Diff
+spells the subtraction out and names it. On one slice of the fixture, `ASP`
+reads 737 and `Plan Gross ASP` 800 while Diff reads -67, because the planned
+price of *those particular* units is 804.
+
 **Plan Gross ASP** is the plan's own amount over its own units: what the month
-would have averaged had it gone to plan. **Diff is taken against something
-else** - the planned price of the units that *actually* sold - so the column
-is price and not mix. The plan's own mix would fold *we sold more of the cheap
+would have averaged had it gone to plan. Subtracting that instead would fold
+*we sold more of the cheap one* into a figure headed price, so the column is
+price and not mix. The plan's own mix would fold *we sold more of the cheap
 one* into a figure headed price and send a reader looking for a discount
 nobody gave. Built this way, `Diff x Qty` is the impact exactly, and the model
 rows add up to the category they sit in.
