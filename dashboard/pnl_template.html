@@ -2544,9 +2544,16 @@ function drawGap(D) {
         `<td class="up${(r.pv - r.rv) < 0 ? ' neg' : ''}">${
           signed(r.pv - r.rv)}</td>`,
       ] : []),
-      `<td class="gl ${gotP - plan < 0 ? 'neg' : ''}">${
-        signed(gotP - plan)}</td>`,
-      `<td><span class="gapWrap">${
+      // The two columns a reader's eye lands on - ASP and Plan Gross ASP -
+      // are not the two this is the difference of, and nothing on the row
+      // showed the one that is. The cell says the sum it did.
+      `<td class="gl ${gotP - plan < 0 ? 'neg' : ''}" title="${
+        num(gotP)} sold at, less ${num(plan)} - what these ${fmt(r.q)} units `
+      + `were planned to fetch. Not the ${num(r.pq ? r.pa / r.pq : 0)} beside `
+      + 'it, which is the plan over the plan\u2019s own units.">'
+      + `${signed(gotP - plan)}</td>`,
+      `<td title="${signed(gotP - plan)} over the ${num(plan)} these units `
+      + `were planned at"><span class="gapWrap">${
         pct == null ? '' : `<span class="gapBar"><i style="${
           pct >= 0 ? 'left:50%' : 'right:50%'};width:${
           (Math.min(Math.abs(pct), GAP_SPAN) / GAP_SPAN * 50).toFixed(1)
@@ -2602,10 +2609,15 @@ function drawGap(D) {
       + 'button brings the rest back and the total becomes the net.'
     : 'Every model with a line in the plan, so the total is the net of what '
       + 'was given away and what was made back.');
-  gh.push('Plan Gross ASP is the plan’s own amount over its own units. '
-          + 'Diff is taken against something else - the planned price of the '
-          + 'units that actually sold - so it is price and not mix, and '
-          + 'Diff × Qty is the impact exactly.');
+  gh.push('Diff is the ASP less the price these units were planned at - '
+          + 'the plan’s own price, re-weighted onto the units that '
+          + 'actually sold. It is deliberately not the two columns it sits '
+          + 'beside: Plan Gross ASP is the plan over the plan’s own '
+          + 'units, and subtracting that would fold "we sold more of the '
+          + 'cheap one" into a figure headed price. Taken this way Diff is '
+          + 'price and not mix, Diff % is it over that same planned price, '
+          + 'and Diff × Qty is the impact exactly. Hovering a Diff '
+          + 'spells out the subtraction.');
   /* The two exports carry different money, and a per-unit price off one is
      not the per-unit price off the other. The ASP tile above runs on the
      profit export's net sales; this runs on the order export's own value,
