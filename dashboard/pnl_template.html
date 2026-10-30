@@ -439,6 +439,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
        slice's RRP, ASP and discount. -->
   <div class="card" id="priceCard" hidden>
     <div class="kpis" id="priceKpis"></div>
+    <div class="hint" id="priceHint"></div>
   </div>
 
   <!-- The open month, day by day. Its own chart rather than another width of
@@ -4681,6 +4682,20 @@ function priceTiles() {
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div>`
     + (note ? `<div class="n">${note}</div>` : '') + '</div>'
   ).join('');
+  /* Which months, and off which figure. The card sits between one that is
+     headed Oct 2026 and one headed 1 Oct - 28 Oct, and said nothing about
+     its own span: it is the profit exports, which stop where the open month
+     begins, so an ASP here and an ASP on the daily card are two different
+     months and were being read as one. */
+  const ms = DATA.months || [];
+  const span = !ms.length ? ''
+    : ms.length === 1 ? ms[0].label
+    : `${ms[0].label} - ${ms[ms.length - 1].label}`;
+  document.getElementById('priceHint').textContent =
+    `${span}, off the profit exports - not the order month above. ASP is `
+    + `${label('net')} over units, weighted; RRP is the promotion plan's list `
+    + 'price over the same units; the discount is the two divided, over the '
+    + 'units that have a list price.';
 }
 
 /* The plan's list price for one combination in one month, or null.

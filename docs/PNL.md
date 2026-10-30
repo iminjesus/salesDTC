@@ -1390,6 +1390,17 @@ figures the page is read for after the profit itself - and because the chart
 cannot draw them: a price is not an amount, and it would be a flat line along
 the bottom of a bar chart in millions.
 
+**They are the profit exports**, so they cover the closed months - Jan to Sep
+where the page has those nine - and **not** the open month on the daily card
+above. The card says its own span under the tiles, because it sits between one
+headed *Oct 2026* and one headed *1 Oct - 28 Oct* and said nothing about its
+own: an ASP here and an ASP there are two different months, and were being
+read as one.
+
+The weighting is by **units**: `RRP = sum(list price x units) / sum(units)`
+over the slice's combinations, so a price that changed during the year
+averages across the months by how much sold at each.
+
 **The discount is read over the units that have a list price**, which is not
 always all of them: the plan does not price everything. Each tile says what it
 is read over whenever that is not the whole slice, and the discount tile also
