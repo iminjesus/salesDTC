@@ -2649,6 +2649,10 @@ def build_month(folder, target, args):
         # quietly leaves a business out is the one kind of wrong a reader
         # cannot see: it says so under the menu and on the Scope sheet.
         'dropped': dropped,
+        # Whether the credits for goods that came back are in these figures.
+        # It changes every per-unit figure on the page, so the page says which
+        # rather than leaving a reader to remember the flag.
+        'returns': bool(args.returns),
         # By SKU rather than by combination: a list price is a property of the
         # product, and writing it once per product keeps a page over nine
         # months and forty thousand combinations the size it is.

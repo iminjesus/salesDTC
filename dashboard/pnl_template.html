@@ -657,6 +657,9 @@ function unify(months) {
     custDepth: shape.custDepth,
     // What the build left out, said once however many months say it.
     dropped: [...new Set(months.flatMap(m => m.dropped || []))],
+    // Out as soon as any export says so. `some(m => m.returns !== false)`
+    // read true off the day payloads, which carry no such flag at all.
+    returns: !months.some(m => m.returns === false),
     campaignRuns: campRuns,
 
     // The whole page's window, for anything that asks without a view.
@@ -2293,7 +2296,8 @@ function gapJoin(D) {
   const series = k => D.series.findIndex(x => x.key === k);
   const canOrd = series('ogross') >= 0 && series('oqty') >= 0;
   const base = canOrd && state.achBase === 'order' ? 'order' : 'payment';
-  const mi = series(base === 'order' ? 'ogross' : 'gross');
+  const mkey = base === 'order' ? 'ogross' : 'gross';
+  const mi = series(mkey);
   const qi = series(base === 'order' ? 'oqty' : 'qty');
   if (mi < 0 || qi < 0) return null;
   /* The plan is written in AUD and the page may be in USD. Both sides are
@@ -2355,7 +2359,7 @@ function gapJoin(D) {
     idle++;
     idleAmt += (rate === null ? p[4] : p[3] * rate);
   });
-  return { rows, off, idle, idleAmt, base, canOrd, rate,
+  return { rows, off, idle, idleAmt, base, canOrd, rate, mkey,
            repriced: !!(PLAN.repriced) };
 }
 
@@ -2417,7 +2421,13 @@ function drawGap(D) {
   }
   card.hidden = false;
   tops.hidden = false;
-  const { off, idle, idleAmt, base, rate } = got;
+  const { off, idle, idleAmt, base, rate, mkey } = got;
+  // `label` reads the page's payload, which is the months; this card is drawn
+  // on the days, and their money has a name of its own - Order Value, not
+  // Gross Sales. Taking it from the wrong view put the wrong word on the
+  // column a reader compares with the ASP tile.
+  const mname = ((D.series || []).find(x => x.key === mkey) || {}).label
+                || 'Amt';
   // What the slice did, whatever the table is filtered to: the tiles are the
   // month, and the table is the part of it being looked at. Two numbers
   // headed Actual that mean different things would be the worse trade.
@@ -2541,7 +2551,7 @@ function drawGap(D) {
           ${got.repriced ? '<th class="grp gl" colspan="3">Re-priced</th>'
                          : ''}
           <th class="grp gl" colspan="3">Actual vs plan</th></tr>
-      <tr><th class="gl">Qty</th><th>Amt</th><th>Gross ASP</th>
+      <tr><th class="gl">Qty</th><th>${mname}</th><th>ASP</th>
           <th class="gl">Qty</th><th>Amt</th><th>Gross ASP</th>
           ${got.repriced ? '<th class="gl">Price</th><th>Price impact</th>'
                            + '<th>vs plan</th>' : ''}
@@ -2564,6 +2574,16 @@ function drawGap(D) {
           + 'Diff is taken against something else - the planned price of the '
           + 'units that actually sold - so it is price and not mix, and '
           + 'Diff × Qty is the impact exactly.');
+  /* The two exports carry different money, and a per-unit price off one is
+     not the per-unit price off the other. The ASP tile above runs on the
+     profit export's net sales; this runs on the order export's own value,
+     which has had no sales deduction taken off it. Read side by side without
+     that said, the same model looks as though its price jumped. */
+  gh.push(`ASP here is ${mname} over units, off the order export - not `
+          + `${(((VIEWS.month || {}).series || []).find(
+                x => x.key === 'net') || {}).label || 'net sales'}, which is `
+          + 'what the ASP tile above is on. Different columns from different '
+          + 'files, so they are not the same price.');
   if (off.n) {
     gh.push(`${off.n} code${off.n === 1 ? '' : 's'} sold `
             + `${fmt(off.q)} unit${off.q === 1 ? '' : 's'} `
@@ -4695,7 +4715,14 @@ function priceTiles() {
     `${span}, off the profit exports - not the order month above. ASP is `
     + `${label('net')} over units, weighted; RRP is the promotion plan's list `
     + 'price over the same units; the discount is the two divided, over the '
-    + 'units that have a list price.';
+    + 'units that have a list price. '
+    // Returns are in by default and the export's own total carries them, so
+    // the ASP is net of what came back on both sides of the division - which
+    // is the question nobody thinks to ask until the number looks odd.
+    + (DATA.returns === false
+       ? 'Returns are out of these figures (--no-returns).'
+       : 'Returns are in: a credit takes its units and its money back out of '
+         + 'both sides, so this is net of what came back.');
 }
 
 /* The plan's list price for one combination in one month, or null.
@@ -4722,7 +4749,11 @@ function sliceRrp() {
     if (!inSlice(c)) continue;
     const r = rrpAt(c.m, c.k);
     if (r === null) continue;
-    const u = Math.abs(c.v[has.qty]);
+    // Signed, not absolute. Returns are in these figures by default, and a
+    // combination that came out net negative - more sent back than sold, on
+    // that exact key in that month - was adding its units to the weight
+    // while subtracting its money from the price.
+    const u = c.v[has.qty];
     if (!u) continue;
     w += r * u; q += u; net += c.v[has.net];
   }
@@ -4730,7 +4761,7 @@ function sliceRrp() {
   // the slice's own ASP includes whatever the plan never priced, and dividing
   // that by a list price read off the rest is how a book ends up quoting a
   // discount nobody ran.
-  return q ? { rrp: w / q, qty: q, asp: net / q } : null;
+  return q > 0 ? { rrp: w / q, qty: q, asp: net / q } : null;
 }
 
 /* What the sheets hold: the figures behind the chart, the breakdown the table

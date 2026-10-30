@@ -1399,7 +1399,20 @@ read as one.
 
 The weighting is by **units**: `RRP = sum(list price x units) / sum(units)`
 over the slice's combinations, so a price that changed during the year
-averages across the months by how much sold at each.
+averages across the months by how much sold at each. Signed units, not
+absolute: returns are in these figures by default, and a combination that came
+out net negative was adding its units to the weight while subtracting its
+money from the price.
+
+**Returns are in**, which the card says. A credit takes its units and its
+money back out of both sides of the division, so the ASP is net of what came
+back; `--no-returns` takes them out and the card says that instead.
+
+**It is not the ASP on the card below.** That one is the order export's own
+money - `Order Value` - over the order export's units, and this one is the
+profit export's `Net Sales`. Different columns from different files, over
+different months, so the same model reads at two prices and neither is wrong.
+The card below names its own column in the header and says so in the hint.
 
 **The discount is read over the units that have a list price**, which is not
 always all of them: the plan does not price everything. Each tile says what it
