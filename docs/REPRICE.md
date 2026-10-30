@@ -51,26 +51,31 @@ Two deliberate limits:
   forecast, and inventing one would bury a price estimate inside a demand
   estimate.
 
-## The page
+## Where it shows
 
-`REPRICE_<MONTH>.html` puts the two prices on the month that actually
-happened:
+On the P&L page's **Actual vs plan price** card, as a third column group
+beside the plan's own. Every figure already on that card stays exactly as it
+was - the actuals, the GSCM plan, the diff and the price impact - and the
+re-price is added next to them:
 
-```
-as planned   actual amount - GSCM price x units sold
-re-priced    actual amount - re-priced  x units sold
-```
+| column | what it is |
+| --- | --- |
+| Price | the re-priced price over the units actually sold |
+| Price impact | actual amount less re-priced price x units |
+| Better by | what the re-price would have taken off the gap |
 
-Same units, same materials, same months. The only thing that moves is the
-price the month is measured against, so the difference between the two is
-what a better forecast would have been worth.
+A fourth tile carries the same pair: the negative price impact under the
+re-price, and how much better that is than the plan's.
 
-Three tiles - the negative price impact as planned, the same re-priced, and
-the difference - then the division tree and the materials where the re-price
-is worth the most. A division's price is its materials' prices over the units
-**actually sold**, so both impacts are on the same mix and differ only by the
-price.
+Same units, same materials, same month, same Order/Payment base, same
+currency. The only thing that moves is the price the month is measured
+against, so the difference between the two impacts is exactly what a better
+forecast would have been worth - and the card's own numbers never move.
 
-Actuals are the **order base**: every line placed in the month, rejections
-out, returns and credits out. Nothing here changes what was sold - it is a
-measurement of the plan, not of the month.
+It rides on the existing card rather than a page of its own on purpose. A
+second page would have had to pick its own basis for the actuals, and two
+pages quoting two different totals for the same question is worse than no
+second page at all.
+
+`--no-reprice` leaves it off; it reads six months of order exports, which is
+most of what it costs. `--reprice-back N` changes how far back it looks.

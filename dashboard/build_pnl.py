@@ -35,6 +35,7 @@ import promo_match as PM                                       # noqa: E402
 import lead_time as LT                                        # noqa: E402
 import sap as SAP                                              # noqa: E402
 import plan_price as PP                                        # noqa: E402
+import reprice as RP                                           # noqa: E402
 import target as TGT                                           # noqa: E402
 from rawdata import (MASTER_RAW as RAW, find, is_return,        # noqa: E402
                      key_norm, master,
@@ -1346,6 +1347,12 @@ def main() -> int:
                          'promotion plan and is a different file')
     ap.add_argument('--no-gscm', action='store_true',
                     help='leave the planned-price tables off the page')
+    ap.add_argument('--no-reprice', action='store_true',
+                    help="leave the re-priced column off the planned-price "
+                         'card. It reads six months of order exports, which '
+                         'is most of what it costs')
+    ap.add_argument('--reprice-back', type=int, default=6, metavar='N',
+                    help='months of history behind the re-price (default 6)')
     ap.add_argument('--no-orders', action='store_true',
                     help='draw sales only, even when an order export is there')
     ap.add_argument('--shipped', metavar='LIST',
@@ -1544,6 +1551,29 @@ def main() -> int:
                          'tables would be empty'))
                 if not hit:
                     plan = None
+                # And what the month could have been planned at instead: the
+                # list price in the promotion plan, discounted by what the
+                # same campaign has been selling at. It rides in beside the
+                # GSCM price so the card can draw both against one set of
+                # actuals - same units, same materials, only the price moves.
+                if plan is not None and not args.no_reprice:
+                    print('\nre-pricing it off the months behind it:')
+                    try:
+                        rp = RP.reprice(folder, want, args.reprice_back,
+                                        args.plan)
+                    except SystemExit as e:
+                        print(f'  {e} - no re-price on the card')
+                        rp = {}
+                    for code, v in rp.items():
+                        it = plan['items'].get(code)
+                        if not it:
+                            continue
+                        # In USD at the sheet's own rate, for a page with no
+                        # rate of its own for the month.
+                        share = (it[1] / it[0]) if it[0] else 0.0
+                        it.append(round(v['price'], 2))
+                        it.append(round(v['price'] * share, 2))
+                    plan['repriced'] = bool(rp)
     html = template.replace('/*__DATA__*/null',
                             json.dumps({'months': months, 'days': days,
                                         'target': target, 'plan': plan,
