@@ -318,9 +318,14 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print) -> dict:
         price, kind, rrp, promo, where = price_for(
             code, plan, canon, hist, levels, days, it['aud'])
         how[kind] += 1
+        # What it has actually been going out at over those months, on the
+        # order export's own money - the one figure that answers "has this
+        # model's price moved" without crossing files to do it.
+        was = hist.asp(PM.code_norm(code))
         out[code] = {
             'gscm': it['aud'], 'price': round(price, 2), 'how': kind,
             'rrp': rrp, 'promo_days': round(promo, 3), 'qty': it['qty'],
+            'asp6': None if was is None else round(was, 2),
             'why': '; '.join(where),
             'chain': it['chain'],
         }

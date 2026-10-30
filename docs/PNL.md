@@ -1390,12 +1390,21 @@ figures the page is read for after the profit itself - and because the chart
 cannot draw them: a price is not an amount, and it would be a flat line along
 the bottom of a bar chart in millions.
 
-**They are the profit exports**, so they cover the closed months - Jan to Sep
-where the page has those nine - and **not** the open month on the daily card
-above. The card says its own span under the tiles, because it sits between one
-headed *Oct 2026* and one headed *1 Oct - 28 Oct* and said nothing about its
-own: an ASP here and an ASP there are two different months, and were being
-read as one.
+**Which export** is a switch on the card, and the card says which it is on:
+
+- **Orders** (the default where there is an open month) - the order export's
+  own money, `Order Value`, over its own units, for the month the daily chart
+  draws. The same file the achievement table and the planned-price card are
+  read from, so an ASP here and an ASP there are the same kind of number.
+- **P&L** - the profit export's `Net Sales` over its units, for the closed
+  months. The one that ties to the statement above, and the one to use when
+  the question is about margin rather than about price.
+
+They are not interchangeable: `Net Sales` has had the sales deduction taken
+out of it and `Order Value` has not, so the same model reads perhaps fifteen
+per cent higher on Orders. The card used to be on P&L with nothing saying so,
+sitting between a card headed *Oct 2026* and one headed *1 Oct - 28 Oct*, and
+the difference read as a price that had jumped.
 
 The weighting is by **units**: `RRP = sum(list price x units) / sum(units)`
 over the slice's combinations, so a price that changed during the year

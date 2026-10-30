@@ -816,6 +816,15 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     # and the same dictionary on all thirty-one would count every campaign day
     # thirty-one times over.
     if out:
+        # The list price for the open month, on the first day only: it is one
+        # map for the month and writing it on all thirty-one would carry the
+        # same few thousand prices thirty-one times over. The page reads it
+        # across the view, so the price tiles can run on the orders - the same
+        # export everything else about this month is read from.
+        if _plan is not None:
+            skus = next((lv['values'] for lv in out[0].get('levels', [])
+                         if lv['name'] == 'SKU'), [])
+            out[0]['rrp'] = rrp_by_sku(_plan, skus, want, say=lambda *a: None)
         # What this chart does not count, and whose it was. The order export
         # is the store's own orders; a marketplace line carries someone else's
         # reference and is dropped before anything is totalled. Narrow to a
@@ -1573,6 +1582,11 @@ def main() -> int:
                         share = (it[1] / it[0]) if it[0] else 0.0
                         it.append(round(v['price'], 2))
                         it.append(round(v['price'] * share, 2))
+                        # And what it has been selling at, same money, same
+                        # export, the months before this one.
+                        a6 = v.get('asp6')
+                        it.append(0 if a6 is None else a6)
+                        it.append(0 if a6 is None else round(a6 * share, 2))
                     plan['repriced'] = bool(rp)
     html = template.replace('/*__DATA__*/null',
                             json.dumps({'months': months, 'days': days,
