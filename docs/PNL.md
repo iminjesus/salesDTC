@@ -991,9 +991,16 @@ three grouped headings:
 
 | group | columns |
 | --- | --- |
-| Actual | Qty, Amt, Gross ASP |
-| Plan (GSCM) | Qty, Amt, Gross ASP |
+| Actual | Qty, Order Value, ASP |
+| Plan (GSCM) | Gross ASP, Qty, Amt |
 | Actual vs plan | Diff, Diff %, Price impact |
+
+Everything on both sides is the order export, `orders_26XX`: **Order Value**
+is its `Net Value (Item)` column and **ASP** is that over the units. The ASP
+tile further up the page is on the profit export's net sales instead, which
+is the same month after its sales deduction - about 15% lower - so the two
+are not the same price and the card says so rather than letting them be read
+side by side.
 
 A row only expands where there is a real step under it: `MX / MX / MX` in the
 product master is one row, not three, because a level that repeats the one
@@ -1001,25 +1008,29 @@ above it is a spelling and not a division. The chain comes from the page's own
 product master, not from the GSCM sheet - the sheet's `Biz / DIV 1 / DIV 2`
 are read but only ever used to name a planned code that never sold.
 
-**Diff is not the difference between the two columns it sits beside:**
+**The three figures on the right**, each against the two columns beside them:
 
 ```
-Diff = ASP  -  the price these units were planned at
+Diff          = ASP  -  the plan's Gross ASP
+Diff %        = Diff  /  the plan's Gross ASP
+Price impact  = Diff  x  the units actually sold
 ```
 
-That second figure is **not on the row** - it is the plan's own price
-re-weighted onto the units that actually sold - which is why hovering a Diff
-spells the subtraction out and names it. On one slice of the fixture, `ASP`
-reads 737 and `Plan Gross ASP` 800 while Diff reads -67, because the planned
-price of *those particular* units is 804.
+**Gross ASP** is the GSCM price as entered, over the plan's own quantities. On
+a model that is the number typed into the sheet, undivided; on a group it is
+the plan's own average. So the two sides of a group are weighted by different
+quantities - the actual's by what sold, the plan's by what was meant to sell -
+and a group's Diff carries its mix as well as its price. That is the cost of
+`Diff` meaning the subtraction a reader can see on the row, and it is the
+trade the spec asks for.
 
-**Plan Gross ASP** is the plan's own amount over its own units: what the month
-would have averaged had it gone to plan. Subtracting that instead would fold
-*we sold more of the cheap one* into a figure headed price, so the column is
-price and not mix. The plan's own mix would fold *we sold more of the cheap
-one* into a figure headed price and send a reader looking for a discount
-nobody gave. Built this way, `Diff x Qty` is the impact exactly, and the model
-rows add up to the category they sit in.
+**Price impact is summed from the models**, not worked out again from the
+group's two averages. A category that did not equal the sum of the models
+under it would read as a broken table whatever the weighting behind it, so the
+column adds up all the way to the total - and the consequence is that
+`Diff x Qty` reproduces the impact on a model row and not above one. The tile,
+the card's heading and the Total row are all that same sum, so the four cannot
+disagree about the month.
 
 **Negative only** is on by default: the table is pulled up to find what is
 being given away, and every row is then a number to act on. Off, it is every
@@ -1028,9 +1039,9 @@ model with a line in the plan and the total is the net.
 **Re-priced**, where `tools/reprice.py` has run, is a third column group
 between the plan and the difference: the price the month could have been
 planned at - the promotion plan's list price, discounted by what the same
-campaign had been selling at over the six months behind it - with its own
-price impact and how that compares with the plan's. A fourth tile carries the
-same pair.
+campaign had been selling at over the six months behind it - shown as
+**Price**, what it is **vs Actual** (the price actually got, less it) and what
+it is **vs Plan (GSCM)**. A fourth tile carries its own impact.
 
 It is **not** assumed to be the better reading. The column is green where it
 closes the gap and red where it widens it, because which of those happened is

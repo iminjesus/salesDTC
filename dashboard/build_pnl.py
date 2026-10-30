@@ -1582,11 +1582,6 @@ def main() -> int:
                         share = (it[1] / it[0]) if it[0] else 0.0
                         it.append(round(v['price'], 2))
                         it.append(round(v['price'] * share, 2))
-                        # And what it has been selling at, same money, same
-                        # export, the months before this one.
-                        a6 = v.get('asp6')
-                        it.append(0 if a6 is None else a6)
-                        it.append(0 if a6 is None else round(a6 * share, 2))
                     plan['repriced'] = bool(rp)
     html = template.replace('/*__DATA__*/null',
                             json.dumps({'months': months, 'days': days,

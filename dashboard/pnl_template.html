@@ -332,10 +332,6 @@ body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
    and a column that is green either way would answer its own question. */
 #gapBox td.up { color: var(--c-profit); font-weight: 600; }
 #gapBox td.up.neg { color: var(--neg); }
-/* A per-unit figure read over fewer units than the row's own: marked, because
-   a price beside a price is taken as the same basis unless it says otherwise. */
-#gapBox td.part { color: var(--ink-3); }
-#gapBox td.part::after { content: "*"; }
 /* The division a material sits in is a name, not a figure. */
 #gapTopBox th:nth-child(2), #gapTopBox td:nth-child(2) { text-align: left; }
 /* The campaign's own days, over the page. A sheet rather than another card:
@@ -2356,21 +2352,21 @@ function gapJoin(D) {
        impacts is exactly what a better forecast was worth. */
     const rep = (p.length > 5 ? (rate === null ? p[6] : p[5] * rate) : 0)
                 || plan;
-    // What it has been going out at over the months behind this one, on this
-    // same export and this same money column. The one figure that answers
-    // "has this model's price moved" without crossing files to do it.
-    const was = p.length > 7 ? (rate === null ? p[8] : p[7] * rate) : 0;
+
     // The plan's own side: how many it expected to sell and for how much. Not
     // what the gap is taken against - that is the planned price of the units
     // that did sell - but the context for it, and the only place the table
     // says we planned 1,743 of these and sold 77.
     const pq = p[2] || 0;
     const pa = (rate === null ? p[4] : p[3] * rate) || 0;
+    // `ppv` is the plan's own price over the plan's own units, so a
+    // material's Gross ASP is the number the sheet carries rather than an
+    // amount divided by a quantity and rounded on the way.
+    const d = plan ? o.a / o.q - plan : 0;
     rows.push({ code: o.code, chain: o.chain, q: o.q, a: o.a, plan, rep,
-                was, wq: was ? o.q : 0, wv: was * o.q,
-                pq, pa, pv: plan * o.q, rv: rep * o.q, got: o.a / o.q,
-                gap: o.a / o.q - plan, impact: o.a - plan * o.q,
-                repImpact: o.a - rep * o.q });
+                pq, pa, ppv: plan * pq, pv: plan * o.q, rv: rep * o.q,
+                got: o.a / o.q, gap: d, impact: d * o.q,
+                repImpact: (rep ? o.a / o.q - rep : 0) * o.q });
   });
   // Planned and not sold: real plan, no price to compare, and it belongs in
   // the note rather than silently nowhere.
@@ -2382,8 +2378,7 @@ function gapJoin(D) {
     idleAmt += (rate === null ? p[4] : p[3] * rate);
   });
   return { rows, off, idle, idleAmt, base, canOrd, rate, mkey,
-           repriced: !!(PLAN.repriced),
-           sixer: rows.some(r => r.wq) };
+           repriced: !!(PLAN.repriced) };
 }
 
 /* The same tree the achievement table draws, over the gap instead of the
@@ -2392,13 +2387,16 @@ function gapJoin(D) {
    key names reads worse than the forty lines it saves. */
 function gapTree(rows) {
   const blank = () => ({ kids: new Map(), q: 0, a: 0, pq: 0, pa: 0, pv: 0,
-                         rv: 0, wq: 0, wv: 0 });
+                         ppv: 0, rv: 0, imp: 0 });
   const root = blank();
   for (const r of rows) {
     let node = root;
+    // `imp` is carried, not recomputed: Diff x Qty is the material's, and a
+    // category that did not equal the sum of the models under it would read
+    // as a broken table however defensible the weighting behind it.
     const add = n => { n.q += r.q; n.a += r.a; n.pq += r.pq; n.pa += r.pa;
-                       n.pv += r.pv; n.rv += r.rv; n.wq += r.wq;
-                       n.wv += r.wv; };
+                       n.pv += r.pv; n.ppv += r.ppv; n.rv += r.rv;
+                       n.imp += r.impact; };
     add(node);
     for (const name of r.chain) {
       let k = node.kids.get(name);
@@ -2412,7 +2410,7 @@ function gapTree(rows) {
   const list = [];
   const walk = (node, depth, above, path) => {
     const kids = [...node.kids.values()]
-      .sort((a, b) => (a.a - a.pv) - (b.a - b.pv));
+      .sort((a, b) => a.imp - b.imp);
     for (const k of kids) {
       // A level repeating the one above it is not a step - MX under MX under
       // MX is one row, not three.
@@ -2426,8 +2424,8 @@ function gapTree(rows) {
       const has = under.kids.size > 0;
       const up = has && open(key, depth);
       list.push({ name: k.name, depth, key, kids: has, open: up,
-                  q: k.q, a: k.a, pq: k.pq, pa: k.pa, pv: k.pv, rv: k.rv,
-                  wq: k.wq, wv: k.wv });
+                  q: k.q, a: k.a, pq: k.pq, pa: k.pa, pv: k.pv,
+                  ppv: k.ppv, rv: k.rv, imp: k.imp });
       if (up) walk(k, depth + 1, k.name, key);
     }
   };
@@ -2458,12 +2456,12 @@ function drawGap(D) {
   // headed Actual that mean different things would be the worse trade.
   const whole = got.rows.reduce((t, r) => {
     t.q += r.q; t.a += r.a; t.pq += r.pq; t.pa += r.pa; t.pv += r.pv;
-    t.rv += r.rv;
+    t.rv += r.rv; t.ppv += r.ppv; t.imp += r.impact;
     if (r.impact < 0) { t.down += r.impact; t.n++; }
     if (r.repImpact < 0) { t.rdown += r.repImpact; t.rn++; }
     return t;
-  }, { q: 0, a: 0, pq: 0, pa: 0, pv: 0, rv: 0, down: 0, n: 0,
-       rdown: 0, rn: 0 });
+  }, { q: 0, a: 0, pq: 0, pa: 0, pv: 0, ppv: 0, rv: 0, imp: 0,
+       down: 0, n: 0, rdown: 0, rn: 0 });
 
   const onlyDown = state.gapNeg;
   const rows = onlyDown ? got.rows.filter(r => r.impact < 0) : got.rows;
@@ -2488,7 +2486,7 @@ function drawGap(D) {
   document.getElementById('gapKpis').innerHTML = [
     ['Negative price impact', '△' + k$(-whole.down), 'neg',
      `${whole.n} model${whole.n === 1 ? '' : 's'} sold under plan`
-     + `  ·  net ${signed(whole.a - whole.pv)}`],
+     + `  ·  net ${signed(whole.imp)}`],
     ['Actual amt', k$(whole.a) + (CUR === 'USD' ? '$' : ''), '',
      done === null ? `${fmt(whole.a)} ${CUR}`
      : `<span class="pbar"><i style="width:${
@@ -2516,51 +2514,60 @@ function drawGap(D) {
 
   // ── the table ──────────────────────────────────────────────────────────
   const cell = r => {
-    // The planned price of the units that actually sold, which is what makes
-    // the gap price and not mix. Plan Amt over plan Qty sits two columns to
-    // the left and is a different question, answered there.
-    const plan = r.q ? r.pv / r.q : 0;
+    /* Every figure on this row is per the spec on the card: the actual side
+       is the order export, the plan side is the GSCM sheet as entered, and
+       the difference is the one against the other.
+
+         Diff         = actual price - the plan's own Gross ASP
+         Diff %       = that over the plan's own Gross ASP
+         Price impact = Diff x the units actually sold
+
+       The plan's Gross ASP is the price the sheet carries, weighted by the
+       plan's own quantities - so on a material it is the number typed into
+       the sheet, unrounded by any division. On a group the two sides are
+       then weighted by different quantities, so its Diff carries its mix as
+       well as its price; Price impact is summed from the materials rather
+       than worked out again from the group's two averages, so the column
+       adds up down the tree and Diff x Qty will not reproduce it above
+       material level. */
+    const planP = r.pq ? r.ppv / r.pq : 0;
     const gotP = r.q ? r.a / r.q : 0;
-    const pct = plan ? (gotP / plan - 1) * 100 : null;
-    const impact = r.a - r.pv;
+    const diff = planP ? gotP - planP : null;
+    const pct = planP ? (gotP / planP - 1) * 100 : null;
+    const impact = r.imp !== undefined ? r.imp
+                   : diff === null ? 0 : diff * r.q;
+    const repP = r.q ? r.rv / r.q : 0;
     return [
       `<td class="gl">${fmt(r.q)}</td>`,
       `<td>${fmt(r.a)}</td>`,
       `<td>${num(gotP)}</td>`,
-      ...(got.sixer ? [`<td${r.wq && r.wq < r.q * 0.995
-          ? ` class="part" title="over ${fmt(r.wq)} of ${fmt(r.q)} units - `
-            + 'the rest have no history to read a price from"' : ''}>${
-          r.wq ? num(r.wv / r.wq) : '-'}</td>`] : []),
-      `<td class="gl">${fmt(r.pq)}</td>`,
+      `<td class="gl">${planP ? num(planP) : '-'}</td>`,
+      `<td>${fmt(r.pq)}</td>`,
       `<td>${fmt(r.pa)}</td>`,
-      `<td>${r.pq ? num(r.pa / r.pq) : '-'}</td>`,
       ...(got.repriced ? [
-        `<td class="gl">${r.q ? num(r.rv / r.q) : '-'}</td>`,
-        `<td class="${r.a - r.rv < 0 ? 'neg' : ''}">${
-          signed(r.a - r.rv)}</td>`,
-        // Not "better by": the re-price is a different reading, not a
-        // better one by construction, and a column painted green whichever
-        // way it came out would be answering its own question.
-        `<td class="up${(r.pv - r.rv) < 0 ? ' neg' : ''}">${
-          signed(r.pv - r.rv)}</td>`,
+        `<td class="gl">${repP ? num(repP) : '-'}</td>`,
+        // Against what was actually collected, and against what was planned.
+        // Neither is painted as an improvement: which way they came out is
+        // the finding.
+        `<td class="up${gotP - repP < 0 ? ' neg' : ''}">${
+          repP ? signed(gotP - repP) : '-'}</td>`,
+        `<td class="up${repP - planP < 0 ? ' neg' : ''}">${
+          repP && planP ? signed(repP - planP) : '-'}</td>`,
       ] : []),
-      // The two columns a reader's eye lands on - ASP and Plan Gross ASP -
-      // are not the two this is the difference of, and nothing on the row
-      // showed the one that is. The cell says the sum it did.
-      `<td class="gl ${gotP - plan < 0 ? 'neg' : ''}" title="${
-        num(gotP)} sold at, less ${num(plan)} - what these ${fmt(r.q)} units `
-      + `were planned to fetch. Not the ${num(r.pq ? r.pa / r.pq : 0)} beside `
-      + 'it, which is the plan over the plan\u2019s own units.">'
-      + `${signed(gotP - plan)}</td>`,
-      `<td title="${signed(gotP - plan)} over the ${num(plan)} these units `
-      + `were planned at"><span class="gapWrap">${
+      `<td class="gl ${diff !== null && diff < 0 ? 'neg' : ''}" title="${
+        num(gotP)} sold at, less the plan\u2019s ${num(planP)}">${
+        diff === null ? '-' : signed(diff)}</td>`,
+      `<td title="${diff === null ? '' : signed(diff)} over ${num(planP)}">`
+      + `<span class="gapWrap">${
         pct == null ? '' : `<span class="gapBar"><i style="${
           pct >= 0 ? 'left:50%' : 'right:50%'};width:${
           (Math.min(Math.abs(pct), GAP_SPAN) / GAP_SPAN * 50).toFixed(1)
         }%;background:${hue(pct)}"></i></span>`
       }<span class="gapNum" style="color:${hue(pct)}">${pc(pct)}</span>`
       + '</span></td>',
-      `<td class="${impact < 0 ? 'neg' : ''}">${signed(impact)}</td>`,
+      `<td class="${impact < 0 ? 'neg' : ''}" title="${
+        diff === null ? '' : signed(diff)} \u00d7 ${fmt(r.q)} units">${
+        signed(impact)}</td>`,
     ].join('');
   };
   const line = r => `<td class="tree d${r.depth}"${
@@ -2569,12 +2576,16 @@ function drawGap(D) {
     r.kids === undefined ? '' : r.kids ? (r.open ? '▾' : '▸') : ''
   }</span>${r.name}</td>` + cell(r);
 
-  const totPct = root.pv ? (root.a / root.pv - 1) * 100 : null;
+  // The same arithmetic the Total row prints, off the same two numbers, so
+  // the heading and the row under it cannot disagree about the month.
+  const tPlan = root.pq ? root.ppv / root.pq : 0;
+  const tAsp = root.q ? root.a / root.q : 0;
+  const totPct = tPlan ? (tAsp / tPlan - 1) * 100 : null;
   document.getElementById('gapTitle').textContent =
     `Actual vs plan price  ·  ${MON[PLAN.ym % 100]} `
     + `${Math.floor(PLAN.ym / 100)}  ·  `
     + `${base === 'order' ? 'ordered' : 'payable'}  ·  ${CUR}  ·  `
-    + `${signed(root.a - root.pv)} (${pc(totPct)}) on ${fmt(root.q)} units`;
+    + `${signed(root.imp)} (${pc(totPct)}) on ${fmt(root.q)} units`;
   document.getElementById('gapAll').classList.toggle('active', state.gapAll);
   document.getElementById('gapAll').textContent =
     state.gapAll ? 'Collapse' : 'Expand all';
@@ -2582,25 +2593,23 @@ function drawGap(D) {
   document.getElementById('gapBox').innerHTML = `<table>
     <thead>
       <tr><th rowspan="2">Product</th>
-          <th class="grp gl" colspan="${got.sixer ? 4 : 3}">Actual</th>
+          <th class="grp gl" colspan="3">Actual</th>
           <th class="grp gl" colspan="3">Plan (GSCM)</th>
           ${got.repriced ? '<th class="grp gl" colspan="3">Re-priced</th>'
                          : ''}
           <th class="grp gl" colspan="3">Actual vs plan</th></tr>
       <tr><th class="gl">Qty</th><th>${mname}</th><th>ASP</th>
-          ${got.sixer ? '<th title="the same money, the same export, the '
-            + 'months before this one">ASP before</th>' : ''}
-          <th class="gl">Qty</th><th>Amt</th><th>Gross ASP</th>
-          ${got.repriced ? '<th class="gl">Price</th><th>Price impact</th>'
-                           + '<th>vs plan</th>' : ''}
+          <th class="gl">Gross ASP</th><th>Qty</th><th>Amt</th>
+          ${got.repriced ? '<th class="gl">Price</th><th>vs Actual</th>'
+                           + '<th>vs Plan</th>' : ''}
           <th class="gl">Diff</th><th>Diff %</th><th>Price impact</th></tr>
     </thead>
     <tbody>${list.map(r => `<tr class="d${r.depth}">${line(r)}</tr>`)
                  .join('')}</tbody>
     <tfoot><tr>${line({ name: 'Total', depth: 0, q: root.q, a: root.a,
-                        pq: root.pq, pa: root.pa, rv: root.rv,
-                        wq: root.wq, wv: root.wv,
-                        pv: root.pv })}</tr></tfoot></table>`;
+                        pq: root.pq, pa: root.pa, ppv: root.ppv,
+                        rv: root.rv, pv: root.pv,
+                        imp: root.imp })}</tr></tfoot></table>`;
 
   const gh = [];
   gh.push(onlyDown
@@ -2609,32 +2618,20 @@ function drawGap(D) {
       + 'button brings the rest back and the total becomes the net.'
     : 'Every model with a line in the plan, so the total is the net of what '
       + 'was given away and what was made back.');
-  gh.push('Diff is the ASP less the price these units were planned at - '
-          + 'the plan’s own price, re-weighted onto the units that '
-          + 'actually sold. It is deliberately not the two columns it sits '
-          + 'beside: Plan Gross ASP is the plan over the plan’s own '
-          + 'units, and subtracting that would fold "we sold more of the '
-          + 'cheap one" into a figure headed price. Taken this way Diff is '
-          + 'price and not mix, Diff % is it over that same planned price, '
-          + 'and Diff × Qty is the impact exactly. Hovering a Diff '
-          + 'spells out the subtraction.');
+  gh.push('Diff is the ASP less the plan’s Gross ASP, Diff % is that '
+          + 'over the same Gross ASP, and Price impact is Diff × the '
+          + 'units actually sold. Gross ASP is the price the GSCM sheet '
+          + 'carries, over the plan’s own quantities - on a model it is '
+          + 'the number as typed. A group’s two sides are then weighted '
+          + 'by different quantities, so its Diff carries the mix as well as '
+          + 'the price; its Price impact is summed from the models under it, '
+          + 'so the column adds up and Diff × Qty will not reproduce it '
+          + 'above model level.');
   /* The two exports carry different money, and a per-unit price off one is
      not the per-unit price off the other. The ASP tile above runs on the
      profit export's net sales; this runs on the order export's own value,
      which has had no sales deduction taken off it. Read side by side without
      that said, the same model looks as though its price jumped. */
-  if (got.sixer) {
-    const wq = got.rows.reduce((a, r) => a + r.wq, 0);
-    const q = got.rows.reduce((a, r) => a + r.q, 0);
-    gh.push('ASP before is the same money over the same export for the '
-            + 'months behind this one, so the two sit on one basis: that '
-            + 'pair, and not the tile above, is where a price that moved '
-            + 'shows up.'
-            + (q && wq < q * 0.995
-               ? ` It is over the ${fmt(wq)} of ${fmt(q)} units whose model `
-                 + 'sold enough back then to read a price from, marked where '
-                 + 'that is not all of them.' : ''));
-  }
   gh.push(`ASP here is ${mname} over units, off the order export - not `
           + `${(((VIEWS.month || {}).series || []).find(
                 x => x.key === 'net') || {}).label || 'net sales'}, which is `
