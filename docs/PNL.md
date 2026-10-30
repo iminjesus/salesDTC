@@ -1013,6 +1013,20 @@ rows add up to the category they sit in.
 being given away, and every row is then a number to act on. Off, it is every
 model with a line in the plan and the total is the net.
 
+**Re-priced**, where `tools/reprice.py` has run, is a third column group
+between the plan and the difference: the price the month could have been
+planned at - the promotion plan's list price, discounted by what the same
+campaign had been selling at over the six months behind it - with its own
+price impact and how that compares with the plan's. A fourth tile carries the
+same pair.
+
+It is **not** assumed to be the better reading. The column is green where it
+closes the gap and red where it widens it, because which of those happened is
+the finding; a column painted green either way would be answering its own
+question. Every other figure on the card is untouched - same units, same
+materials, same basis - so only the price being measured against moves.
+`docs/REPRICE.md` has the method, and `--no-reprice` leaves it off.
+
 **The two lists** are the Top 10 models of the two businesses giving the most
 away - CE and MX on the real plan. Side by side rather than one list of twenty,
 because a single ranking reads as a league table and MX against CE is not a

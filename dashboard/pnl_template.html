@@ -327,9 +327,11 @@ body.zoomed > .wrap > *:not(.card.zoom) { display: none; }
   min-width: 50px; }
 #gapTopBox td.code { font-family: ui-monospace, SFMono-Regular,
   Menlo, monospace; font-size: 12px; }
-/* What the re-price would have taken off the gap: always an improvement to
-   look for, so it is the one column that is green rather than red. */
+/* The re-price against the plan. Green where it closes the gap, red where
+   it widens it - the point of running another logic is to find out which,
+   and a column that is green either way would answer its own question. */
 #gapBox td.up { color: var(--c-profit); font-weight: 600; }
+#gapBox td.up.neg { color: var(--neg); }
 /* The division a material sits in is a name, not a figure. */
 #gapTopBox th:nth-child(2), #gapTopBox td:nth-child(2) { text-align: left; }
 /* The campaign's own days, over the page. A sheet rather than another card:
@@ -2464,10 +2466,13 @@ function drawGap(D) {
     // held to - so the difference is what the forecast was worth.
     ...(got.repriced ? [['Re-priced', '\u25b3' + k$(-whole.rdown), 'neg',
       `${whole.rn} model${whole.rn === 1 ? '' : 's'} under the re-price`
-      // Both are negative, so the improvement is the smaller hole less the
-      // bigger one: a positive number means less was given away.
-      + `  \u00b7  <b style="color:var(--c-profit)">${
-          signed(whole.rdown - whole.down)}</b> better`]] : []),
+      // Both are negative, so this is the smaller hole less the bigger: a
+      // positive number means less was given away. It is stated either way -
+      // the re-price is another reading of the month, and whether it is a
+      // closer one is the finding, not the premise.
+      + `  \u00b7  <b style="color:var(--${
+          whole.rdown - whole.down < 0 ? 'neg' : 'c-profit'})">${
+          signed(whole.rdown - whole.down)}</b> vs the plan`]] : []),
   ].map(([k, v, cls, note]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div>`
     + (note ? `<div class="n">${note}</div>` : '') + '</div>'
@@ -2493,7 +2498,11 @@ function drawGap(D) {
         `<td class="gl">${r.q ? num(r.rv / r.q) : '-'}</td>`,
         `<td class="${r.a - r.rv < 0 ? 'neg' : ''}">${
           signed(r.a - r.rv)}</td>`,
-        `<td class="up">${signed((r.a - r.rv) - (r.a - r.pv))}</td>`,
+        // Not "better by": the re-price is a different reading, not a
+        // better one by construction, and a column painted green whichever
+        // way it came out would be answering its own question.
+        `<td class="up${(r.pv - r.rv) < 0 ? ' neg' : ''}">${
+          signed(r.pv - r.rv)}</td>`,
       ] : []),
       `<td class="gl ${gotP - plan < 0 ? 'neg' : ''}">${
         signed(gotP - plan)}</td>`,
@@ -2534,7 +2543,7 @@ function drawGap(D) {
       <tr><th class="gl">Qty</th><th>Amt</th><th>Gross ASP</th>
           <th class="gl">Qty</th><th>Amt</th><th>Gross ASP</th>
           ${got.repriced ? '<th class="gl">Price</th><th>Price impact</th>'
-                           + '<th>Better by</th>' : ''}
+                           + '<th>vs plan</th>' : ''}
           <th class="gl">Diff</th><th>Diff %</th><th>Price impact</th></tr>
     </thead>
     <tbody>${list.map(r => `<tr class="d${r.depth}">${line(r)}</tr>`)

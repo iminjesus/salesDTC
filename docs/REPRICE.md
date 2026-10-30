@@ -65,7 +65,13 @@ re-price is added next to them:
 | Better by | what the re-price would have taken off the gap |
 
 A fourth tile carries the same pair: the negative price impact under the
-re-price, and how much better that is than the plan's.
+re-price, and how it compares with the plan's.
+
+**Nothing here assumes the re-price is the better number.** It is another
+logic run over the same month, and whether it lands closer is the point of
+running it. The comparison column is green where the gap closes and red where
+it widens, and if this logic reads worse than the GSCM plan then that is the
+answer and the plan keeps its number.
 
 Same units, same materials, same month, same Order/Payment base, same
 currency. The only thing that moves is the price the month is measured
