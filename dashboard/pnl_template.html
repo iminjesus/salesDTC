@@ -2459,10 +2459,13 @@ function drawGap(D) {
     t.rv += r.rv; t.ppv += r.ppv; t.imp += r.impact;
     t.rimp += r.repImpact;
     if (r.impact < 0) { t.down += r.impact; t.n++; }
+    else if (r.impact > 0) { t.up += r.impact; t.nu++; }
     if (r.repImpact < 0) { t.rdown += r.repImpact; t.rn++; }
+    else if (r.repImpact > 0) { t.rup += r.repImpact; t.rnu++; }
     return t;
   }, { q: 0, a: 0, pq: 0, pa: 0, pv: 0, ppv: 0, rv: 0, imp: 0, rimp: 0,
-       down: 0, n: 0, rdown: 0, rn: 0 });
+       down: 0, n: 0, up: 0, nu: 0,
+       rdown: 0, rn: 0, rup: 0, rnu: 0 });
 
   const onlyDown = state.gapNeg;
   const rows = onlyDown ? got.rows.filter(r => r.impact < 0) : got.rows;
@@ -2484,16 +2487,39 @@ function drawGap(D) {
 
   // ── the tiles ──────────────────────────────────────────────────────────
   const done = whole.pa ? (whole.a / whole.pa) * 100 : null;
+  // Three figures, not one: what was sold under the planned price, what was
+  // sold over it, and the net of the two. The net alone hides a month that
+  // gave 30K away and won 29K back on other models - two very different
+  // conversations with the same answer at the bottom - and either half alone
+  // is not what the month cost.
+  //
+  // Where the re-price has run, each tile carries its own figure on that
+  // basis underneath. Same month, same units, same money, held to a
+  // different price, so the two can be read straight down the row.
+  const rep = got.repriced;
+  // The count is the tile's own, on the plan: how many models make up the
+  // figure above it. The re-priced amount follows it rather than its own
+  // count, because two counts off two different bases in one line read as a
+  // contradiction - the same month has 4 models under the plan and 1 under
+  // the re-price, and neither is wrong.
+  const also = v => (!rep ? ''
+    : `  ·  re-priced <b style="color:var(--${
+        v < 0 ? 'neg' : 'c-profit'})">${signed(v)}</b>`);
+  const cnt = (n, what) => `${n} model${n === 1 ? '' : 's'} ${what}`;
   document.getElementById('gapKpis').innerHTML = [
-    // The headline is the net of every model with a plan line, not only
-    // the ones that came in under it: a month that gave 25K away and won 1K
-    // back is 24K out of pocket, and a tile leading with 25K answers a
-    // narrower question than the one being asked. What was given away is
-    // still worth having, so it goes underneath with its count.
-    ['Actual vs plan', signed(whole.imp), whole.imp < 0 ? 'neg' : 'up',
-     `△${k$(-whole.down)} under plan on ${whole.n} model`
-     + `${whole.n === 1 ? '' : 's'}  ·  `
-     + `${signed(whole.imp - whole.down)} back on the rest`],
+    ['Negative price impact', signed(whole.down), whole.down ? 'neg' : '',
+     cnt(whole.n, 'under plan') + also(whole.rdown)],
+    ['Positive price impact', signed(whole.up), whole.up ? 'up' : '',
+     cnt(whole.nu, 'over plan') + also(whole.rup)],
+    // The one to act on: a month that gave 25K away and won 1K back is 24K
+    // out of pocket.
+    ['Net price impact', signed(whole.imp), whole.imp < 0 ? 'neg' : 'up',
+     rep
+       ? `${whole.n} under, ${whole.nu} over` + also(whole.rimp)
+         + `  ·  <b style="color:var(--${
+           whole.rimp - whole.imp < 0 ? 'neg' : 'c-profit'})">${
+           signed(whole.rimp - whole.imp)}</b> vs the plan`
+       : `${cnt(whole.n, 'under')}, ${whole.nu} over`],
     ['Actual amt', k$(whole.a) + (CUR === 'USD' ? '$' : ''), '',
      done === null ? `${fmt(whole.a)} ${CUR}`
      : `<span class="pbar"><i style="width:${
@@ -2502,22 +2528,6 @@ function drawGap(D) {
     ['Actual qty', fmt(whole.q), '',
      `${fmt(whole.pq)} planned  ·  `
      + (whole.pq ? `${(whole.q / whole.pq * 100).toFixed(1)}%` : '-')],
-    // The same month measured against a price built from what these products
-    // had been selling at. Nothing about the month changes - only what it is
-    // held to - so the difference is what the forecast was worth.
-    // Built to sit beside the first tile and be read straight against it:
-    // the same month, the same units, the same money, held to a different
-    // price. What separates the two is what the plan's price was worth.
-    ...(got.repriced ? [['Actual vs re-priced', signed(whole.rimp),
-      whole.rimp < 0 ? 'neg' : 'up',
-      `△${k$(-whole.rdown)} under it on ${whole.rn} model`
-      + `${whole.rn === 1 ? '' : 's'}  ·  `
-      // Stated either way round. The re-price is another reading of the
-      // month, and whether it is a closer one is the finding, not the
-      // premise.
-      + `<b style="color:var(--${
-          whole.rimp - whole.imp < 0 ? 'neg' : 'c-profit'})">${
-          signed(whole.rimp - whole.imp)}</b> vs the plan`]] : []),
   ].map(([k, v, cls, note]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div>`
     + (note ? `<div class="n">${note}</div>` : '') + '</div>'

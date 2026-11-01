@@ -980,18 +980,24 @@ did it actually leave at.
 two figures headed *Actual* that meant different things would be the worse
 trade:
 
-- **Actual vs plan** - the net of every model with a line in the plan, with
-  what was given away underneath it and what came back on the rest. The net
-  leads because a month that gave 25K away and won 1K back is 24K out of
-  pocket; a tile leading with the 25K is answering a narrower question than
-  the one being asked.
+- **Negative price impact** - what the models that sold under their planned
+  price gave away, and how many they were.
+- **Positive price impact** - what the ones that sold over it made back.
+- **Net price impact** - the two together, which is what the month cost.
+
+Three figures rather than one, because none of them answers for the others.
+A month that gave 30K away and won 29K back nets out near zero and was not
+priced right; and the two halves without the net do not say what the month
+actually cost. Where `tools/reprice.py` has run, each of the three
+carries **its own figure on the re-priced basis** underneath - same month,
+same units, same money, held to a different price - so the two bases read
+straight down the row, and the net tile also says which way round that came
+out. The counts on those lines stay the plan's: the same month has four
+models under the plan and one under the re-price, and two counts off two
+bases in one line read as a contradiction.
+
 - **Actual amt** - what the slice sold, against the plan's own amount.
 - **Actual qty** - the same for units.
-- **Actual vs re-priced**, where `tools/reprice.py` has run - the same net
-  against the re-priced price instead of the plan's, built to be read
-  straight against the first tile. Same month, same units, same money, held
-  to a different price, so what separates the two is what the plan's price
-  was worth. It also says which way round that came out.
 
 **The table** is Biz -> Div 1 -> Div 2 -> Div 3 -> model, collapsible, under
 three grouped headings:
@@ -1049,7 +1055,8 @@ between the plan and the difference: the price the month could have been
 planned at - the promotion plan's list price, discounted by what the same
 campaign had been selling at over the six months behind it - shown as
 **Price**, what it is **vs Actual** (the price actually got, less it) and what
-it is **vs Plan (GSCM)**. A fourth tile carries its own impact.
+it is **vs Plan (GSCM)**. Its own negative, positive and net are on the three
+tiles above, under the plan's.
 
 It is **not** assumed to be the better reading. The column is green where it
 closes the gap and red where it widens it, because which of those happened is
