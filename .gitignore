@@ -22,6 +22,7 @@ __pycache__/
 # The re-price pages and lists carry real prices, material by material.
 /dashboard/REPRICE_*.html
 /docs/reprice_*.csv
+/docs/spread_*.csv
 /dashboard/PNL_*.html
 /dashboard/PNL.html
 # The pages the promotion tools write hold real order lines. The digit

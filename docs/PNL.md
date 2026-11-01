@@ -1065,6 +1065,12 @@ question. Every other figure on the card is untouched - same units, same
 materials, same basis - so only the price being measured against moves.
 `docs/REPRICE.md` has the method, and `--no-reprice` leaves it off.
 
+Neither impact says whether a division missed its price by one amount or by
+several that cancel out, which is a different conversation with a different
+person. `py tools\price_spread.py` reports the mean and the standard
+deviation of both differences, by Div 2, off the same join - see
+`docs/PRICE_SPREAD.md`.
+
 **The two lists** are the Top 10 models furthest off their planned price in
 each of the two businesses furthest off theirs - CE and MX on the real plan.
 Both are ranked on **how far** they moved and not on the net: a model that
