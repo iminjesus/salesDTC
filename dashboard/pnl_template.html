@@ -1094,7 +1094,7 @@ const state = {
   gapAll: false,
   // The table opens on the models selling under their planned price, which is
   // what it is pulled up for; the button brings the rest back.
-  gapNeg: true,
+  gapNeg: false,
   // Which reading of the month the table measures. Payment is what it will be
   // paid for; order is what it took in. Neither is the other's total, and a
   // month can take good orders and be paid for few of them.
@@ -2457,10 +2457,11 @@ function drawGap(D) {
   const whole = got.rows.reduce((t, r) => {
     t.q += r.q; t.a += r.a; t.pq += r.pq; t.pa += r.pa; t.pv += r.pv;
     t.rv += r.rv; t.ppv += r.ppv; t.imp += r.impact;
+    t.rimp += r.repImpact;
     if (r.impact < 0) { t.down += r.impact; t.n++; }
     if (r.repImpact < 0) { t.rdown += r.repImpact; t.rn++; }
     return t;
-  }, { q: 0, a: 0, pq: 0, pa: 0, pv: 0, ppv: 0, rv: 0, imp: 0,
+  }, { q: 0, a: 0, pq: 0, pa: 0, pv: 0, ppv: 0, rv: 0, imp: 0, rimp: 0,
        down: 0, n: 0, rdown: 0, rn: 0 });
 
   const onlyDown = state.gapNeg;
@@ -2484,9 +2485,15 @@ function drawGap(D) {
   // ── the tiles ──────────────────────────────────────────────────────────
   const done = whole.pa ? (whole.a / whole.pa) * 100 : null;
   document.getElementById('gapKpis').innerHTML = [
-    ['Negative price impact', '△' + k$(-whole.down), 'neg',
-     `${whole.n} model${whole.n === 1 ? '' : 's'} sold under plan`
-     + `  ·  net ${signed(whole.imp)}`],
+    // The headline is the net of every model with a plan line, not only
+    // the ones that came in under it: a month that gave 25K away and won 1K
+    // back is 24K out of pocket, and a tile leading with 25K answers a
+    // narrower question than the one being asked. What was given away is
+    // still worth having, so it goes underneath with its count.
+    ['Actual vs plan', signed(whole.imp), whole.imp < 0 ? 'neg' : 'up',
+     `△${k$(-whole.down)} under plan on ${whole.n} model`
+     + `${whole.n === 1 ? '' : 's'}  ·  `
+     + `${signed(whole.imp - whole.down)} back on the rest`],
     ['Actual amt', k$(whole.a) + (CUR === 'USD' ? '$' : ''), '',
      done === null ? `${fmt(whole.a)} ${CUR}`
      : `<span class="pbar"><i style="width:${
@@ -2498,15 +2505,19 @@ function drawGap(D) {
     // The same month measured against a price built from what these products
     // had been selling at. Nothing about the month changes - only what it is
     // held to - so the difference is what the forecast was worth.
-    ...(got.repriced ? [['Re-priced', '\u25b3' + k$(-whole.rdown), 'neg',
-      `${whole.rn} model${whole.rn === 1 ? '' : 's'} under the re-price`
-      // Both are negative, so this is the smaller hole less the bigger: a
-      // positive number means less was given away. It is stated either way -
-      // the re-price is another reading of the month, and whether it is a
-      // closer one is the finding, not the premise.
-      + `  \u00b7  <b style="color:var(--${
-          whole.rdown - whole.down < 0 ? 'neg' : 'c-profit'})">${
-          signed(whole.rdown - whole.down)}</b> vs the plan`]] : []),
+    // Built to sit beside the first tile and be read straight against it:
+    // the same month, the same units, the same money, held to a different
+    // price. What separates the two is what the plan's price was worth.
+    ...(got.repriced ? [['Actual vs re-priced', signed(whole.rimp),
+      whole.rimp < 0 ? 'neg' : 'up',
+      `△${k$(-whole.rdown)} under it on ${whole.rn} model`
+      + `${whole.rn === 1 ? '' : 's'}  ·  `
+      // Stated either way round. The re-price is another reading of the
+      // month, and whether it is a closer one is the finding, not the
+      // premise.
+      + `<b style="color:var(--${
+          whole.rimp - whole.imp < 0 ? 'neg' : 'c-profit'})">${
+          signed(whole.rimp - whole.imp)}</b> vs the plan`]] : []),
   ].map(([k, v, cls, note]) =>
     `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div>`
     + (note ? `<div class="n">${note}</div>` : '') + '</div>'
@@ -2658,42 +2669,57 @@ function drawGap(D) {
 
   // ── and which models are doing it, one business at a time ──────────────
   const bizAt = GAP_TREE.indexOf('Biz');
+  // Every model with a plan line, not only the ones under it. A model that
+  // sold 80 over its planned price is as far off the plan as one that sold
+  // 80 under, and leaving it out of a list headed "the biggest gaps" would
+  // be answering a different question - and would hide a mispriced plan,
+  // which is the one thing this card is for.
   const pot = new Map();
   got.rows.forEach(r => {
-    if (r.impact >= 0) return;
     const b = r.chain[bizAt] || '(blank)';
-    const o = pot.get(b) || pot.set(b, { name: b, down: 0, rows: [] }).get(b);
-    o.down += r.impact;
+    const o = pot.get(b)
+              || pot.set(b, { name: b, net: 0, mag: 0, rnet: 0, rows: [] })
+                    .get(b);
+    o.net += r.impact;
+    o.mag += Math.abs(r.impact);
+    o.rnet += r.repImpact;
     o.rows.push(r);
   });
-  // The two businesses giving the most away, which is CE and MX on the real
-  // plan and whatever is in front of you on a slice of it.
-  const biz = [...pot.values()].sort((a, b) => a.down - b.down).slice(0, 2);
+  // The two businesses furthest off their plan, which is CE and MX on the
+  // real sheet and whatever is in front of you on a slice of it. Ranked on
+  // how far they moved, not on the net, so a business whose misses cancel
+  // out is not read as one that was priced right.
+  const biz = [...pot.values()].sort((a, b) => b.mag - a.mag).slice(0, 2);
   [['A', biz[0]], ['B', biz[1]]].forEach(([tag, b]) => {
     const box = document.getElementById('gapTop' + tag);
     const title = document.getElementById('gapTop' + tag + 'Title');
     const hint = document.getElementById('gapTop' + tag + 'Hint');
     box.parentElement.hidden = !b;
     if (!b) return;
-    const ord = [...b.rows].sort((x, y) => x.impact - y.impact)
-                           .slice(0, GAP_TOP);
-    const worst = ord.length ? -ord[0].impact : 1;
+    const ord = [...b.rows]
+                .sort((x, y) => Math.abs(y.impact) - Math.abs(x.impact))
+                .slice(0, GAP_TOP);
+    const worst = ord.length ? Math.abs(ord[0].impact) : 1;
     title.textContent =
-      `Top ${ord.length} negative price impact  ·  ${b.name}  ·  `
-      + `△${k$(-b.down)} over ${b.rows.length} model`
-      + `${b.rows.length === 1 ? '' : 's'}`;
-    box.innerHTML = ord.map((r, i) =>
-      `<div class="r"><div class="nm" title="${r.code}"><i>${i + 1}.</i>`
-      + `${r.code}</div>`
-      + `<div class="t"><i style="width:${
-          (Math.abs(r.impact) / worst * 100).toFixed(1)}%"></i></div>`
-      + `<div class="v">△${fmt(-r.impact)}</div></div>`).join('');
-    const share = b.down ? (ord.reduce((a, r) => a + r.impact, 0) / b.down)
-                           * 100 : 0;
+      `Top ${ord.length} price gap  ·  ${b.name}  ·  `
+      + `${signed(b.net)} over ${b.rows.length} model`
+      + `${b.rows.length === 1 ? '' : 's'}`
+      + (got.repriced ? `  ·  re-priced ${signed(b.rnet)}` : '');
+    box.innerHTML = ord.map((r, i) => {
+      const up = r.impact >= 0;
+      return `<div class="r"><div class="nm" title="${r.code}${
+          got.repriced ? ' - re-priced ' + signed(r.repImpact) : ''}">`
+        + `<i>${i + 1}.</i>${r.code}</div>`
+        + `<div class="t"><i class="${up ? 'up' : ''}" style="width:${
+            (Math.abs(r.impact) / worst * 100).toFixed(1)}%"></i></div>`
+        + `<div class="v ${up ? 'up' : ''}">${signed(r.impact)}</div></div>`;
+    }).join('');
+    const share = b.mag
+      ? (ord.reduce((a, r) => a + Math.abs(r.impact), 0) / b.mag) * 100 : 0;
     hint.textContent =
-      `${share.toFixed(0)}% of ${b.name}’s negative price impact is in `
-      + `these ${ord.length}. Bars are scaled to the worst of this list, so `
-      + 'each business is read against itself.';
+      `${share.toFixed(0)}% of how far ${b.name} came off its plan is in `
+      + `these ${ord.length}, the sign saying which way. Bars are scaled to `
+      + 'the biggest of this list, so each business is read against itself.';
   });
 }
 

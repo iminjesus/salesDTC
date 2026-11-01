@@ -966,7 +966,7 @@ Two honesty notes the table prints rather than leaves to be discovered:
 
 #### Planned price vs actual
 
-Under the daily chart, three tiles, a table and two lists that only the open
+Under the daily chart, tiles, a table and two lists that only the open
 month has: what it was **planned** to sell at, beside what it sold at. The
 source is the GSCM sheet (`rawdata/gscm*`, read by `tools/plan_price.py` - see
 `docs/PLAN_PRICE.md`), which is the same month target the chart's line comes
@@ -980,11 +980,18 @@ did it actually leave at.
 two figures headed *Actual* that meant different things would be the worse
 trade:
 
-- **Negative price impact** - the money given away by the models that sold
-  under their planned price, with how many they were and what the net comes
-  to once the ones above plan are counted back in.
+- **Actual vs plan** - the net of every model with a line in the plan, with
+  what was given away underneath it and what came back on the rest. The net
+  leads because a month that gave 25K away and won 1K back is 24K out of
+  pocket; a tile leading with the 25K is answering a narrower question than
+  the one being asked.
 - **Actual amt** - what the slice sold, against the plan's own amount.
 - **Actual qty** - the same for units.
+- **Actual vs re-priced**, where `tools/reprice.py` has run - the same net
+  against the re-priced price instead of the plan's, built to be read
+  straight against the first tile. Same month, same units, same money, held
+  to a different price, so what separates the two is what the plan's price
+  was worth. It also says which way round that came out.
 
 **The table** is Biz -> Div 1 -> Div 2 -> Div 3 -> model, collapsible, under
 three grouped headings:
@@ -1032,9 +1039,10 @@ column adds up all the way to the total - and the consequence is that
 the card's heading and the Total row are all that same sum, so the four cannot
 disagree about the month.
 
-**Negative only** is on by default: the table is pulled up to find what is
-being given away, and every row is then a number to act on. Off, it is every
-model with a line in the plan and the total is the net.
+**Negative only** is a button, off by default: the table opens on every model
+with a line in the plan, so what is on screen adds up to the total on the tile
+above it. On, it keeps the models that sold under their planned price, every
+row is then a number to act on, and the total is what is being given away.
 
 **Re-priced**, where `tools/reprice.py` has run, is a third column group
 between the plan and the difference: the price the month could have been
@@ -1050,11 +1058,19 @@ question. Every other figure on the card is untouched - same units, same
 materials, same basis - so only the price being measured against moves.
 `docs/REPRICE.md` has the method, and `--no-reprice` leaves it off.
 
-**The two lists** are the Top 10 models of the two businesses giving the most
-away - CE and MX on the real plan. Side by side rather than one list of twenty,
-because a single ranking reads as a league table and MX against CE is not a
-comparison anyone wants: they are two sets of models with two sets of prices.
-Each list's bars are scaled to its own worst line for the same reason.
+**The two lists** are the Top 10 models furthest off their planned price in
+each of the two businesses furthest off theirs - CE and MX on the real plan.
+Both are ranked on **how far** they moved and not on the net: a model that
+sold 80 over its planned price is as far off the plan as one that sold 80
+under, and a business whose misses cancel out was not priced right. The sign
+says which way each one went, and each line's re-priced impact is on its
+tooltip. Where the re-price has run, each list's heading carries the
+business's two nets side by side.
+
+Side by side rather than one list of twenty, because a single ranking reads as
+a league table and MX against CE is not a comparison anyone wants: they are
+two sets of models with two sets of prices. Each list's bars are scaled to its
+own biggest line for the same reason.
 
 Everything follows the page's narrowing, its currency and the same
 Order/Payment base the achievement table is on, so the two agree.
