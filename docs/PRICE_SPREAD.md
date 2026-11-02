@@ -28,15 +28,31 @@ Both are the same subtraction the dashboard makes - a material's realised
 price less its planned one - read **over** the materials of a division rather
 than added **up** over them.
 
+## What the deviation is taken over
+
+The **gap**, never the price:
+
+```
+gap(material)  =  what it actually sold at  -  what it was planned at
+
+mean gap   =  the division's miss per unit            (x units = the card's impact)
+sd of gap  =  how much that miss varies model to model inside the division
+```
+
+A deviation of the prices themselves would only say that a division sells a
+fridge and a kettle, which nobody needed a number for. A deviation of the
+**gaps** says whether the division missed its plan the same way everywhere or
+in opposite directions, and those call for different fixes.
+
 ## How it is weighted
 
 Every figure is weighted by the units that actually sold, so
 
 - the **mean** is the division's real miss per unit, and `mean × units` is the
   price impact the dashboard's card shows, and
-- the **spread** is the spread of the money, not of the catalogue: a model
-  that sold three units does not move it as far as one that sold three
-  thousand.
+- the **spread** is over the units the month actually moved: a model that
+  sold three units does not pull the division's deviation as far as one that
+  sold three thousand.
 
 The deviation is the population one over those weights. These are the units
 the month sold, not a sample drawn from something larger, so there is no
@@ -50,10 +66,16 @@ per-unit price off the other.
 ## Reading it
 
 ```
-div2                n     units       mean         sd       mean         sd   reading
-REF                24     3,104       -181        312       -42        266   offsetting - the mix, not the level
-Mobile             31     4,136        +74         95       -22         88   level and mix both
+                                  --- gap vs GSCM ---  - gap vs re-priced -
+div2                n     units   mean gap  sd of gap   mean gap  sd of gap   reading
+REF                24     3,104       -181        312        -42        266   offsetting - the mix, not the level
+Mobile             31     4,136        +74         95        -22         88   level and mix both
 ```
+
+REF there missed its plan by 181 a unit on average and by 312 either side of
+that, so its models are not missing together - some came in far under their
+planned price and some over it. Mobile missed by less and missed it more
+consistently.
 
 The last column is the ratio of the two said out loud:
 

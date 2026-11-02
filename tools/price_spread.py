@@ -114,11 +114,20 @@ def read_month(folder: Path, ym: int, say=print) -> dict:
 
 
 def spread(rows: list, wkey, dkey) -> dict:
-    """Unit-weighted mean and standard deviation of one difference.
+    """Unit-weighted mean and standard deviation of the DIFFERENCE.
 
-    The weights are the units sold, so this is the spread of the money. The
-    deviation is the population one over the weights - these are the units
-    the month actually sold, not a sample drawn from somewhere larger.
+    `dkey` is a material's gap - its realised price less the price it was
+    planned at - and never a price. The deviation is therefore how much that
+    gap varies from material to material inside the group, which is the
+    question: a division whose models all missed by the same amount was
+    priced wrong at the level, and one whose misses cancel out was not
+    priced at the level at all. The deviation of the prices themselves would
+    only say a division sells a fridge and a kettle.
+
+    The weights are the units sold, so it is the spread over the units the
+    month actually moved. The deviation is the population one over those
+    weights - these are the units that sold, not a sample drawn from
+    somewhere larger.
     """
     w = sum(r[wkey] for r in rows)
     if w <= 0:
@@ -305,11 +314,20 @@ def main() -> int:
           f'Net Value (Item)  ·  by {args.by}')
     print(f'{len(rows):,} material(s), {whole["units"]:,.0f} unit(s)\n')
 
+    # Spelled out, because `sd` in a column of money reads as the spread of
+    # the prices and it is nothing of the kind: every figure under the two
+    # headings is the gap between what a material sold at and what it was
+    # planned at, averaged and deviated over the materials of the group.
     w = max(14, max(len(o['name']) for o in gs) + 1)
-    print(f'{"":<{w}}{"":>7}{"":>10}{"-- vs GSCM --":>22}'
-          f'{"-- vs re-priced --":>22}')
+    print('gap = the material\u2019s realised price less the price it was '
+          'planned at')
+    print('      so the sd is how much that gap varies model to model, '
+          'not how much prices vary\n')
+    print(f'{"":<{w}}{"":>7}{"":>10}{"--- gap vs GSCM ---":>22}'
+          f'{"- gap vs re-priced -":>22}')
     print(f'{args.by:<{w}}{"n":>7}{"units":>10}'
-          f'{"mean":>11}{"sd":>11}{"mean":>11}{"sd":>11}   reading')
+          f'{"mean gap":>11}{"sd of gap":>11}'
+          f'{"mean gap":>11}{"sd of gap":>11}   reading')
     # Nothing clever in the formatting: the re-priced side can be absent for
     # a whole group, so each cell is made before it is placed.
     money = lambda v, sign=True: ('-' if v is None
@@ -327,8 +345,9 @@ def main() -> int:
     # The same two readings in per cent, because a 253 miss on a 900 phone and
     # on a 4,000 fridge are not the same miss and a column of dollars cannot
     # say so.
-    print(f'\nthe same as a share of the price planned (%)\n')
-    print(f'{args.by:<{w}}{"mean":>11}{"sd":>11}{"mean":>11}{"sd":>11}')
+    print('\nthe same gap as a share of the price planned (%)\n')
+    print(f'{args.by:<{w}}{"mean gap":>11}{"sd of gap":>11}'
+          f'{"mean gap":>11}{"sd of gap":>11}')
     pct = lambda v, sign=True: ('-' if v is None
                                 else format(v, '+.1f' if sign else '.1f'))
     prow = lambda o: (
