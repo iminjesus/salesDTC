@@ -23,6 +23,8 @@ __pycache__/
 /dashboard/REPRICE_*.html
 /docs/reprice_*.csv
 /docs/spread_*.csv
+# The sheet with the re-priced column is real prices, material by material.
+/rawdata/*_new_price.xlsx
 /dashboard/PNL_*.html
 /dashboard/PNL.html
 # The pages the promotion tools write hold real order lines. The digit
