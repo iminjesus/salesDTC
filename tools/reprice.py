@@ -67,6 +67,15 @@ PROD_COLS = {'div3': ('Div 3', 'Div3', 'Category', 'Prod_group'),
              'biz': ('Biz', 'Business', 'Business Unit')}
 NO_CAMP = ''                     # the key for a day with no campaign on it
 
+# How far the discount may be borrowed from, nearest first. Stopping short of
+# the end of this ladder is a real choice: a discount read off `all` is the
+# whole book's, and multiplying a fridge's own list price by what televisions
+# and phones came off theirs is not a forecast about fridges. Where that is
+# refused the product falls through to its own ASP, and failing that keeps the
+# price the sheet already had - both of which say less, and neither of which
+# invents a number.
+SCOPES = ('sku', 'div3', 'div1', 'all')
+
 
 def month_days(ym: int) -> list:
     y, m = ym // 100, ym % 100
@@ -125,25 +134,46 @@ def rrp_of(plan, code: str):
 class History:
     """What each product went out at, split by the campaign it went out under.
 
-    Three depths of the same question, because a product that sold five units
+    Four depths of the same question, because a product that sold five units
     last quarter cannot answer it alone: the product's own discount, its
     division's, and the whole book's. Each is read only where there are enough
     units behind it to mean anything.
+
+    `half` is a half-life in months. At nought every month in the window
+    counts alike, which is the flat average this started as. Set, a line
+    `half` months old counts half as much as one from last month, and one
+    twice that age a quarter. It is there because a category that discounts
+    deeper as a model ages - tablets and handsets do - has its early, shallow
+    months pulling the average up, and a flat window predicts a price the
+    month will not sell at. The weighting moves what is averaged, never what
+    is counted: the units gate below stays on the raw quantity, so a thin
+    history cannot be made to look sufficient by weighting it.
     """
 
-    def __init__(self):
-        self.by: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
-        self.skus: dict = collections.defaultdict(lambda: [0.0, 0.0])
+    def __init__(self, half: float = 0.0, ref: int | None = None):
+        self.half = max(0.0, half or 0.0)
+        self.ref = ref
+        self.by: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
+        self.skus: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
 
-    def add(self, code, level, camp, qty, amt, rrp):
+    def weight(self, day) -> float:
+        if not self.half or self.ref is None or day is None:
+            return 1.0
+        age = ((self.ref // 100 - day.year) * 12
+               + (self.ref % 100 - day.month))
+        return 0.5 ** (max(0, age) / self.half)
+
+    def add(self, code, level, camp, qty, amt, rrp, day=None):
         if qty <= 0:
             return
+        w = self.weight(day)
         # The ASP tally takes every line; the discount tally takes only the
         # lines that have a list price to be a discount off. Mixing them put
         # money in the numerator with nothing in the denominator and read as a
         # product selling above its own RRP.
-        self.skus[code][0] += qty
-        self.skus[code][1] += amt
+        self.skus[code][0] += qty * w
+        self.skus[code][1] += amt * w
+        self.skus[code][2] += qty
         if not rrp:
             return
         for scope in (('sku', code), ('div3', level.get('div3')),
@@ -151,9 +181,10 @@ class History:
             if scope[1] is None:
                 continue
             t = self.by[(scope, camp)]
-            t[0] += qty
-            t[1] += amt
-            t[2] += qty * rrp
+            t[0] += qty * w
+            t[1] += amt * w
+            t[2] += qty * rrp * w
+            t[3] += qty
 
     def discount(self, scope, camp):
         """1 - what was collected over what was listed, or None.
@@ -163,19 +194,19 @@ class History:
         list because of one is not a forecast anyone would stand behind.
         """
         t = self.by.get((scope, camp))
-        if not t or t[0] < MIN_UNITS or t[2] <= 0:
+        if not t or t[3] < MIN_UNITS or t[2] <= 0:
             return None
         return max(0.0, 1.0 - (t[1] / t[2]))
 
     def asp(self, code):
-        q, a = self.skus.get(code, [0.0, 0.0])
-        return (a / q) if q >= MIN_UNITS else None
+        q, a, raw = self.skus.get(code, [0.0, 0.0, 0.0])
+        return (a / q) if raw >= MIN_UNITS and q > 0 else None
 
 
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
-                 say=print) -> History:
+                 say=print, half: float = 0.0) -> History:
     """Every order line of those months, priced and banded by its campaign."""
-    h = History()
+    h = History(half, months[-1] if months else None)
     want = {str(m)[-4:] for m in months}
     files = [p for p in pick_series(folder, 'orders')
              if any(w in p.stem for w in want)]
@@ -214,7 +245,7 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                 rrp_cache[code] = rrp_of(plan, sku)
             h.add(code, levels.get(code, {}),
                   campaign_at(plan, canon, code, day), qty, amt,
-                  rrp_cache[code])
+                  rrp_cache[code], day)
             used += 1
     say(f'  {used:,} of {lines:,} order line(s) in '
         + ', '.join(str(m) for m in months)
@@ -225,7 +256,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
     return h
 
 
-def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None):
+def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
+              scope: str = 'all'):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -237,15 +269,18 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None):
     k = PM.code_norm(code)
     where = []
 
+    deep = SCOPES.index(scope if scope in SCOPES else 'all')
+
     def disc(camp):
         """That campaign's discount for this product, then its division."""
-        for scope, name in ((('sku', k), 'this product'),
-                            (('div3', lv.get('div3')), lv.get('div3')),
-                            (('div1', lv.get('div1')), lv.get('div1')),
-                            (('all', ''), 'the whole book')):
-            if scope[1] is None:
+        ladder = ((('sku', k), 'this product'),
+                  (('div3', lv.get('div3')), lv.get('div3')),
+                  (('div1', lv.get('div1')), lv.get('div1')),
+                  (('all', ''), 'the whole book'))
+        for sc, name in ladder[:deep + 1]:
+            if sc[1] is None:
                 continue
-            d = hist.discount(scope, camp)
+            d = hist.discount(sc, camp)
             if d is not None:
                 return d, name
         return None, None
@@ -278,7 +313,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None):
     return gscm, 'kept', rrp, 0.0, ['no list price and no history']
 
 
-def reprice(folder: Path, ym: int, back: int, plan_stems, say=print) -> dict:
+def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
+            scope: str = 'all', decay: float = 0.0) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached."""
     import plan_price as PP
 
@@ -309,14 +345,21 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print) -> dict:
     say(f'\nreading what those products sold at over '
         f'{MONTHS[(months[0] % 100) - 1]} .. '
         f'{MONTHS[(months[-1] % 100) - 1]}:')
-    hist = read_history(folder, plan, canon, months, levels, say=say)
+    hist = read_history(folder, plan, canon, months, levels, say=say,
+                        half=decay)
+    if decay:
+        say(f'  weighted towards the recent: a line {decay:g} month(s) older '
+            'counts half as much')
+    if scope != 'all':
+        say(f'  the discount may be borrowed no further than {scope} - '
+            'past that a product falls to its own ASP, then to the sheet')
 
     days = month_days(ym)
     out = {}
     how = collections.Counter()
     for code, it in planned['items'].items():
         price, kind, rrp, promo, where = price_for(
-            code, plan, canon, hist, levels, days, it['aud'])
+            code, plan, canon, hist, levels, days, it['aud'], scope=scope)
         how[kind] += 1
         out[code] = {
             'gscm': it['aud'], 'price': round(price, 2), 'how': kind,
@@ -348,6 +391,12 @@ def main() -> int:
                     help='how many months of history to read (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
+    ap.add_argument('--scope', default='all', choices=SCOPES,
+                    help='how far a discount may be borrowed from when the '
+                         'product has none of its own (default all)')
+    ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
+                    help='half-life: a line this much older counts half as '
+                         'much (default 0, every month alike)')
     ap.add_argument('--out', default=None, metavar='FILE',
                     help='default docs/reprice_<month>.csv')
     args = ap.parse_args()
@@ -373,7 +422,8 @@ def main() -> int:
         ym = 2600 + have[0]
     full = (2000 + ym // 100) * 100 + ym % 100
 
-    out = reprice(folder, full, args.back, args.plan)
+    out = reprice(folder, full, args.back, args.plan,
+                  scope=args.scope, decay=args.decay)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     path.parent.mkdir(parents=True, exist_ok=True)

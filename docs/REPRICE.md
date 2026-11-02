@@ -51,6 +51,63 @@ Two deliberate limits:
   forecast, and inventing one would bury a price estimate inside a demand
   estimate.
 
+## Two knobs, and what each is for
+
+Both default to the behaviour this started with, so an unflagged run
+reproduces the numbers already measured. They exist because the first real
+simulation improved most of the book and made two parts of it worse, and the
+two failed in different ways.
+
+### `--scope {sku,div3,div1,all}` - how far a discount may be borrowed
+
+A product with no history of its own borrows a discount, nearest first: its
+own, then Div 3, then Div 1, then the whole book. `all` is the last rung and
+the loosest: it multiplies a fridge's own list price by what televisions and
+phones came off theirs.
+
+That rung is a likely source of **scatter inside a category that the plan had
+priced tightly**. The symptom is a deviation that gets *worse* where the GSCM
+number was consistent, and its fingerprint is a group whose deviation
+collapses to near nought - every model in it sharing one borrowed discount is
+not a model fitting well, it is a model with no per-product information in it
+at all.
+
+Capping the ladder does not invent a replacement. Past the cap a product falls
+to its own six-month ASP, and failing that keeps the price the sheet already
+had. Both say less than a borrowed discount, and neither makes anything up.
+
+### `--decay MONTHS` - how much the recent months count for
+
+At nought every month in the window counts alike. Set, a line `MONTHS` old
+counts half as much as one from last month, and one twice that age a quarter.
+
+A flat window is wrong for anything that **discounts deeper as it ages** -
+tablets and handsets do. The early, shallow months pull the average discount
+up, the predicted price with it, and the month then sells below a price that
+was never going to hold. The symptom is a systematic over-prediction: the sum
+of the differences moving further from nought in one direction, not scattering.
+
+The weighting moves what is averaged, never what is counted. The `MIN_UNITS`
+gate stays on the raw quantity, so a thin history cannot be made to look
+sufficient by weighting it.
+
+```
+same product, same campaign, 100 units at 10% off in April
+                             100 units at 30% off in September
+
+  --decay 0     20.0% off     a flat average of the two
+  --decay 5     23.3%
+  --decay 2     27.0%
+  --decay 1     29.4% off     near enough September alone
+```
+
+### Finding out which is biting
+
+`docs/spread_<month>.csv` carries `How` and `Borrowed from` per material
+beside the error, so the miss can be cut by the rung that priced it. A
+category whose error sits on one rung is a category one flag can fix. See
+`docs/PRICE_SPREAD.md`.
+
 ## Where it shows
 
 On the P&L page's **Actual vs plan price** card, as a third column group

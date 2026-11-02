@@ -201,7 +201,8 @@ def analyse(folder: Path, ym: int, back: int, plan_stems,
             no_plan += 1
             continue
         asp = got[1] / got[0]
-        rp = (priced.get(code) or {}).get('price')
+        got_rp = priced.get(code) or {}
+        rp = got_rp.get('price')
         if not rp:
             no_rep += 1
         # The sheet's own chain stands in where the master does not know the
@@ -218,6 +219,11 @@ def analyse(folder: Path, ym: int, back: int, plan_stems,
             'dg': asp - gscm, 'dgp': (asp / gscm - 1) * 100,
             'dr': (asp - rp) if rp else None,
             'drp': ((asp / rp - 1) * 100) if rp else None,
+            # Which rung of the fallback ladder priced it. A category whose
+            # error is concentrated on one rung is a fixable category.
+            'how': got_rp.get('how', ''),
+            'from': (got_rp.get('why') or '').split(' (')[-1].rstrip(')')
+                    if got_rp.get('why') else '',
             **{n: chain[n] or '(blank)' for n in LEVELS},
         })
     if no_plan:
@@ -467,7 +473,7 @@ def main() -> int:
             w2.writerow(['Material', 'Biz', 'Div 1', 'Div 2', 'Div 3',
                          'Units', 'Order Value', 'ASP', 'GSCM price',
                          'vs GSCM', 'vs GSCM %', 'Re-priced', 'vs re-priced',
-                         'vs re-priced %'])
+                         'vs re-priced %', 'How', 'Borrowed from'])
             for r in sorted(rows, key=lambda r: r['dg'] * r['units']):
                 w2.writerow([r['code'], r['biz'], r['div1'], r['div2'],
                              r['div3'],
@@ -477,7 +483,8 @@ def main() -> int:
                              round(r['rep'], 2) if r['rep'] else '',
                              round(r['dr'], 2) if r['dr'] is not None else '',
                              round(r['drp'], 2) if r['drp'] is not None
-                             else ''])
+                             else '',
+                             r['how'], r['from']])
         print(f'\n-> {out}  ({len(rows):,} row(s))')
     return 0
 

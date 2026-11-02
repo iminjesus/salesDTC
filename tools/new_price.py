@@ -190,6 +190,12 @@ def main() -> int:
                     help='months of history the re-price reads (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
+    ap.add_argument('--scope', default='all', choices=RP.SCOPES,
+                    help='how far a discount may be borrowed from when the '
+                         'product has none of its own (default all)')
+    ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
+                    help='half-life: a line this much older counts half as '
+                         'much (default 0, every month alike)')
     ap.add_argument('--blank-kept', action='store_true',
                     help='leave a material blank where the re-price could '
                          'only hand the GSCM price back, instead of '
@@ -230,7 +236,8 @@ def main() -> int:
     # same number. reprice walks real dates and wants the long month.
     print(f'{src.name}  ·  {mon} 20{ym // 100}\n')
     priced = RP.reprice(folder, (2000 + ym // 100) * 100 + ym % 100,
-                        args.back, args.plan)
+                        args.back, args.plan,
+                        scope=args.scope, decay=args.decay)
     price = {PM.code_norm(k): v['price'] for k, v in priced.items()
              if v.get('price')
              and not (args.blank_kept and v.get('how') == 'kept')}
