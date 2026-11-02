@@ -93,6 +93,38 @@ The second table is the same two readings **as a share of the price planned**,
 because 253 off a 900 phone and 253 off a 4,000 fridge are not the same miss
 and a column of dollars cannot say so.
 
+## Is the deviation the group, or a few rows?
+
+A deviation squares its distances, so a handful of lines can carry one on
+their own - and that changes what to do about it. Two blocks answer it:
+
+**Where the gap actually sits** gives `p10 / median / p90` beside the `sd`,
+all on the same unit weights. A middle at least twice the deviation means the
+units really are spread out; a middle narrower than the deviation means a few
+rows are carrying it. Read as what it is, not as a verdict: a material holding
+a third of a division's units is not an outlier by weight however far out it
+sits.
+
+**Materials at over 3x the planned price, or under a third of it** are then
+listed with their units, and the run prints what the mean and deviation become
+without them. Not every large gap is a price: a bundle booked under one
+material, or a quantity in a different unit, lands here as a price several
+times the planned one and moves a deviation more than any discount can. They
+are listed and not dropped - whether they are wrong is not this tool's call to
+make silently. `--odd X` moves the threshold.
+
+A deviation that collapses once those come out was never about pricing.
+
+## Grouping is part of the answer
+
+A deviation is only as meaningful as the bucket it is taken over. If one Div 2
+holds the whole of a business - phones, tablets, wearables and a $70 cable -
+then a large deviation is arithmetically right and says nothing: it is the
+range of the catalogue, not the inconsistency of the plan. `--by div3` cuts it
+finer, and the per cent table is the one to read when a bucket spans price
+points, because 253 off a 900 phone and 253 off a 4,000 fridge are not the
+same miss.
+
 `--top N` then names the materials furthest from their own division's mean,
 weighted by the units behind them: a division's deviation is a property of its
 models, and naming them is the difference between knowing the plan is

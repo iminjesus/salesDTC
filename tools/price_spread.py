@@ -131,11 +131,27 @@ def spread(rows: list, wkey, dkey) -> dict:
     """
     w = sum(r[wkey] for r in rows)
     if w <= 0:
-        return {'n': len(rows), 'units': 0.0, 'mean': 0.0, 'sd': 0.0}
+        return {'n': len(rows), 'units': 0.0, 'mean': 0.0, 'sd': 0.0,
+                'p10': 0.0, 'mid': 0.0, 'p90': 0.0}
     mean = sum(r[wkey] * r[dkey] for r in rows) / w
     var = sum(r[wkey] * (r[dkey] - mean) ** 2 for r in rows) / w
+    # A deviation is one number and a squared one, so a handful of lines can
+    # carry it on their own. The percentiles are there to say whether that is
+    # what happened: a group genuinely spread has a wide p10..p90, and one
+    # carried by a few rows has a narrow middle and a deviation far outside
+    # it. Both are weighted by the same units, so they are the same
+    # population read two ways.
+    at = sorted(rows, key=lambda r: r[dkey])
+    def pct(f):
+        want, run = f * w, 0.0
+        for r in at:
+            run += r[wkey]
+            if run >= want:
+                return r[dkey]
+        return at[-1][dkey]
     return {'n': len(rows), 'units': w, 'mean': mean,
-            'sd': math.sqrt(max(var, 0.0))}
+            'sd': math.sqrt(max(var, 0.0)),
+            'p10': pct(0.10), 'mid': pct(0.50), 'p90': pct(0.90)}
 
 
 def analyse(folder: Path, ym: int, back: int, plan_stems,
@@ -271,6 +287,9 @@ def main() -> int:
     ap.add_argument('--top', type=int, default=0, metavar='N',
                     help='also list the N materials furthest from their '
                          'own group\'s mean - what is making the spread')
+    ap.add_argument('--odd', type=float, default=3.0, metavar='X',
+                    help='flag materials that sold at more than X times, or '
+                         'under a Xth of, the planned price (default 3)')
     ap.add_argument('--out', default=None, metavar='CSV',
                     help='write the per-material rows as well')
     args = ap.parse_args()
@@ -359,6 +378,63 @@ def main() -> int:
         print(prow(o))
     print('-' * (w + 44))
     print(prow(dict(whole, name='all')))
+
+    # Is the deviation the group, or is it a few rows? A deviation squares
+    # its distances, so a handful of lines can carry one on their own, and
+    # the answer changes what to do: a wide middle is a pricing question and
+    # a narrow middle with a far-out deviation is usually a data one.
+    print('\nwhere the gap vs GSCM actually sits, by units\n')
+    print(f'{args.by:<{w}}{"p10":>11}{"median":>11}{"p90":>11}'
+          f'{"sd":>11}   ')
+    for o in gs + [dict(whole, name='all')]:
+        g = o['g']
+        wide = g['p90'] - g['p10']
+        # Said as what it is rather than as a verdict. A row holding a
+        # third of a group's units is not an outlier by weight however far
+        # out it sits, so a wide p10..p90 is not proof the group is spread -
+        # it is proof the units are. The suspect list below is what catches
+        # the other case.
+        note = ('' if not g['sd'] else
+                'spread across the units'
+                if wide >= 2 * g['sd'] else
+                'few rows carry the sd - see --top and the list below'
+                if wide < g['sd'] else '')
+        print(f'{o["name"][:w - 1]:<{w}}{money(g["p10"]):>11}'
+              f'{money(g["mid"]):>11}{money(g["p90"]):>11}'
+              f'{money(g["sd"], False):>11}   {note}')
+
+    # Not every large gap is a price. A line that sold a bundle under one
+    # material, or a quantity in a different unit, lands here as a price
+    # several times the planned one and moves a deviation more than any
+    # discount could. They are listed rather than dropped: whether they are
+    # wrong is not this tool's call to make silently.
+    x = max(args.odd, 1.000001)
+    odd = [r for r in rows
+           if r['gscm'] > 0 and (r['asp'] > x * r['gscm']
+                                 or r['asp'] < r['gscm'] / x)]
+    if odd:
+        odd.sort(key=lambda r: -abs(r['dg']) * r['units'])
+        ou = sum(r['units'] for r in odd)
+        print(f'\n{len(odd)} material(s) sold at over {x:g}x the planned '
+              f'price or under 1/{x:g} of it, {ou:,.0f} unit(s) '
+              f'({ou / whole["units"] * 100:.1f}% of the month).')
+        print('  These move a deviation more than any discount can. A '
+              'bundle booked under one material, or a quantity')
+        print('  in a different unit, looks exactly like this - worth '
+              'checking before reading the spread above.')
+        print(f'  {"material":<24}{args.by:<14}{"units":>8}{"ASP":>9}'
+              f'{"planned":>9}{"x plan":>8}')
+        for r in odd[:12]:
+            print(f'  {r["code"][:23]:<24}{r[args.by][:13]:<14}'
+                  f'{r["units"]:>8,.0f}{r["asp"]:>9,.0f}{r["gscm"]:>9,.0f}'
+                  f'{r["asp"] / r["gscm"]:>8.1f}')
+        keep = [r for r in rows if r not in odd]
+        if keep:
+            k = spread(keep, 'units', 'dg')
+            print(f'\n  without them: mean gap {k["mean"]:+,.0f}, '
+                  f'sd of gap {k["sd"]:,.0f} '
+                  f'(was {whole["g"]["mean"]:+,.0f} / '
+                  f'{whole["g"]["sd"]:,.0f})')
 
     if args.top:
         # What is making the spread. A division's deviation is a property of
