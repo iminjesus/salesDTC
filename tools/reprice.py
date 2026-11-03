@@ -337,6 +337,21 @@ class History:
             return None
         return min(5.0, max(0.2, (on_u / on_d) / (off_u / off_d)))
 
+    def tilt(self, scope):
+        """Units per promoted day over units per quiet day, for a bucket.
+
+        `pull` answers it for one named campaign; this answers it for
+        promotion in general, which is what a month's planned days have to
+        be turned into units with. Same clamp, same reason.
+        """
+        on_u = sum(v for (sc, c), v in self.vol.items() if sc == scope and c)
+        on_d = sum(v for (sc, c), v in self.days.items() if sc == scope and c)
+        off_u = self.vol.get((scope, NO_CAMP), 0.0)
+        off_d = self.days.get((scope, NO_CAMP), 0.0)
+        if on_d < MIN_DAYS or off_d < MIN_DAYS or on_u <= 0 or off_u <= 0:
+            return None
+        return min(3.0, max(0.8, (on_u / on_d) / (off_u / off_d)))
+
     def lent(self, scope, camp, by_units=False):
         """What a group answers with when a product has nothing of its own.
 
@@ -419,33 +434,23 @@ class History:
         flat = sum(t[0] for _, t in got) / allq if allq else late
         return late, flat, a - b
 
-    def recent(self, scope, months):
-        """How much shallower the newest month is than the window average.
+    def split(self, code):
+        """(ASP on promotion, ASP off it) for one product, or None.
 
-        The window is not a flat place. July and August are the two biggest
-        months in the file and they discount hardest, so an average over six
-        months sits deeper than a quiet month does - which prices a quiet
-        month too cheap and a loud one too dear.
-
-        Read off **off-campaign lines only**, so it measures the level the
-        group has drifted to and not how busy its promotions were. How busy
-        October is, is the campaign nudge's job; counting the promoted lines
-        here as well would charge a busy window for twice.
-
-        Returned as a discount difference like the rest, so it goes through
-        the same arithmetic and needs no special case.
+        A six-month ASP blends the promoted days with the quiet ones at
+        whatever ratio the window happened to have, which is why a window
+        full of July and August prices a quiet October too cheap. Splitting
+        it and re-mixing at October's own ratio is the whole of that
+        problem: the busy months were busy *because* they were promoted, so
+        keying on the promotion is already keying on the season.
         """
-        got = [(m, self.mon.get((scope, m))) for m in months]
-        got = [(m, t) for m, t in got if t and t[1] > 0 and t[2] >= MIN_UNITS]
-        if len(got) < 3:
+        on = self.cg.get((('sku', code), 'on'))
+        off = self.cg.get((('sku', code), 'off'))
+        if not on or not off or on[2] < MIN_UNITS or off[2] < MIN_UNITS:
             return None
-        late = self._rate(got[-1][1])
-        amt = sum(t[0] for _, t in got)
-        listed = sum(t[1] for _, t in got)
-        flat = 1 - amt / listed if listed > 0 else None
-        if late is None or flat is None:
+        if on[0] <= 0 or off[0] <= 0:
             return None
-        return late - flat
+        return on[0] / on[2], off[0] / off[2]
 
     def mix(self, scope):
         """(B2B's share of the units, how much deeper its discount is).
@@ -623,24 +628,33 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 def simple_price(code, plan, canon, hist, levels, days, gscm,
                  months, b2b=None):
-    """One price per product, from its own record and three group nudges.
+    """One price per product: its own record, re-mixed, then nudged.
 
-    The product's own six-month ASP is the whole of the per-product part.
-    Nothing is borrowed, nothing is keyed by campaign per product: an
-    estimate made per product per promotion is made from a handful of lines
-    and the scatter it adds is the thing being minimised here.
+    The base is the product's own window ASP, split into what it fetched on
+    promotion and what it fetched off it, and re-blended at the share the
+    month being priced is planned to carry. That is the whole of the season
+    question - a busy month is busy *because* it is promoted, so a price
+    keyed to the promotion is already keyed to the season, and a separate
+    drift term on top counts the same thing twice. Measured: it priced the
+    book 8% dear and took the deviation from 127 to 198.
 
-    What moves it are three ratios, each read for the product's group and
-    each the difference between what October is planned to be and what the
-    window happened to be:
+    Days become units before they weight anything, because a promoted day
+    shifts more than a quiet one - the 'promotion period and revenue' part.
+    A product without five units either side cannot be split, and falls
+    back to the group's coverage gap as before.
 
-        campaign   October's planned promotion days against the window's
+    On top of the base sit ratios read for the product's **group**, each the
+    difference between what the month is planned to be and what the window
+    happened to be:
+
+        campaign   the planned promotion days against the window's
+                   (only where the product could not be split itself)
         B2B        the plan's B2B share against the window's
         deals      voucher, trade-in and the like, lately against the window
 
-    A group ratio adds no per-product scatter, which is the point. None of
-    them fires where the two sides agree, which is the property that makes
-    the whole thing safe to leave on.
+    A group ratio moves every member alike, so it adds no per-product
+    scatter - which is why the scatter has to come out of the base, and
+    does. None of them fires where the two sides agree.
     """
     k = PM.code_norm(code)
     asp = hist.asp(k)
@@ -657,12 +671,34 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
         return None, None
 
     adj, why = 0.0, []
-    got, where = group(hist.campaign)
-    if got:
-        d = (on - got[0]) * got[1]
-        adj += d
-        why.append(f'{on * 100:.0f}% of days on promotion against '
-                   f'{got[0] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
+
+    # The base, re-mixed onto October's own promotion calendar. A window's
+    # ASP blends promoted days with quiet ones at whatever ratio the window
+    # happened to have; re-mixing at the month's own ratio is the whole of
+    # the season question, because the busy months were busy *because* they
+    # were promoted. Days are turned into expected units first - a promoted
+    # day shifts more than a quiet one - which is the 'promotion period and
+    # revenue' part.
+    got = hist.split(k)
+    if got is not None:
+        a_on, a_off = got
+        c, where = group(hist.tilt)
+        c = c if c else 2.0
+        w = on * c
+        w = w / (w + (1.0 - on)) if w + (1.0 - on) > 0 else on
+        asp = a_on * w + a_off * (1.0 - w)
+        why.append(f'{on * 100:.0f}% of days on promotion is '
+                   f'{w * 100:.0f}% of the units at {c:.1f}x ({where}): '
+                   f'{a_on:,.0f} on it, {a_off:,.0f} off it')
+    else:
+        # Nothing of its own either side, so the group's coverage gap
+        # stands in, as it did before.
+        got, where = group(hist.campaign)
+        if got:
+            d = (on - got[0]) * got[1]
+            adj += d
+            why.append(f'{on * 100:.0f}% of days on promotion against '
+                       f'{got[0] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
     if b2b is not None:
         got, where = group(hist.mix)
         if got:
@@ -670,11 +706,6 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
             adj += d
             why.append(f'{b2b * 100:.0f}% B2B planned against '
                        f'{got[0] * 100:.0f}%: {d * 100:+.1f}pp')
-    got, where = group(lambda sc: hist.recent(sc, months))
-    if got is not None:
-        adj += got
-        why.append(f'the newest month ran {got * 100:+.1f}pp against the '
-                   f'window ({where})')
     got, where = group(lambda sc: hist.deals(sc, months))
     if got:
         d = (got[0] - got[1]) * got[2]
@@ -973,8 +1004,9 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     say(f'\nre-priced {len(out):,} material(s): '
         + ', '.join(f'{n:,} {k}' for k, n in how.most_common()))
     if model == 'simple':
-        say('  asp  = its own six-month ASP, nudged by its group\u2019s '
-            'campaign, B2B and deal ratios')
+        say('  asp  = its own ASP, promoted days split from quiet '
+            'ones and re-mixed to the month, then nudged by its '
+            'group’s B2B and deal ratios')
         say('  kept = no six-month ASP of its own, so the GSCM price is '
             'unchanged')
         fresh = [(c, v) for c, v in out.items() if v['how'] == 'kept']
