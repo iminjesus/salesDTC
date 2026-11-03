@@ -464,6 +464,37 @@ def main() -> int:
                   f'(was {whole["g"]["mean"]:+,.0f} / '
                   f'{whole["g"]["sd"]:,.0f})')
 
+    # Which rung of the ladder the money is going wrong on. A re-price that
+    # improves most of the book and ruins one part of it is usually not wrong
+    # everywhere by a little - it is wrong on one way of arriving at a price,
+    # and that way is concentrated somewhere.
+    if any(r['how'] for r in rows):
+        pot = {}
+        for r in rows:
+            if r['dr'] is None:
+                continue
+            t = pot.setdefault(r['how'] or '(none)',
+                               {'n': 0, 'q': 0.0, 'g': 0.0, 'r': 0.0,
+                                'rows': []})
+            t['n'] += 1
+            t['q'] += r['units']
+            t['g'] += r['dg'] * r['units']
+            t['r'] += r['dr'] * r['units']
+            t['rows'].append(r)
+        print('\nthe same error, by how the re-price arrived at a price\n')
+        print(f'{"how":<10}{"skus":>6}{"units":>9}'
+              f'{"sum vs GSCM":>14}{"sum vs new":>14}'
+              f'{"sd vs new":>11}')
+        for k in sorted(pot, key=lambda k: -abs(pot[k]['r'])):
+            t = pot[k]
+            sd = spread(t['rows'], 'units', 'dr')['sd']
+            print(f'{k:<10}{t["n"]:>6}{t["q"]:>9,.0f}'
+                  f'{t["g"]:>+14,.0f}{t["r"]:>+14,.0f}{sd:>11,.0f}')
+        print('\n  new  = no history of its own, priced off the nearest '
+              'product. A large, one-sided')
+        print('         figure here is a launch inheriting the discount of '
+              'the model it replaces.')
+
     if args.top:
         # What is making the spread. A division's deviation is a property of
         # its models, and naming them is the difference between knowing the

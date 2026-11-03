@@ -364,7 +364,7 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
-              scope: str = 'sku', rrp_at=None):
+              scope: str = 'sku', rrp_at=None, new_cap: float = 0.0):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -435,8 +435,17 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
     if near:
         d = hist.own(near)
         if rrp and d is not None:
-            return (rrp * (1.0 - d), 'new', rrp, 0.0,
-                    [f'new SKU; nearest {near} at {d * 100:.1f}% off list'])
+            # The neighbour a launch resembles is usually the model it
+            # replaces, and that model is at the end of its life and at its
+            # deepest discount. Inheriting it prices a new phone as a
+            # run-out. The cap is off by default because how much of this is
+            # real is a measurement, not a guess - `price_spread` breaks the
+            # error out by `how` and the `new` row is where it would show.
+            capped = min(d, new_cap) if new_cap else d
+            note = (f'new SKU; nearest {near} at {d * 100:.1f}% off list'
+                    + (f', capped to {capped * 100:.1f}%'
+                       if capped < d else ''))
+            return rrp * (1.0 - capped), 'new', rrp, 0.0, [note]
         a = hist.asp(near)
         if a:
             return a, 'new', rrp, 0.0, [f'new SKU; ASP of nearest {near}']
@@ -445,7 +454,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 
 def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             scope: str = 'sku', decay: float = 0.0, also=None,
-            source: str = 'auto') -> dict:
+            source: str = 'auto', new_cap: float = 0.0) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -524,7 +533,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     for code, it in planned['items'].items():
         price, kind, rrp, promo, where = price_for(
             code, plan, canon, hist, levels, days, it['aud'], scope=scope,
-            rrp_at=rrp_at)
+            rrp_at=rrp_at, new_cap=new_cap)
         how[kind] += 1
         # The nearest SKU is named on the row, not only in the prose, so a
         # sheet can filter on it: a new product priced off a neighbour is a
@@ -578,6 +587,10 @@ def main() -> int:
                          'product has none of its own (default div1, which '
                          'blocks only the whole book; all restores the '
                          'behaviour before this flag existed)')
+    ap.add_argument('--new-cap', type=float, default=0.0, metavar='PCT',
+                    help='the deepest discount a new SKU may inherit from '
+                         'the product it is priced off, e.g. 25 for a '
+                         'quarter off list (default 0: no cap)')
     ap.add_argument('--source', default='auto',
                     choices=('auto', 'dtc', 'orders'),
                     help='where the history comes from: the DTC export where '
@@ -611,7 +624,8 @@ def main() -> int:
     full = (2000 + ym // 100) * 100 + ym % 100
 
     out = reprice(folder, full, args.back, args.plan,
-                  scope=args.scope, decay=args.decay, source=args.source)
+                  scope=args.scope, decay=args.decay, source=args.source,
+                  new_cap=args.new_cap / 100.0)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     path.parent.mkdir(parents=True, exist_ok=True)

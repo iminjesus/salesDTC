@@ -264,6 +264,9 @@ def main() -> int:
                          'the product has none of its own for that '
                          'promotion (default sku: no borrowing - its own '
                          'six-month discount is used instead)')
+    ap.add_argument('--new-cap', type=float, default=0.0, metavar='PCT',
+                    help='the deepest discount a new SKU may inherit from '
+                         'the product it is priced off (default 0: no cap)')
     ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
                     help='half-life: a line this much older counts half as '
                          'much (default 0, every month alike)')
@@ -317,7 +320,8 @@ def main() -> int:
     also = {} if args.planned_only else priced_but_unplanned(src, mon)
     priced = RP.reprice(folder, (2000 + ym // 100) * 100 + ym % 100,
                         args.back, args.plan,
-                        scope=args.scope, decay=args.decay, also=also)
+                        scope=args.scope, decay=args.decay, also=also,
+                        new_cap=args.new_cap / 100.0)
     price = {PM.code_norm(k): v['price'] for k, v in priced.items()
              if v.get('price')
              and not (args.blank_kept and v.get('how') == 'kept')}

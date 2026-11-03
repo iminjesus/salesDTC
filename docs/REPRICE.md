@@ -143,6 +143,19 @@ Capping the ladder does not invent a replacement. Past the cap a product falls
 to its own six-month ASP, and failing that keeps the price the sheet already
 had. Both say less than a borrowed discount, and neither makes anything up.
 
+### `--new-cap PCT` - what a launch may inherit
+
+**Default 0, no cap.** The product a new SKU most resembles is usually the
+one it replaces, and that product is at the end of its life and at its
+deepest discount. `SM-S947BZKAATS` priced off `SMS947BZKEATS` at 42% off
+list is a new phone priced as a run-out.
+
+`--new-cap 25` holds an inherited discount to a quarter off, and the row says
+so: `nearest X at 42.0% off list, capped to 25.0%`. It is off by default
+because how much of this is real is a measurement rather than a guess -
+`price_spread` breaks the error out by `how`, and the `new` row is where a
+launch inheriting a run-out would show as a large one-sided figure.
+
 ### `--decay MONTHS` - how much the recent months count for
 
 **Default 0**, every month in the window counting alike. This one is off
@@ -172,6 +185,38 @@ same product, same campaign, 100 units at 10% off in April
   --decay 2     27.0%
   --decay 1     29.4% off     near enough September alone
 ```
+
+### The plan under-describes what actually ran
+
+Worth knowing before reading any of this. Comparing the plan's
+campaign-by-date against the rule each October DTC line actually carried:
+
+```
+  8,018  44.5%  plan: campaign     line: rule
+  5,145  28.6%  plan: none         line: rule
+  2,464  13.7%  plan: none         line: no rule
+  1,845  10.2%  plan: campaign     line: no rule
+```
+
+Four lines in ten are keyed differently from what happened, and the 28.6% is
+the interesting part: those were discounted under a rule the plan's DTC
+campaign columns do not carry - EPP vouchers and the like - so they file
+under "no campaign". The bucket that is supposed to mean *off promotion* is
+mostly not:
+
+```
+MX    plan: campaign                4,990 units   40.1% off list
+MX    plan: none, line HAS rule     4,543 units   37.9%
+MX    plan: none, line NO rule      1,389 units   25.7%
+CE    plan: none, line HAS rule     1,288 units   41.5%
+CE    plan: none, line NO rule      1,363 units   22.1%
+```
+
+This is self-consistent as long as the month being priced is mixed the same
+way as the history - the same bucket is read and applied - so it is not on
+its own a bias. It stops being self-consistent as soon as the two months
+differ in how much unplanned promotion they carry, and it means the figure
+is not what its name says.
 
 ### Finding out which is biting
 
