@@ -81,6 +81,11 @@ def column_at(head: list, *names):
     return None
 
 
+def heads_for(label):
+    """The three that go in, in order."""
+    return [label, 'Basis', 'Nearest SKU']
+
+
 def places(head: list, mon: str, label: str):
     """(material column, column to sit after, the column already there).
 
@@ -95,7 +100,7 @@ def places(head: list, mon: str, label: str):
     return item, after, column_at(head, label)
 
 
-def with_openpyxl(src, dst, price, mon, label, say):
+def with_openpyxl(src, dst, price, basis, near, mon, label, say):
     """Insert the column and keep the workbook otherwise exactly as it is."""
     import copy
     import openpyxl
@@ -104,32 +109,39 @@ def with_openpyxl(src, dst, price, mon, label, say):
     item, after, have = places([c.value for c in ws[1]], mon, label)
     if item is None:
         return None
+    cols = heads_for(label)
     if have is None:
-        ws.insert_cols(after + 2)
         new = after + 2
-        ws.cell(row=1, column=new, value=label)
-        ws.cell(row=1, column=new).font = copy.copy(
-            ws.cell(row=1, column=after + 1).font)
+        for n, name in enumerate(cols):
+            ws.insert_cols(new + n)
+            ws.cell(row=1, column=new + n, value=name)
+            ws.cell(row=1, column=new + n).font = copy.copy(
+                ws.cell(row=1, column=after + 1).font)
     else:
         new = have + 1
         say('  the sheet already had the column - it was rewritten, '
             'not added again')
         for r in range(2, ws.max_row + 1):
-            ws.cell(row=r, column=new, value=None)
+            for n in range(len(cols)):
+                ws.cell(row=r, column=new + n, value=None)
     fmt = ws.cell(row=2, column=after + 1).number_format
     hit = 0
     for r in range(2, ws.max_row + 1):
-        p = price.get(PM.code_norm(ws.cell(row=r, column=item + 1).value))
-        if p is None:
-            continue
-        ws.cell(row=r, column=new, value=round(p, 2)).number_format = fmt
-        hit += 1
+        k = PM.code_norm(ws.cell(row=r, column=item + 1).value)
+        p = price.get(k)
+        if p is not None:
+            ws.cell(row=r, column=new, value=round(p, 2)).number_format = fmt
+            hit += 1
+        if basis.get(k):
+            ws.cell(row=r, column=new + 1, value=basis[k])
+        if near.get(k):
+            ws.cell(row=r, column=new + 2, value=near[k])
     wb.save(dst)
     say('  openpyxl: the workbook keeps its formatting')
     return hit, ws.max_row - 1
 
 
-def with_stdlib(src, dst, price, mon, label, say):
+def with_stdlib(src, dst, price, basis, near, mon, label, say):
     """No openpyxl: rewrite the sheet, every value kept, the colours not."""
     rows, _ = read_any(src)
     if not rows:
@@ -139,11 +151,12 @@ def with_stdlib(src, dst, price, mon, label, say):
     if item is None:
         return None
     if have is not None:
-        # Rewriting in place: drop the old one and put it back where the
-        # fresh one goes, so a second run cannot leave two.
+        # Rewriting in place: drop the old ones and put them back where the
+        # fresh ones go, so a second run cannot leave two of each.
         say('  the sheet already had the column - it was rewritten, '
             'not added again')
-        keep = [i for i in range(len(head)) if i != have]
+        gone = {column_at(head, n) for n in heads_for(label)} - {None}
+        keep = [i for i in range(len(head)) if i not in gone]
         rows = [[r[i] if i < len(r) else '' for i in keep] for r in rows]
         head = rows[0]
         item, after, _ = places(head, mon, label)
@@ -159,16 +172,19 @@ def with_stdlib(src, dst, price, mon, label, say):
         except ValueError:
             return s
 
-    out = [list(head[:after + 1]) + [label] + list(head[after + 1:])]
+    cols = heads_for(label)
+    out = [list(head[:after + 1]) + cols + list(head[after + 1:])]
     hit = 0
     for r in rows[1:]:
         r = list(r) + [''] * (len(head) - len(r))
-        p = price.get(PM.code_norm(r[item] if item < len(r) else ''))
+        k = PM.code_norm(r[item] if item < len(r) else '')
+        p = price.get(k)
         if p is not None:
             hit += 1
         body = [num(v) for v in r]
         out.append(body[:after + 1]
-                   + [round(p, 2) if p is not None else None]
+                   + [round(p, 2) if p is not None else None,
+                      basis.get(k) or None, near.get(k) or None]
                    + body[after + 1:])
     styles = [XL.MONEY if i == after + 1 else XL.PLAIN
               for i in range(len(out[0]))]
@@ -190,11 +206,11 @@ def main() -> int:
                     help='months of history the re-price reads (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
-    ap.add_argument('--scope', default='div1', choices=RP.SCOPES,
-                    help='how far a discount may be borrowed from when the '
-                         'product has none of its own (default div1, which '
-                         'blocks only the whole book; all restores the '
-                         'behaviour before this flag existed)')
+    ap.add_argument('--scope', default='sku', choices=RP.SCOPES,
+                    help='allow a discount to be borrowed from a group when '
+                         'the product has none of its own for that '
+                         'promotion (default sku: no borrowing - its own '
+                         'six-month discount is used instead)')
     ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
                     help='half-life: a line this much older counts half as '
                          'much (default 0, every month alike)')
@@ -243,6 +259,12 @@ def main() -> int:
     price = {PM.code_norm(k): v['price'] for k, v in priced.items()
              if v.get('price')
              and not (args.blank_kept and v.get('how') == 'kept')}
+    # How each price was reached, and for a product the window never saw, the
+    # one it was priced off. A new SKU priced off a neighbour is a judgement,
+    # and a judgement belongs on the row where it can be overruled one line
+    # at a time rather than buried in a log.
+    basis = {PM.code_norm(k): v.get('how', '') for k, v in priced.items()}
+    near = {PM.code_norm(k): v.get('near', '') for k, v in priced.items()}
     how: dict = {}
     for v in priced.values():
         how[v.get('how', '?')] = how.get(v.get('how', '?'), 0) + 1
@@ -251,12 +273,12 @@ def main() -> int:
         src.stem + '_new_price.xlsx')
     if not dst.is_absolute():
         dst = ROOT / dst
-    print(f'\nwriting {label} into the sheet:')
+    print(f'\nwriting {", ".join(heads_for(label))} into the sheet:')
     try:
         import openpyxl                                   # noqa: F401
-        got = with_openpyxl(src, dst, price, mon, label, print)
+        got = with_openpyxl(src, dst, price, basis, near, mon, label, print)
     except ImportError:
-        got = with_stdlib(src, dst, price, mon, label, print)
+        got = with_stdlib(src, dst, price, basis, near, mon, label, print)
     if got is None:
         print(f'  {src.name}: no material column, or no {mon} Price(AUD) '
               '- nothing to put the column beside')

@@ -66,6 +66,7 @@ PROD_COLS = {'div3': ('Div 3', 'Div3', 'Category', 'Prod_group'),
              'div1': ('Div 1', 'Div1', 'Division 1', 'Division'),
              'biz': ('Biz', 'Business', 'Business Unit')}
 NO_CAMP = ''                     # the key for a day with no campaign on it
+ANY = '\x00any'                  # the tally that ignores which campaign it was
 
 # How far the discount may be borrowed from, nearest first. Stopping short of
 # the end of this ladder is a real choice: a discount read off `all` is the
@@ -186,11 +187,12 @@ class History:
                       ('div1', level.get('div1')), ('all', '')):
             if scope[1] is None:
                 continue
-            t = self.by[(scope, camp)]
-            t[0] += qty * w
-            t[1] += amt * w
-            t[2] += qty * rrp * w
-            t[3] += qty
+            for key in ((scope, camp), (scope, ANY)):
+                t = self.by[key]
+                t[0] += qty * w
+                t[1] += amt * w
+                t[2] += qty * rrp * w
+                t[3] += qty
 
     def discount(self, scope, camp):
         """1 - what was collected over what was listed, or None.
@@ -207,6 +209,20 @@ class History:
     def asp(self, code):
         q, a, raw = self.skus.get(code, [0.0, 0.0, 0.0])
         return (a / q) if raw >= MIN_UNITS and q > 0 else None
+
+    def own(self, code):
+        """This product's own discount over the window, campaigns together.
+
+        What it has been coming off its list price lately, whatever was on at
+        the time. It is the answer for a day October puts no campaign on, and
+        for a campaign this product has never run before: its own behaviour
+        under a different promotion is a better guide to its price than
+        another product's behaviour under this one.
+        """
+        return self.discount(('sku', code), ANY)
+
+    def sold(self, code):
+        return self.skus.get(code, [0.0, 0.0, 0.0])[2]
 
 
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
@@ -256,14 +272,56 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
     say(f'  {used:,} of {lines:,} order line(s) in '
         + ', '.join(str(m) for m in months)
         + f'; {len(h.skus):,} product(s) with a realised price')
-    camps = {c for (_, c) in h.by if c and c != '(nationwide)'}
+    camps = {c for (_, c) in h.by
+             if c and c != ANY and c != '(nationwide)'}
     say(f'  {len(camps)} campaign(s) in that history: '
         + ', '.join(sorted(camps)[:6]) + (' ...' if len(camps) > 6 else ''))
     return h
 
 
+def nearest(k, lv, rrp, hist, levels, rrp_at):
+    """The product most like this one that has actually been sold.
+
+    A code the window has never seen has no discount and no ASP of its own,
+    and the honest thing is to say so and name what was used instead. The
+    neighbour is looked for in the same product group first and the same
+    division after - a kettle is no guide to a fridge - and among those, the
+    one whose code runs alongside it longest and whose list price is nearest.
+
+    Codes carry their own family: SM-S948BZKAATS and SM-S948BZVAATS are one
+    phone in two colours, and they are priced alike because they are the same
+    thing. The shared prefix finds that where a division cannot.
+    """
+    best, score = None, None
+    for other in hist.skus:
+        if other == k or hist.sold(other) < MIN_UNITS:
+            continue
+        olv = levels.get(other, {})
+        for n, tier in (('div3', 2), ('div1', 1)):
+            mine, theirs = lv.get(n), olv.get(n)
+            if mine and theirs and mine == theirs:
+                break
+        else:
+            continue
+        run = 0
+        for a, b in zip(k, other):
+            if a != b:
+                break
+            run += 1
+        gap = 0.0
+        if rrp:
+            o_rrp = rrp_at(other)
+            # Nearest list price, as a ratio - 100 off a 200 phone is not the
+            # same distance as 100 off a 4,000 fridge.
+            gap = -abs((o_rrp or rrp) / rrp - 1.0)
+        here = (tier, run, gap)
+        if score is None or here > score:
+            best, score = other, here
+    return best
+
+
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
-              scope: str = 'div1'):
+              scope: str = 'sku', rrp_at=None):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -275,23 +333,37 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
     k = PM.code_norm(code)
     where = []
 
-    deep = SCOPES.index(scope if scope in SCOPES else 'all')
+    deep = SCOPES.index(scope if scope in SCOPES else 'sku')
+    own = hist.own(k)
 
     def disc(camp):
-        """That campaign's discount for this product, then its division."""
-        ladder = ((('sku', k), 'this product'),
-                  (('div3', lv.get('div3')), lv.get('div3')),
+        """This product under this campaign, then the ways round not having it.
+
+        The order is the point. What this product came off its list price the
+        last time this same campaign ran is the thing being asked for. Where
+        it has never run it, its own recent discount under anything else
+        comes next - a product's own behaviour beats another product's,
+        whatever promotion that other one was on. Borrowing from a group at
+        all is off unless --scope asks for it.
+        """
+        d = hist.discount(('sku', k), camp)
+        if d is not None:
+            return d, 'this product, same promotion'
+        ladder = ((('div3', lv.get('div3')), lv.get('div3')),
                   (('div1', lv.get('div1')), lv.get('div1')),
                   (('all', ''), 'the whole book'))
-        for sc, name in ladder[:deep + 1]:
+        for sc, name in ladder[:deep]:
             if sc[1] is None:
                 continue
             d = hist.discount(sc, camp)
             if d is not None:
-                return d, name
+                return d, f'{name}, same promotion'
+        if own is not None:
+            return own, 'this product, six-month average'
         return None, None
 
-    if rrp:
+    if rrp and (own is not None or hist.discount(('sku', k), ANY) is not None
+                or deep):
         total, on = 0.0, 0
         used = collections.Counter()
         for day in days:
@@ -299,10 +371,6 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             if camp:
                 on += 1
             d, from_ = disc(camp)
-            if d is None:
-                # No history for that campaign anywhere: the product's own
-                # off-promotion discount is the nearest honest answer.
-                d, from_ = disc(NO_CAMP)
             if d is None:
                 total = None
                 break
@@ -312,15 +380,28 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             price = total / len(days)
             where = [f'{c} x{n} ({f})' for (c, f), n in used.most_common(4)]
             return price, 'rrp', rrp, on / len(days), where
-    # No list price, or nothing to discount it by: what it actually sold at.
+    # Its own ASP, where it has one and no list price to discount.
     asp = hist.asp(k)
     if asp:
         return asp, 'asp', rrp, 0.0, ['six-month ASP']
+
+    # Nothing of its own at all: a product this window has never seen. Say so,
+    # name what was leant on, and price off that rather than quietly keeping a
+    # number the sheet already had.
+    near = nearest(k, lv, rrp, hist, levels, rrp_at or (lambda c: None))
+    if near:
+        d = hist.own(near)
+        if rrp and d is not None:
+            return (rrp * (1.0 - d), 'new', rrp, 0.0,
+                    [f'new SKU; nearest {near} at {d * 100:.1f}% off list'])
+        a = hist.asp(near)
+        if a:
+            return a, 'new', rrp, 0.0, [f'new SKU; ASP of nearest {near}']
     return gscm, 'kept', rrp, 0.0, ['no list price and no history']
 
 
 def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
-            scope: str = 'div1', decay: float = 0.0) -> dict:
+            scope: str = 'sku', decay: float = 0.0) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached."""
     import plan_price as PP
 
@@ -364,23 +445,50 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             'price times what every other category came off theirs')
 
     days = month_days(ym)
+    # One lookup per code, shared with the nearest-neighbour search, which
+    # asks for a lot of them.
+    rrp_cache: dict = {}
+
+    def rrp_at(c):
+        if c not in rrp_cache:
+            rrp_cache[c] = rrp_of(plan, c)
+        return rrp_cache[c]
+
     out = {}
     how = collections.Counter()
     for code, it in planned['items'].items():
         price, kind, rrp, promo, where = price_for(
-            code, plan, canon, hist, levels, days, it['aud'], scope=scope)
+            code, plan, canon, hist, levels, days, it['aud'], scope=scope,
+            rrp_at=rrp_at)
         how[kind] += 1
+        # The nearest SKU is named on the row, not only in the prose, so a
+        # sheet can filter on it: a new product priced off a neighbour is a
+        # judgement someone may want to overrule one line at a time.
+        near = ''
+        if kind == 'new' and where:
+            near = where[0].split('nearest ')[-1].split(' ')[0].rstrip(';')
         out[code] = {
             'gscm': it['aud'], 'price': round(price, 2), 'how': kind,
             'rrp': rrp, 'promo_days': round(promo, 3), 'qty': it['qty'],
-            'why': '; '.join(where),
+            'near': near, 'why': '; '.join(where),
             'chain': it['chain'],
         }
     say(f'\nre-priced {len(out):,} material(s): '
         + ', '.join(f'{n:,} {k}' for k, n in how.most_common()))
-    say('  rrp  = list price x the discount that campaign has been selling at')
-    say('  asp  = no list price in the plan, so the six-month ASP stands in')
-    say('  kept = no list price and no history, so the GSCM price is unchanged')
+    say('  rrp  = list price x what this product came off it under the same')
+    say('         promotion, and its own six-month discount on the rest')
+    say('  asp  = no list price in the plan, so its six-month ASP stands in')
+    say('  new  = nothing of its own in the window - priced off the nearest')
+    say('         product, which is named on the row')
+    say('  kept = not even that, so the GSCM price is unchanged')
+    fresh = [(c, v) for c, v in out.items() if v['how'] == 'new']
+    if fresh:
+        say(f'\n  {len(fresh):,} new SKU(s), '
+            f'{sum(v["qty"] for _, v in fresh):,.0f} planned unit(s):')
+        for c, v in sorted(fresh, key=lambda kv: -kv[1]['qty'])[:12]:
+            say(f'    {c:<24}{v["qty"]:>8,.0f}  {v["why"]}')
+        if len(fresh) > 12:
+            say(f'    ... and {len(fresh) - 12:,} more')
     was = sum(v['gscm'] * v['qty'] for v in out.values())
     now = sum(v['price'] * v['qty'] for v in out.values())
     say(f'\n  at the planned quantities: {was:,.0f} -> {now:,.0f} AUD '
@@ -400,7 +508,7 @@ def main() -> int:
                     help='how many months of history to read (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
-    ap.add_argument('--scope', default='div1', choices=SCOPES,
+    ap.add_argument('--scope', default='sku', choices=SCOPES,
                     help='how far a discount may be borrowed from when the '
                          'product has none of its own (default div1, which '
                          'blocks only the whole book; all restores the '
@@ -442,7 +550,7 @@ def main() -> int:
         w = csv.writer(f)
         w.writerow(['Material', 'Biz', 'Div 1', 'Div 2', 'Div 3',
                     'Planned qty', 'GSCM price', 'Re-priced', 'Change %',
-                    'RRP', 'Promo days', 'From', 'Why'])
+                    'RRP', 'Promo days', 'From', 'Nearest SKU', 'Why'])
         for code, v in sorted(out.items(),
                               key=lambda kv: -abs((kv[1]['price']
                                                    - kv[1]['gscm'])
@@ -452,7 +560,8 @@ def main() -> int:
                         f"{v['gscm']:.2f}", f"{v['price']:.2f}",
                         '' if ch is None else f'{ch:+.1f}',
                         '' if v['rrp'] is None else f"{v['rrp']:.2f}",
-                        f"{v['promo_days'] * 100:.0f}%", v['how'], v['why']])
+                        f"{v['promo_days'] * 100:.0f}%", v['how'],
+                        v.get('near', ''), v['why']])
     print(f'\n-> {path}  ({len(out):,} material(s))')
     return 0
 

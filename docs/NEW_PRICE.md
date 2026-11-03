@@ -21,11 +21,11 @@ It is the **same number the dashboard draws**, from the same call
 column and the card cannot disagree. Change `--back`, `--scope` or `--decay`
 and both move together.
 
-`--scope` defaults to `div1`: a product with no history of its own may borrow
-a discount from its group or its division, and not from the whole book.
-`--scope all` restores the looser behaviour. `docs/REPRICE.md` has why.
+Three columns go in, not one: the price, **`Basis`** - how it was reached -
+and **`Nearest SKU`**, filled only where the price came off a neighbour
+because the product is new. `docs/REPRICE.md` has the ladder.
 
-## One column, and why only one
+## Why these three and nothing else
 
 Nothing about actuals is written. A `SUMIFS` against the order export does
 that better than a pasted number can, and it keeps the sheet's own figures
@@ -43,9 +43,10 @@ price is the material's, so each of its rows carries the same number.
 
 | what happened | what the cell holds |
 | --- | --- |
-| re-priced off a list price and a campaign discount | the new price (`rrp`) |
-| no list price in the plan, so the six-month ASP stood in | the new price (`asp`) |
-| no list price **and** no history | the GSCM price, unchanged (`kept`) |
+| its own discount under the same promotion, then its own six-month one | the new price (`rrp`) |
+| no list price, so its own six-month ASP stood in | the new price (`asp`) |
+| nothing of its own - a new SKU, priced off the named neighbour | the new price (`new`) |
+| not even a neighbour | the GSCM price, unchanged (`kept`) |
 | the sheet prices it and the re-price never saw it | blank |
 
 The third row is the one to watch. A `kept` material comes back carrying the

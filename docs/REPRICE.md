@@ -51,29 +51,67 @@ Two deliberate limits:
   forecast, and inventing one would bury a price estimate inside a demand
   estimate.
 
-## Two knobs, and what each is for
+## The ladder
+
+One product, one month, in this order:
+
+| | what is used | written as |
+| --- | --- | --- |
+| 1 | this SKU's own discount off RRP **the last time this same promotion ran** | `rrp` |
+| 2 | no such promotion in its history: this SKU's **own six-month** discount | `rrp` |
+| 3 | no list price to discount: this SKU's **own six-month ASP** | `asp` |
+| 4 | nothing of its own at all - a **new SKU** | `new` |
+| 5 | not even a neighbour to lean on | `kept` |
+
+Steps 1 and 2 are walked a day at a time, because October's plan puts
+different promotions on different days: a product on Boost Week for nine days
+is not the same price as one on it for all thirty-one.
+
+Step 2 is the one worth naming. A product's own behaviour under a different
+promotion is a better guide to its price than another product's behaviour
+under this one, so the fallback goes sideways to the same SKU and not
+outward to its neighbours. `--scope` puts the outward rungs back.
+
+### New SKUs
+
+A code the window has never seen has no discount and no ASP of its own.
+Rather than quietly keep the number the sheet already had, it is marked
+`new`, the nearest product is **named on the row**, and the price comes off
+that: the neighbour's own discount applied to this product's list price,
+or the neighbour's ASP where there is no list price.
+
+Nearest means the same product group first and the same division after - a
+kettle is no guide to a fridge - and among those, the product whose code runs
+alongside it longest and whose list price is nearest. Codes carry their own
+family: `SM-S948BZKAATS` and `SM-S948BZVAATS` are one phone in two colours,
+priced alike because they are the same thing, and the shared prefix finds
+that where a division cannot.
+
+A new SKU priced off a neighbour is a judgement. It is on the row so it can
+be overruled one line at a time rather than buried in a log.
+
+## The knobs
 
 They exist because the first real simulation improved most of the book -
 deviation 288 to 225 - and made two parts of it worse, in two different ways.
 One of them has since been answered and is now the default; the other is a
 flag that stays off until there is a measurement for it.
 
-### `--scope {sku,div3,div1,all}` - how far a discount may be borrowed
+### `--scope {sku,div3,div1,all}` - borrowing from a group
 
-**Default `div1`.** `all` restores what this did before the flag existed.
+**Default `sku`: no borrowing at all.** A product that has never run this
+promotion uses its own six-month discount rather than another product's
+behaviour under a promotion it did run. `div3`, `div1` and `all` put the
+group rungs back, between step 1 and step 2 of the ladder above.
 
-A product with no history of its own borrows a discount, nearest first: its
-own, then Div 3, then Div 1, then the whole book. `all` is the last rung and
-the loosest: it multiplies a fridge's own list price by what televisions and
-phones came off theirs. That rung is off by default now - a product may
-borrow from its own group and its own division, and not from the book
-entire.
+Borrowing was doing measurable harm. REF came back scattered where the GSCM
+sheet had been tight - deviations of 39, 67 and 38 going to 78, 125 and 111 -
+and TMF's collapsed to 0.06, which is not a model fitting but every product
+in a group sharing one borrowed number. `all` was the worst of it: a fridge's
+own list price times what televisions and phones came off theirs.
 
-The cap is the narrowest change the evidence supports. REF came back
-scattered and the rung that can be argued against from the numbers alone is
-the last one; `div3` is tighter still and costs more coverage, so it is
-available and not assumed. Which rung a given miss actually sat on is in
-`docs/spread_<month>.csv` under `Borrowed from`.
+Which rung a given miss sat on is in `docs/spread_<month>.csv` under
+`Borrowed from`.
 
 That rung is a likely source of **scatter inside a category that the plan had
 priced tightly**. The symptom is a deviation that gets *worse* where the GSCM
