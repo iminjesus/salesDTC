@@ -21,9 +21,13 @@ It is the **same number the dashboard draws**, from the same call
 column and the card cannot disagree. Change `--back`, `--scope` or `--decay`
 and both move together.
 
-Three columns go in, not one: the price, **`Basis`** - how it was reached -
-and **`Nearest SKU`**, filled only where the price came off a neighbour
-because the product is new. `docs/REPRICE.md` has the ladder.
+**One column goes in**, and the sheet is otherwise the width it was. A sheet
+people have already built pivots and `SUMIFS` over is a layout, and widening
+it moves every column after the insert. `--with-basis` adds two more -
+`Basis`, how the price was reached, and `Nearest SKU`, filled only where the
+price came off a neighbour - and the same two facts are in
+`docs/reprice_<month>.csv` for anyone who would rather look them up than
+carry them. `docs/REPRICE.md` has the ladder.
 
 ## Why these three and nothing else
 
@@ -47,14 +51,20 @@ price is the material's, so each of its rows carries the same number.
 | no list price, so its own six-month ASP stood in | the new price (`asp`) |
 | nothing of its own - a new SKU, priced off the named neighbour | the new price (`new`) |
 | not even a neighbour | the GSCM price, unchanged (`kept`) |
-| the sheet lists it but the month does not plan it | `not in Oct plan`, price blank |
+| the row quotes no price for the month at all | `no Oct price`, price blank |
 
-The last row is the one that looks like a fault and is not. The GSCM sheet
-carries three months side by side, so a material planned for November and
-December only has no October quantity and no October amount - there is
-nothing to re-price. It says so rather than being left empty, because a
-column of unexplained blanks is a question every reader has to ask once. On
-the October sheet that is 71 rows of 1,299.
+### Priced but not planned
+
+The GSCM sheet carries three months side by side, so a material planned for
+November and December has no October quantity and no October amount and
+`plan_price` leaves it out of the month. Its row still quotes an **October
+price**, though - on the October sheet all 71 such rows do - and a product
+that sells without a plan line is exactly the one somebody wants a predicted
+price for.
+
+They go through the same rules as everything else, at nought planned units,
+so they get a price and a basis like any other row and contribute nothing to
+the plan totals. `--planned-only` leaves them out.
 
 The third row is the one to watch. A `kept` material comes back carrying the
 number the sheet already had - that is what the card shows, and on the card it

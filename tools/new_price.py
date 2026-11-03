@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import promo_match as PM                                        # noqa: E402
 import reprice as RP                                            # noqa: E402
 import xlsx as XL                                               # noqa: E402
-from rawdata import MONTHS, read_any                            # noqa: E402
+from rawdata import MONTHS, parse_number, read_any             # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -58,7 +58,39 @@ OUT_MARK = '_new_price'
 # nothing to re-price and nothing went wrong. An empty cell would say the
 # same thing and say it ambiguously, and a column of unexplained blanks is a
 # question every reader has to ask once.
-NO_PLAN = 'not in Oct plan'
+NO_PLAN = 'no Oct price'
+
+
+def priced_but_unplanned(src, mon):
+    """{code: Oct price} for rows the month prices and does not plan.
+
+    The sheet carries three months side by side. A material planned for
+    November and December has no October quantity and no October amount, so
+    `plan_price` leaves it out of the month - but its row still quotes an
+    October price, and a product that sells without a plan line is exactly
+    the one somebody wants a predicted price for. It goes through the same
+    ladder as everything else, at nought planned units.
+    """
+    import plan_price as PP
+    rows, _ = read_any(src)
+    if not rows:
+        return {}
+    head = [str(h or '').strip() for h in rows[0]]
+    ym = 2600 + (MONTHS.index(mon) + 1)
+    at = PP.columns(head, ym)
+    item = column_at(head, *CODE)
+    if item is None or at['aud'] is None:
+        return {}
+    keep = set(PP.read_plan(src, ym, say=lambda *a: None)['items'])
+    out = {}
+    for r in rows[1:]:
+        code = (r[item] or '').strip() if item < len(r) else ''
+        if not code or code.upper() in keep or code in keep:
+            continue
+        px = parse_number(r[at['aud']]) if at['aud'] < len(r) else None
+        if px and px > 0:
+            out[code.upper()] = px
+    return out
 
 
 def find_sheet(folder: Path, stem: str):
@@ -87,12 +119,19 @@ def column_at(head: list, *names):
     return None
 
 
-def heads_for(label):
-    """The three that go in, in order."""
-    return [label, 'Basis', 'Nearest SKU']
+def heads_for(label, basis=False):
+    """What goes in, in order.
+
+    One column by default. A sheet people have already built pivots and
+    lookups over is a layout, and widening it moves every column after the
+    insert - so the extras are asked for rather than assumed. The same two
+    facts are in `docs/reprice_<month>.csv` for anyone who would rather look
+    them up than carry them.
+    """
+    return [label, 'Basis', 'Nearest SKU'] if basis else [label]
 
 
-def places(head: list, mon: str, label: str):
+def places(head: list, mon: str, label: str, basis=False):
     """(material column, column to sit after, the column already there).
 
     All 0-based. A sheet that already carries the column is rewritten in
@@ -106,7 +145,8 @@ def places(head: list, mon: str, label: str):
     return item, after, column_at(head, label)
 
 
-def with_openpyxl(src, dst, price, basis, near, mon, label, say):
+def with_openpyxl(src, dst, price, basis, near, mon, label, say,
+                  extras=False):
     """Insert the column and keep the workbook otherwise exactly as it is."""
     import copy
     import openpyxl
@@ -115,7 +155,7 @@ def with_openpyxl(src, dst, price, basis, near, mon, label, say):
     item, after, have = places([c.value for c in ws[1]], mon, label)
     if item is None:
         return None
-    cols = heads_for(label)
+    cols = heads_for(label, extras)
     if have is None:
         new = after + 2
         for n, name in enumerate(cols):
@@ -138,6 +178,8 @@ def with_openpyxl(src, dst, price, basis, near, mon, label, say):
         if p is not None:
             ws.cell(row=r, column=new, value=round(p, 2)).number_format = fmt
             hit += 1
+        if not extras:
+            continue
         ws.cell(row=r, column=new + 1,
                 value=basis.get(k) or (NO_PLAN.replace('Oct', mon)
                                        if k else None))
@@ -148,7 +190,8 @@ def with_openpyxl(src, dst, price, basis, near, mon, label, say):
     return hit, ws.max_row - 1
 
 
-def with_stdlib(src, dst, price, basis, near, mon, label, say):
+def with_stdlib(src, dst, price, basis, near, mon, label, say,
+                extras=False):
     """No openpyxl: rewrite the sheet, every value kept, the colours not."""
     rows, _ = read_any(src)
     if not rows:
@@ -162,7 +205,8 @@ def with_stdlib(src, dst, price, basis, near, mon, label, say):
         # fresh ones go, so a second run cannot leave two of each.
         say('  the sheet already had the column - it was rewritten, '
             'not added again')
-        gone = {column_at(head, n) for n in heads_for(label)} - {None}
+        gone = {column_at(head, n)
+                for n in heads_for(label, True)} - {None}
         keep = [i for i in range(len(head)) if i not in gone]
         rows = [[r[i] if i < len(r) else '' for i in keep] for r in rows]
         head = rows[0]
@@ -179,7 +223,7 @@ def with_stdlib(src, dst, price, basis, near, mon, label, say):
         except ValueError:
             return s
 
-    cols = heads_for(label)
+    cols = heads_for(label, extras)
     out = [list(head[:after + 1]) + cols + list(head[after + 1:])]
     hit = 0
     for r in rows[1:]:
@@ -189,12 +233,12 @@ def with_stdlib(src, dst, price, basis, near, mon, label, say):
         if p is not None:
             hit += 1
         body = [num(v) for v in r]
-        out.append(body[:after + 1]
-                   + [round(p, 2) if p is not None else None,
-                      basis.get(k) or (NO_PLAN.replace('Oct', mon)
-                                       if k else None),
-                      near.get(k) or None]
-                   + body[after + 1:])
+        add = [round(p, 2) if p is not None else None]
+        if extras:
+            add += [basis.get(k) or (NO_PLAN.replace('Oct', mon)
+                                     if k else None),
+                    near.get(k) or None]
+        out.append(body[:after + 1] + add + body[after + 1:])
     styles = [XL.MONEY if i == after + 1 else XL.PLAIN
               for i in range(len(out[0]))]
     XL.write(dst, 'GSCM', out, styles=styles)
@@ -223,6 +267,14 @@ def main() -> int:
     ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
                     help='half-life: a line this much older counts half as '
                          'much (default 0, every month alike)')
+    ap.add_argument('--with-basis', action='store_true',
+                    help='also write Basis and Nearest SKU. Off by default: '
+                         'one column in keeps every other column where the '
+                         'sheet already had it')
+    ap.add_argument('--planned-only', action='store_true',
+                    help='leave out the materials the month prices but does '
+                         'not plan, instead of running them through the '
+                         'same rules at nought planned units')
     ap.add_argument('--blank-kept', action='store_true',
                     help='leave a material blank where the re-price could '
                          'only hand the GSCM price back, instead of '
@@ -262,9 +314,10 @@ def main() -> int:
     # The same call the dashboard makes, so the column and the card are the
     # same number. reprice walks real dates and wants the long month.
     print(f'{src.name}  ·  {mon} 20{ym // 100}\n')
+    also = {} if args.planned_only else priced_but_unplanned(src, mon)
     priced = RP.reprice(folder, (2000 + ym // 100) * 100 + ym % 100,
                         args.back, args.plan,
-                        scope=args.scope, decay=args.decay)
+                        scope=args.scope, decay=args.decay, also=also)
     price = {PM.code_norm(k): v['price'] for k, v in priced.items()
              if v.get('price')
              and not (args.blank_kept and v.get('how') == 'kept')}
@@ -282,12 +335,16 @@ def main() -> int:
         src.stem + '_new_price.xlsx')
     if not dst.is_absolute():
         dst = ROOT / dst
-    print(f'\nwriting {", ".join(heads_for(label))} into the sheet:')
+    cols = heads_for(label, args.with_basis)
+    print(f'\nwriting {", ".join(cols)} into the sheet '
+          f'({len(cols)} column{"" if len(cols) == 1 else "s"}):')
     try:
         import openpyxl                                   # noqa: F401
-        got = with_openpyxl(src, dst, price, basis, near, mon, label, print)
+        got = with_openpyxl(src, dst, price, basis, near, mon, label, print,
+                            args.with_basis)
     except ImportError:
-        got = with_stdlib(src, dst, price, basis, near, mon, label, print)
+        got = with_stdlib(src, dst, price, basis, near, mon, label, print,
+                          args.with_basis)
     if got is None:
         print(f'  {src.name}: no material column, or no {mon} Price(AUD) '
               '- nothing to put the column beside')
@@ -299,10 +356,9 @@ def main() -> int:
         # The commonest reason by far, and the one that looks like a fault
         # until it is named: the sheet carries three months and this is one
         # of them.
-        print(f'  a row with no {mon} quantity and no {mon} amount is not '
-              f'part of {mon}\u2019s plan - there is')
-        print(f'  nothing to re-price, and its Basis says so rather than '
-              'being left empty')
+        print(f'  a row with no {mon} price at all has nothing to work '
+              'from, and its Basis says so')
+        print('  rather than being left empty')
     print('  ' + ', '.join(f'{n:,} {k}' for k, n in sorted(
         how.items(), key=lambda kv: -kv[1])))
     if how.get('kept') and not args.blank_kept:

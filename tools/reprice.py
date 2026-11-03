@@ -401,8 +401,16 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 
 
 def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
-            scope: str = 'sku', decay: float = 0.0) -> dict:
-    """{code: {...}} - the re-priced month, with how each price was reached."""
+            scope: str = 'sku', decay: float = 0.0, also=None) -> dict:
+    """{code: {...}} - the re-priced month, with how each price was reached.
+
+    `also` is {code: price} for materials the month's plan leaves out but
+    that are quoted a price all the same - the sheet carries three months,
+    and one planned for the later two still has an October price on its row.
+    A price can be worked out for them like any other, and a product that
+    sells without a plan line is exactly the one somebody wants a number
+    for.
+    """
     import plan_price as PP
 
     gf = PP.find_plan(folder, 'gscm')
@@ -443,6 +451,19 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     else:
         say('  the discount may be borrowed from the whole book - a list '
             'price times what every other category came off theirs')
+
+    extra = 0
+    for code, px in (also or {}).items():
+        if code in planned['items'] or not px:
+            continue
+        planned['items'][code] = {
+            'qty': 0.0, 'amt_aud': 0.0, 'amt_usd': 0.0,
+            'aud': px, 'usd': 0.0, 'chain': ['', '', '', ''],
+        }
+        extra += 1
+    if extra:
+        say(f'  {extra:,} more material(s) the month does not plan but does '
+            'price - re-priced too, at nought planned units')
 
     days = month_days(ym)
     # One lookup per code, shared with the nearest-neighbour search, which
