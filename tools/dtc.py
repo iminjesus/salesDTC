@@ -58,7 +58,15 @@ COLS = {
     'div':    ('Product Division', 'Division'),
     'cat':    ('Product Category', 'Category'),
     'range':  ('Product Range', 'Range'),
+    # What else came off the price besides the campaign. All three are
+    # already inside the revenue column - they are not a leak - but their
+    # penetration is a mix, and a mix that moves moves the month's price
+    # without any campaign changing.
+    'trade':  ('Traded-in Products', 'Primary Traded-in Product Name'),
+    'trade2': ('Primary Traded-in Product Name', 'Traded-in Products'),
+    'vouch':  ('Voucher Code(s)', 'Voucher Code', 'VoucherCode'),
 }
+EMPTY = ('', '0', '0.0', '0.00', '-')
 # Install and delivery are charged on their own lines of the export and are
 # not product revenue. They are named here so it is on the record that the
 # money this reads is the product's, which is what a price is about.
@@ -144,6 +152,9 @@ def read(folder: Path, months=None, say=print, keep=None) -> list:
                 'portal': str(cell(r, at['portal'])).strip(),
                 'dist': str(cell(r, at['dist'])).strip(),
                 'rule': str(cell(r, at['rule'])).strip(),
+                'trade': any(str(cell(r, at[c])).strip() not in EMPTY
+                             for c in ('trade', 'trade2')),
+                'vouch': str(cell(r, at['vouch'])).strip() not in EMPTY,
                 'div': str(cell(r, at['div'])).strip(),
                 'cat': str(cell(r, at['cat'])).strip(),
                 'range': str(cell(r, at['range'])).strip(),
@@ -176,6 +187,10 @@ def main() -> int:
                     help='one month, 2610 or 202610 (default all of them)')
     ap.add_argument('--top', type=int, default=0, metavar='N',
                     help='also list the N biggest products')
+    ap.add_argument('--deals', action='store_true',
+                    help='what share of each month carried a trade-in or a '
+                         'voucher, and what each cost - a mix that moves '
+                         'moves the price with no campaign changing')
     ap.add_argument('--fit', action='store_true',
                     help='how well a flat window predicts the newest month '
                          'against a recency-weighted one, and which '
@@ -223,6 +238,54 @@ def main() -> int:
         print(f'  {MONTHS[(ym % 100) - 1] + " " + str(ym // 100):<10}'
               f'{q:>10,.0f}{a:>14,.0f}'
               f'{("-" if off is None else f"{off:.1f}%"):>10}')
+
+    if args.deals:
+        # A trade-in and a voucher are both already inside the revenue, so
+        # the discount measured off a month carries them at that month's
+        # penetration. Carry that forward to a month with a different
+        # penetration and the price is wrong by the difference - no campaign
+        # need have changed at all.
+        lvl = args.drift if args.drift in ('div', 'cat', 'range') else 'div'
+        kinds = (('clean', lambda r: not r['trade'] and not r['vouch']),
+                 ('voucher', lambda r: r['vouch'] and not r['trade']),
+                 ('trade-in', lambda r: r['trade'] and not r['vouch']),
+                 ('both', lambda r: r['trade'] and r['vouch']))
+        groups = sorted({r[lvl] or '(blank)' for r in rows},
+                        key=lambda g: -sum(r['qty'] for r in rows
+                                           if (r[lvl] or '(blank)') == g))
+        cols = sorted({r['ym'] for r in rows})
+        for g in groups[:6]:
+            mine = [r for r in rows
+                    if (r[lvl] or '(blank)') == g and r['rrp'] > 0]
+            if sum(r['qty'] for r in mine) < 200:
+                continue
+            print(f'\n  {g}  -  share of units, and the discount each gave\n')
+            print(f'  {"":<10}' + ''.join(
+                f'{MONTHS[(m % 100) - 1]:>9}' for m in cols))
+            for name, test in kinds:
+                sh, di = '', ''
+                for m in cols:
+                    here = [r for r in mine if r['ym'] == m]
+                    q = sum(r['qty'] for r in here)
+                    k = [r for r in here if test(r)]
+                    kq = sum(r['qty'] for r in k)
+                    if q <= 0 or kq <= 0:
+                        sh += f'{"-":>9}'
+                        di += f'{"-":>9}'
+                        continue
+                    sh += f'{kq / q * 100:>8.0f}%'
+                    listed = sum(r['qty'] * r['rrp'] for r in k)
+                    amt = sum(r['amt'] for r in k)
+                    di += (f'{(1 - amt / listed) * 100:>8.1f}%'
+                           if listed > 0 else f'{"-":>9}')
+                print(f'  {name:<10}{sh}')
+                print(f'  {"  off list":<10}{di}')
+        print('\n  The share is the thing to watch. These discounts are '
+              'already inside the revenue,')
+        print('  so a month read for its discount carries them at that '
+              'month\u2019s penetration - and')
+        print('  applying it to a month with a different one is wrong by '
+              'the difference.')
 
     if args.fit:
         # The re-price takes a window of months, averages the discount in it

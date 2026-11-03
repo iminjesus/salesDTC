@@ -134,6 +134,38 @@ Those are left out of the fit and named, rather than silently dropped.
 
 Pass the half-life to `reprice` as `--decay`.
 
+## `--deals` - what else came off the price
+
+```
+py tools\dtc.py --deals
+py tools\dtc.py --deals --drift cat
+```
+
+A campaign is not the only thing between the list price and what was paid. A
+trade-in and a voucher both come off too, and on October they are worth more
+than most campaigns:
+
+```
+  MX                units   off list
+  clean             5,388      31.7%
+  voucher           5,332      40.0%
+  trade-in            264      43.7%
+  both                610      49.4%
+```
+
+**None of this leaks.** All of it is already inside `AUD Revenue excl. GST`,
+so a discount measured off a month carries it, and the re-price carries it
+forward.
+
+What does not carry is the **penetration**. A month read for its discount
+carries these at that month's share - on MX nearly half the units had a
+voucher - and applying it to a month with a different share is wrong by the
+difference, with no campaign having changed at all. The report shows that
+share by month, which is the thing to watch.
+
+Affiliates (`rewardsgateway`, `UNIDAYS`, `blc`) move it much less: 35% to 42%
+off list on MX against 37.8% for no affiliate at all.
+
 ## What it drops, and says so
 
 A cancelled line is not a sale, and a line that nets to nothing or less has
