@@ -53,6 +53,11 @@ COLS = {
     'rule':   ('promotion_rule', 'Promotion Rule'),
     'year':   ('Year',),
     'month':  ('Month',),
+    # The export names its own product chain, so a drift report needs no
+    # product master beside it.
+    'div':    ('Product Division', 'Division'),
+    'cat':    ('Product Category', 'Category'),
+    'range':  ('Product Range', 'Range'),
 }
 # Install and delivery are charged on their own lines of the export and are
 # not product revenue. They are named here so it is on the record that the
@@ -139,6 +144,9 @@ def read(folder: Path, months=None, say=print, keep=None) -> list:
                 'portal': str(cell(r, at['portal'])).strip(),
                 'dist': str(cell(r, at['dist'])).strip(),
                 'rule': str(cell(r, at['rule'])).strip(),
+                'div': str(cell(r, at['div'])).strip(),
+                'cat': str(cell(r, at['cat'])).strip(),
+                'range': str(cell(r, at['range'])).strip(),
             }
             if keep and not keep(row):
                 seen['filtered'] += 1
@@ -168,6 +176,11 @@ def main() -> int:
                     help='one month, 2610 or 202610 (default all of them)')
     ap.add_argument('--top', type=int, default=0, metavar='N',
                     help='also list the N biggest products')
+    ap.add_argument('--drift', default=None, metavar='LEVEL',
+                    nargs='?', const='cat',
+                    choices=('div', 'cat', 'range'),
+                    help='how the discount off list moved month by month, '
+                         'by division, category or range (default cat)')
     args = ap.parse_args()
 
     folder = Path(args.dir)
@@ -204,6 +217,50 @@ def main() -> int:
         print(f'  {MONTHS[(ym % 100) - 1] + " " + str(ym // 100):<10}'
               f'{q:>10,.0f}{a:>14,.0f}'
               f'{("-" if off is None else f"{off:.1f}%"):>10}')
+
+    if args.drift:
+        # The re-price averages a window and applies it to the month after.
+        # That is only right where the discount holds still. Where it drifts,
+        # a flat average is wrong in one direction for a product early in its
+        # life and the other for one late in it, which reads as two
+        # categories failing for two reasons when it is one.
+        pot = collections.defaultdict(lambda: collections.defaultdict(
+            lambda: [0.0, 0.0, 0.0]))
+        for r in rows:
+            if r['rrp'] <= 0:
+                continue
+            t = pot[r[args.drift] or '(blank)'][r['ym']]
+            t[0] += r['qty']
+            t[1] += r['amt']
+            t[2] += r['qty'] * r['rrp']
+        cols = sorted({m for g in pot.values() for m in g})
+        if len(cols) < 2:
+            print(f'\n  only {len(cols)} month in the folder - a drift needs '
+                  'at least two')
+        else:
+            w = max(14, max(len(k) for k in pot) + 1)
+            head = ''.join(f'{MONTHS[(m % 100) - 1]:>9}' for m in cols)
+            print(f'\n  discount off list, by month  ({args.drift})\n')
+            print(f'  {args.drift:<{w}}{head}{"swing":>9}{"units":>9}')
+            for k in sorted(pot, key=lambda k: -sum(
+                    v[0] for v in pot[k].values())):
+                cells, got = '', []
+                for m in cols:
+                    q, a, l = pot[k].get(m, [0.0, 0.0, 0.0])
+                    if q < 20 or l <= 0:
+                        cells += f'{"-":>9}'
+                        continue
+                    off = (1 - a / l) * 100
+                    got.append(off)
+                    cells += f'{off:>8.1f}%'
+                q = sum(v[0] for v in pot[k].values())
+                swing = (f'{max(got) - min(got):>8.1f}%' if len(got) > 1
+                         else f'{"-":>9}')
+                print(f'  {k[:w - 1]:<{w}}{cells}{swing}{q:>9,.0f}')
+            print('\n  swing is the widest month-to-month gap. A category '
+                  'that moves more than a few points')
+            print('  is one a flat six-month average will price wrong in '
+                  'whichever direction it has drifted.')
 
     if args.top:
         pot = collections.defaultdict(lambda: [0.0, 0.0])

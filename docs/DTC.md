@@ -64,6 +64,33 @@ is the basis the GSCM sheet appears to be on. That is the argument for it,
 and it is worth knowing before a number from one is read beside a number
 from the other.
 
+## `--drift` - does the discount hold still?
+
+```
+py tools\dtc.py --drift          # by product category
+py tools\dtc.py --drift div
+```
+
+The re-price averages a window of months and applies it to the month after.
+That is only right where the discount holds still. Where it drifts, a flat
+average is wrong in **one direction for a product early in its life and the
+other for one late in it** - which reads as two categories failing for two
+reasons when it is one reason twice.
+
+The report is the discount off list, month by month, with the widest
+month-to-month gap beside it. A category that swings more than a few points
+is one a flat six-month average will price wrong in whichever direction it
+has drifted, and is the case `--decay` exists for.
+
+```
+  div                 Sep      Oct    swing    units
+  MX                31.0%    38.3%     7.4%   23,188
+  TV & SD           37.5%    44.2%     6.7%    7,188
+```
+
+It needs no product master: the export names its own division, category and
+range.
+
 ## What it drops, and says so
 
 A cancelled line is not a sale, and a line that nets to nothing or less has
