@@ -264,6 +264,9 @@ def main() -> int:
                          'the product has none of its own for that '
                          'promotion (default sku: no borrowing - its own '
                          'six-month discount is used instead)')
+    ap.add_argument('--flat-days', action='store_true',
+                    help='weight every day of the month alike instead of '
+                         'by how hard each campaign sells')
     ap.add_argument('--no-mix', action='store_true',
                     help='ignore the plan\u2019s B2B share and price every '
                          'material at the mix the history happened to have')
@@ -324,7 +327,8 @@ def main() -> int:
     priced = RP.reprice(folder, (2000 + ym // 100) * 100 + ym % 100,
                         args.back, args.plan,
                         scope=args.scope, decay=args.decay, also=also,
-                        new_cap=args.new_cap / 100.0, no_mix=args.no_mix)
+                        new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
+                        flat_days=args.flat_days)
     price = {PM.code_norm(k): v['price'] for k, v in priced.items()
              if v.get('price')
              and not (args.blank_kept and v.get('how') == 'kept')}

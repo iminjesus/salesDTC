@@ -62,6 +62,9 @@ ROOT = Path(__file__).resolve().parent.parent
 # as that pair's own. Below it the pair borrows from its division, and below
 # that from the month: three units at an odd price is an anecdote.
 MIN_UNITS = 5
+# How many product-days a campaign needs before its pull on volume is read.
+# A campaign seen on two days is an anecdote about two days.
+MIN_DAYS = 3
 # The product levels this borrows by, coarsest last.
 PROD_COLS = {'div3': ('Div 3', 'Div3', 'Category', 'Prod_group'),
              'div1': ('Div 1', 'Div1', 'Division 1', 'Division'),
@@ -166,6 +169,13 @@ class History:
         # The same tally split by channel, which is the only way to see what
         # the B2B half of a month costs that the consumer half does not.
         self.ch: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        # Units and product-days under each campaign. Dividing one by the
+        # other gives the rate a campaign sells at, and the ratio of that to
+        # the off-promotion rate is how much harder a promotion pulls. It
+        # takes every line, including those with no list price, because this
+        # is about volume and not about discount.
+        self.vol: dict = collections.defaultdict(float)
+        self.days: dict = collections.defaultdict(float)
 
     def weight(self, day) -> float:
         if not self.half or self.ref is None or day is None:
@@ -185,6 +195,10 @@ class History:
         self.skus[code][0] += qty * w
         self.skus[code][1] += amt * w
         self.skus[code][2] += qty
+        for scope in (('sku', code), ('div3', level.get('div3')),
+                      ('div1', level.get('div1')), ('all', '')):
+            if scope[1] is not None:
+                self.vol[(scope, camp)] += qty
         if not rrp:
             return
         for scope in (('sku', code), ('div3', level.get('div3')),
@@ -232,6 +246,32 @@ class History:
 
     def sold(self, code):
         return self.skus.get(code, [0.0, 0.0, 0.0])[2]
+
+    def saw(self, code, level, camp):
+        """One product-day, under whatever campaign covered it."""
+        for scope in (('sku', code), ('div3', level.get('div3')),
+                      ('div1', level.get('div1')), ('all', '')):
+            if scope[1] is not None:
+                self.days[(scope, camp)] += 1
+
+    def pull(self, scope, camp):
+        """How much harder this campaign sells than an ordinary day.
+
+        Units per product-day under the campaign, over units per product-day
+        with no campaign on. One means a promotion that shifts no more than
+        a quiet day; two means it shifts twice as much, and a day like that
+        is worth twice as much of the month's price.
+
+        Clamped, because a campaign that ran over one freak weekend should
+        move a month's price and not define it.
+        """
+        on_u, on_d = self.vol.get((scope, camp), 0.0), \
+            self.days.get((scope, camp), 0.0)
+        off_u, off_d = self.vol.get((scope, NO_CAMP), 0.0), \
+            self.days.get((scope, NO_CAMP), 0.0)
+        if on_d < MIN_DAYS or off_d < MIN_DAYS or on_u <= 0 or off_u <= 0:
+            return None
+        return min(5.0, max(0.2, (on_u / on_d) / (off_u / off_d)))
 
     def mix(self, scope):
         """(B2B's share of the units, how much deeper its discount is).
@@ -284,6 +324,14 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                       campaign_at(plan, canon, code, r['day']),
                       r['qty'], r['amt'], rrp, r['day'],
                       chan=(r['dist'] or '').upper() or None)
+            # One pass over every product and every day of the window,
+            # so a campaign's days are counted whether or not it sold on
+            # them - a promotion that sold nothing is still a day it was on.
+            span = [d for m in months for d in month_days(m)]
+            for code in list(h.skus):
+                lv = levels.get(code, {})
+                for d in span:
+                    h.saw(code, lv, campaign_at(plan, canon, code, d))
             say(f'  {len(rows):,} DTC line(s); {len(h.skus):,} product(s) '
                 'with a realised price')
             if miss:
@@ -391,7 +439,7 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
               scope: str = 'sku', rrp_at=None, new_cap: float = 0.0,
-              b2b: float = None):
+              b2b: float = None, flat_days: bool = False):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -452,9 +500,28 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             return own, 'this product, six-month average'
         return None, None
 
+    def pull_for(camp):
+        """How much of the month's selling this day is worth, against one.
+
+        A promotion day is not a thirty-first of the month. It sells harder
+        than a quiet one, so it carries more of the month's price, and the
+        calendar average that treats them alike prices the month as though
+        nobody waited for the sale.
+        """
+        if flat_days or not camp:
+            return 1.0
+        for sc in (('sku', k), ('div3', lv.get('div3')),
+                   ('div1', lv.get('div1')), ('all', '')):
+            if sc[1] is None:
+                continue
+            p = hist.pull(sc, camp)
+            if p is not None:
+                return p
+        return 1.0
+
     if rrp and (own is not None or hist.discount(('sku', k), ANY) is not None
                 or deep):
-        total, on = 0.0, 0
+        total, wsum, on = 0.0, 0.0, 0
         used = collections.Counter()
         for day in days:
             camp = campaign_at(plan, canon, k, day)
@@ -465,9 +532,11 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 total = None
                 break
             used[(camp or '(no campaign)', from_)] += 1
-            total += rrp * (1.0 - min(0.95, max(0.0, d + shift)))
+            w = pull_for(camp)
+            wsum += w
+            total += w * rrp * (1.0 - min(0.95, max(0.0, d + shift)))
         if total is not None:
-            price = total / len(days)
+            price = total / (wsum or len(days))
             where = [f'{c} x{n} ({f})' for (c, f), n in used.most_common(4)]
             if abs(shift) >= 0.001:
                 where.append(f'{shift * 100:+.1f}pp for a '
@@ -512,7 +581,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             scope: str = 'sku', decay: float = 0.0, also=None,
             source: str = 'auto', new_cap: float = 0.0,
-            no_mix: bool = False) -> dict:
+            no_mix: bool = False, flat_days: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -556,6 +625,21 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
+    if flat_days:
+        say('  every day of the month weighted alike')
+    else:
+        got = sorted(p for p in (hist.pull(('all', ''), c)
+                                 for c in {c for (sc, c) in hist.vol
+                                           if sc == ('all', '') and c})
+                     if p is not None)
+        if got:
+            say(f'  {len(got)} campaign(s) with a measurable pull on volume, '
+                f'median {got[len(got) // 2]:.2f}x an ordinary day -')
+            say('  a day that sells twice as hard carries twice as much of '
+                'the month\u2019s price')
+        else:
+            say('  no campaign sold on enough days to weight by, so every '
+                'day counts alike')
     if not no_mix:
         m = hist.mix(('all', ''))
         if m is None:
@@ -601,7 +685,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     for code, it in planned['items'].items():
         price, kind, rrp, promo, where = price_for(
             code, plan, canon, hist, levels, days, it['aud'], scope=scope,
-            rrp_at=rrp_at, new_cap=new_cap,
+            rrp_at=rrp_at, new_cap=new_cap, flat_days=flat_days,
             b2b=(None if no_mix else it.get('b2b')))
         how[kind] += 1
         # The nearest SKU is named on the row, not only in the prose, so a
@@ -656,6 +740,9 @@ def main() -> int:
                          'product has none of its own (default div1, which '
                          'blocks only the whole book; all restores the '
                          'behaviour before this flag existed)')
+    ap.add_argument('--flat-days', action='store_true',
+                    help='weight every day of the month alike instead of '
+                         'by how hard each campaign sells')
     ap.add_argument('--no-mix', action='store_true',
                     help='ignore the plan\u2019s B2B share and price every '
                          'material at the mix the history happened to have')
@@ -697,7 +784,8 @@ def main() -> int:
 
     out = reprice(folder, full, args.back, args.plan,
                   scope=args.scope, decay=args.decay, source=args.source,
-                  new_cap=args.new_cap / 100.0, no_mix=args.no_mix)
+                  new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
+                  flat_days=args.flat_days)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     path.parent.mkdir(parents=True, exist_ok=True)

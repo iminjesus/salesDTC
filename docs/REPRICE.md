@@ -86,6 +86,33 @@ Steps 1 and 2 are walked a day at a time, because October's plan puts
 different promotions on different days: a product on Boost Week for nine days
 is not the same price as one on it for all thirty-one.
 
+**A day is weighted by how hard it sells, not by being a day.** A three-day
+promotion is not three thirty-firsts of a month - people wait for the sale.
+How much harder each campaign sells is measured from the history, as units
+per product-day under the campaign over units per product-day with no
+campaign on:
+
+```
+    8,218 units  18,699 product-days   1.00x  (no campaign)
+    4,019 units   4,033 product-days   2.27x  Samsung Week
+    1,361 units     477 product-days   5.00x  Samsung Boost Week | October
+      722 units     334 product-days   4.92x  Tab S12 Launch
+```
+
+A day that sells twice as hard carries twice as much of the month's price.
+The ratio is read at the narrowest scope with at least three product-days on
+both sides - the material, its group, its division, the whole book - and is
+clamped to between 0.2x and 5x, because a campaign that ran over one freak
+weekend should move a month's price and not define it.
+
+It only changes a price where the discount actually differs between those
+days. Where a product has one discount across the whole month, re-weighting
+the days leaves it exactly where it was.
+
+`--flat-days` goes back to counting every day alike. The calendar average
+prices a month as though nobody waited for the sale: on October, promotion
+days were 51.1% of the calendar and carried 56.6% of the units.
+
 Step 2 is the one worth naming. A product's own behaviour under a different
 promotion is a better guide to its price than another product's behaviour
 under this one, so the fallback goes sideways to the same SKU and not
