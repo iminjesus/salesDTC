@@ -201,7 +201,7 @@ class History:
         self.cg: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
         self.pr: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
         self.pen: dict = collections.defaultdict(lambda: [0.0, 0.0])
-        self.aspm: dict = collections.defaultdict(lambda: [0.0, 0.0])
+        self.mon: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
 
     def weight(self, day) -> float:
         if not self.half or self.ref is None or day is None:
@@ -229,6 +229,16 @@ class History:
                     t = self.pen[(scope, ym)]
                     t[0] += qty if deal else 0.0
                     t[1] += qty
+                    # Off-campaign lines only. The campaign nudge
+                    # already answers for how much promotion October
+                    # carries; if this counted the promoted lines too, a
+                    # window that was deep *because* it was busy would be
+                    # charged for twice.
+                    if not camp:
+                        t = self.mon[(scope, ym)]
+                        t[0] += amt
+                        t[1] += qty * rrp
+                        t[2] += qty
         # The ASP tally takes every line; the discount tally takes only the
         # lines that have a list price to be a discount off. Mixing them put
         # money in the numerator with nothing in the denominator and read as a
@@ -408,6 +418,34 @@ class History:
         allq = sum(t[1] for _, t in got)
         flat = sum(t[0] for _, t in got) / allq if allq else late
         return late, flat, a - b
+
+    def recent(self, scope, months):
+        """How much shallower the newest month is than the window average.
+
+        The window is not a flat place. July and August are the two biggest
+        months in the file and they discount hardest, so an average over six
+        months sits deeper than a quiet month does - which prices a quiet
+        month too cheap and a loud one too dear.
+
+        Read off **off-campaign lines only**, so it measures the level the
+        group has drifted to and not how busy its promotions were. How busy
+        October is, is the campaign nudge's job; counting the promoted lines
+        here as well would charge a busy window for twice.
+
+        Returned as a discount difference like the rest, so it goes through
+        the same arithmetic and needs no special case.
+        """
+        got = [(m, self.mon.get((scope, m))) for m in months]
+        got = [(m, t) for m, t in got if t and t[1] > 0 and t[2] >= MIN_UNITS]
+        if len(got) < 3:
+            return None
+        late = self._rate(got[-1][1])
+        amt = sum(t[0] for _, t in got)
+        listed = sum(t[1] for _, t in got)
+        flat = 1 - amt / listed if listed > 0 else None
+        if late is None or flat is None:
+            return None
+        return late - flat
 
     def mix(self, scope):
         """(B2B's share of the units, how much deeper its discount is).
@@ -632,6 +670,11 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
             adj += d
             why.append(f'{b2b * 100:.0f}% B2B planned against '
                        f'{got[0] * 100:.0f}%: {d * 100:+.1f}pp')
+    got, where = group(lambda sc: hist.recent(sc, months))
+    if got is not None:
+        adj += got
+        why.append(f'the newest month ran {got * 100:+.1f}pp against the '
+                   f'window ({where})')
     got, where = group(lambda sc: hist.deals(sc, months))
     if got:
         d = (got[0] - got[1]) * got[2]

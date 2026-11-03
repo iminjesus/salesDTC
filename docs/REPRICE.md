@@ -82,6 +82,7 @@ price  =  the product's own six-month ASP
                       costs its group
           nudged by  (deals lately  -  deals over the window)  x  what an
                       unplanned deal costs its group
+          nudged by  (the newest month's level  -  the window's level)
 ```
 
 **Nothing is borrowed and nothing is keyed by campaign per product.** An
@@ -94,6 +95,19 @@ Every nudge is a **group** ratio, so it moves a whole group together and
 adds no per-product scatter. Each is a *difference* between what October is
 planned to be and what the window happened to be, so **none of them fires
 where the two sides agree** - which is what makes them safe to leave on.
+
+The fourth is there because **a window is not a flat place**. July and
+August are the two biggest months in the file and they discount hardest, so
+a six-month average sits deeper than a quiet month does - which prices a
+quiet month too cheap and a loud one too dear. Measured on October: REF's
+window ran 2.4 points deeper than the month did and Mobile's 1.5, pricing
+them 3.9% and 2.4% too cheap, while TV's ran 2.8 points shallower and
+priced it 4.9% too dear. Every FDR and BMF line coming out positive is that,
+and it is a level and not a scatter.
+
+It reads **off-campaign lines only**. How much promotion October carries is
+the first nudge's job; counting the promoted lines here as well would charge
+a busy window for twice.
 
 The third is for the discounts no plan will ever carry: a voucher, a
 trade-in, an e-promoter code. They are standing offers, not campaigns, so
