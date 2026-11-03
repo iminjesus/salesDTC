@@ -361,11 +361,16 @@ class History:
         return (1 - t[0] / t[1]) if t and t[1] > 0 else None
 
     def campaign(self, scope):
-        """(share of units sold on a campaign, what a campaign is worth).
+        """(share of product-days on a campaign, what a campaign is worth).
 
-        Both read off the same lines, so the pair says how much of the
-        group's selling happened under a promotion and how many points
-        deeper it went than the rest.
+        **Days, not units.** The other side of this comparison is October's
+        planned calendar, which can only be counted in days - the month has
+        not happened, so it has no units. A campaign sells two and a half
+        times an ordinary day, so its share of the units always runs well
+        above its share of the days, and comparing the one against the other
+        reads a difference where there is none and misses one where there
+        is. The discount either side of it is unit-weighted, as a realised
+        discount has to be; only the coverage is counted in days.
         """
         on, off = self.cg.get((scope, 'on')), self.cg.get((scope, 'off'))
         if not on or not off or on[2] < MIN_UNITS or off[2] < MIN_UNITS:
@@ -373,7 +378,12 @@ class History:
         a, b = self._rate(on), self._rate(off)
         if a is None or b is None:
             return None
-        return on[2] / (on[2] + off[2]), a - b
+        don = sum(v for (sc, c), v in self.days.items()
+                  if sc == scope and c)
+        doff = self.days.get((scope, NO_CAMP), 0.0)
+        if don + doff <= 0:
+            return None
+        return don / (don + doff), a - b
 
     def deals(self, scope, months):
         """(penetration lately, penetration over the window, what it costs).
@@ -824,12 +834,15 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         f'{MONTHS[(months[-1] % 100) - 1]}:')
     hist = read_history(folder, plan, canon, months, levels, say=say,
                         half=decay, source=source,
-                        want_days=(model != 'simple'))
+                        want_days=True)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
     if model == 'simple':
-        pass
+        c = hist.campaign(('all', ''))
+        if c:
+            say(f'  a campaign covered {c[0] * 100:.0f}% of the window\u2019s '
+                f'product-days and went {c[1] * 100:+.1f}pp deeper')
     elif flat_days:
         say('  every day of the month weighted alike')
     else:

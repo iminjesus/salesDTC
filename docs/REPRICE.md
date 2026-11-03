@@ -101,6 +101,14 @@ nothing forecasts them; what can be done is to notice a group has been
 running them harder lately than its window average and move the price by the
 difference.
 
+The campaign nudge counts **days on both sides**. October has not happened,
+so its calendar is all there is to count; and a campaign sells about two and
+a half times an ordinary day, so its share of a window's units runs far
+above its share of the days. Comparing the one against the other reads a
+difference where there is none - on one run, October's 40% of days against
+the window's 57% of units, a spurious 17 points that lifted every price
+about 1.4%.
+
 A change in discount becomes a change in price only after dividing by what
 was left of the list price to begin with - two points off a product already
 half off is twice the move it is on one at list.
