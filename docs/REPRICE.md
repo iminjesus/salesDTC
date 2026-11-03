@@ -53,17 +53,27 @@ Two deliberate limits:
 
 ## Two knobs, and what each is for
 
-Both default to the behaviour this started with, so an unflagged run
-reproduces the numbers already measured. They exist because the first real
-simulation improved most of the book and made two parts of it worse, and the
-two failed in different ways.
+They exist because the first real simulation improved most of the book -
+deviation 288 to 225 - and made two parts of it worse, in two different ways.
+One of them has since been answered and is now the default; the other is a
+flag that stays off until there is a measurement for it.
 
 ### `--scope {sku,div3,div1,all}` - how far a discount may be borrowed
+
+**Default `div1`.** `all` restores what this did before the flag existed.
 
 A product with no history of its own borrows a discount, nearest first: its
 own, then Div 3, then Div 1, then the whole book. `all` is the last rung and
 the loosest: it multiplies a fridge's own list price by what televisions and
-phones came off theirs.
+phones came off theirs. That rung is off by default now - a product may
+borrow from its own group and its own division, and not from the book
+entire.
+
+The cap is the narrowest change the evidence supports. REF came back
+scattered and the rung that can be argued against from the numbers alone is
+the last one; `div3` is tighter still and costs more coverage, so it is
+available and not assumed. Which rung a given miss actually sat on is in
+`docs/spread_<month>.csv` under `Borrowed from`.
 
 That rung is a likely source of **scatter inside a category that the plan had
 priced tightly**. The symptom is a deviation that gets *worse* where the GSCM
@@ -77,6 +87,11 @@ to its own six-month ASP, and failing that keeps the price the sheet already
 had. Both say less than a borrowed discount, and neither makes anything up.
 
 ### `--decay MONTHS` - how much the recent months count for
+
+**Default 0**, every month in the window counting alike. This one is off
+until there is a measurement behind it: the reasoning below is sound and the
+category it is aimed at has not yet been confirmed to miss for that reason
+rather than another.
 
 At nought every month in the window counts alike. Set, a line `MONTHS` old
 counts half as much as one from last month, and one twice that age a quarter.

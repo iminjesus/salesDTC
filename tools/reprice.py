@@ -75,6 +75,12 @@ NO_CAMP = ''                     # the key for a day with no campaign on it
 # price the sheet already had - both of which say less, and neither of which
 # invents a number.
 SCOPES = ('sku', 'div3', 'div1', 'all')
+# `div1` is the default: a product may borrow from its own history, its
+# product group, or its division, and not from the book entire. That last
+# rung was measurably doing harm - a category the GSCM sheet had priced
+# tightly came back scattered, and one product group's deviation collapsed to
+# six hundredths of a dollar, which is every model in it sharing one borrowed
+# number rather than a model that fits. `all` restores it.
 
 
 def month_days(ym: int) -> list:
@@ -257,7 +263,7 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
 
 
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
-              scope: str = 'all'):
+              scope: str = 'div1'):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -314,7 +320,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 
 
 def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
-            scope: str = 'all', decay: float = 0.0) -> dict:
+            scope: str = 'div1', decay: float = 0.0) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached."""
     import plan_price as PP
 
@@ -353,6 +359,9 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     if scope != 'all':
         say(f'  the discount may be borrowed no further than {scope} - '
             'past that a product falls to its own ASP, then to the sheet')
+    else:
+        say('  the discount may be borrowed from the whole book - a list '
+            'price times what every other category came off theirs')
 
     days = month_days(ym)
     out = {}
@@ -391,9 +400,11 @@ def main() -> int:
                     help='how many months of history to read (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
-    ap.add_argument('--scope', default='all', choices=SCOPES,
+    ap.add_argument('--scope', default='div1', choices=SCOPES,
                     help='how far a discount may be borrowed from when the '
-                         'product has none of its own (default all)')
+                         'product has none of its own (default div1, which '
+                         'blocks only the whole book; all restores the '
+                         'behaviour before this flag existed)')
     ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
                     help='half-life: a line this much older counts half as '
                          'much (default 0, every month alike)')

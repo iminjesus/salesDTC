@@ -18,7 +18,12 @@ selling at over the months behind it. `docs/REPRICE.md` has the method.
 
 It is the **same number the dashboard draws**, from the same call
 `dashboard/build_pnl.py` makes - `tools/reprice.py` over `rawdata` - so the
-column and the card cannot disagree. Change `--back` and both move together.
+column and the card cannot disagree. Change `--back`, `--scope` or `--decay`
+and both move together.
+
+`--scope` defaults to `div1`: a product with no history of its own may borrow
+a discount from its group or its division, and not from the whole book.
+`--scope all` restores the looser behaviour. `docs/REPRICE.md` has why.
 
 ## One column, and why only one
 

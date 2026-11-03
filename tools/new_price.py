@@ -190,9 +190,11 @@ def main() -> int:
                     help='months of history the re-price reads (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
-    ap.add_argument('--scope', default='all', choices=RP.SCOPES,
+    ap.add_argument('--scope', default='div1', choices=RP.SCOPES,
                     help='how far a discount may be borrowed from when the '
-                         'product has none of its own (default all)')
+                         'product has none of its own (default div1, which '
+                         'blocks only the whole book; all restores the '
+                         'behaviour before this flag existed)')
     ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
                     help='half-life: a line this much older counts half as '
                          'much (default 0, every month alike)')
