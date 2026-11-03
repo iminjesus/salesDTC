@@ -41,6 +41,12 @@ CODE = ('Item', 'Material', 'Material Code', 'SKU', 'Model')
 # The chain the sheet carries itself. The page does not use it to place a row -
 # it has its own product master for that - but a planned code that never sold
 # is only ever seen here, and without this it could not be named.
+# Which account a row is for. The sheet plans a material separately for the
+# consumer store and the B2B one, at one shared price, and the split of the
+# units between them is the only place the plan says how much of the month is
+# expected to go out at the deeper B2B discount.
+ACCOUNT = ('Account', 'Sales Org', 'Channel')
+B2B = 'B2B'
 CHAIN = (('Biz', ('Biz', 'Business', 'Business Unit')),
          ('Div 1', ('DIV 1', 'Div 1', 'Div1', 'Division 1')),
          ('Div 2', ('DIV 2', 'Div 2', 'Div2', 'Division 2')),
@@ -97,6 +103,7 @@ def read_plan(path: Path, ym: int, say=print) -> dict | None:
             + ', '.join(h for h in head if h)[:160])
         return None
     ch = {name: find(head, *names) for name, names in CHAIN}
+    acc = find(head, *ACCOUNT)
     derived = at['aud'] is None or at['usd'] is None
 
     items: dict = {}
@@ -113,11 +120,13 @@ def read_plan(path: Path, ym: int, say=print) -> dict | None:
         it = items.get(code)
         if it is None:
             it = items[code] = {
-                'qty': 0.0, 'amt_aud': 0.0, 'amt_usd': 0.0,
+                'qty': 0.0, 'qty_b2b': 0.0, 'amt_aud': 0.0, 'amt_usd': 0.0,
                 'aud': num(at['aud']), 'usd': num(at['usd']),
                 'chain': [(r[i].strip() if i is not None and i < len(r) else '')
                           for i in ch.values()],
             }
+        if acc is not None and acc < len(r) and B2B in str(r[acc]).upper():
+            it['qty_b2b'] += q
         it['qty'] += q
         it['amt_aud'] += aa
         it['amt_usd'] += au
@@ -133,7 +142,14 @@ def read_plan(path: Path, ym: int, say=print) -> dict | None:
             if not it[cur]:
                 it[cur] = (it[amt] / it['qty']) if it['qty'] else 0.0
                 short += 1
+    for v in items.values():
+        v['b2b'] = (v['qty_b2b'] / v['qty']) if v['qty'] else 0.0
     items = {k: v for k, v in items.items() if v['qty'] or v['amt_aud']}
+    if acc is not None:
+        tq = sum(v['qty'] for v in items.values())
+        tb = sum(v['qty_b2b'] for v in items.values())
+        if tq:
+            say(f'  {tb / tq * 100:.1f}% of the planned units are B2B')
     say(f'  {path.name}: {rows:,} row(s), {len(items):,} material(s) for {m}, '
         f'{sum(v["qty"] for v in items.values()):,.0f} unit(s), '
         f'{sum(v["amt_aud"] for v in items.values()):,.0f} AUD / '

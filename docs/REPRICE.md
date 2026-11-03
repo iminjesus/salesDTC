@@ -109,6 +109,55 @@ that where a division cannot.
 A new SKU priced off a neighbour is a judgement. It is on the row so it can
 be overruled one line at a time rather than buried in a log.
 
+## The B2B mix
+
+The sheet plans each material **twice** - once for `E-STORE`, once for
+`E-STORE_B2B` - at one shared price, and the split of the units between them
+is the only place the plan says how much of the month is expected to go out
+at the deeper B2B discount. On October that is 38.2% of the planned units
+overall, and anywhere from 0% to 50% on a given material.
+
+B2B really is cheaper. Measured on the DTC export's own `Distribution`
+column:
+
+```
+  div           B2C off  B2B off     gap  B2B share
+  MX              36.2%    40.9%   +4.7%      41.4%
+  TV & SD         42.1%    46.7%   +4.6%      31.4%
+  DA              39.4%    41.4%   +2.0%      25.4%
+  Monitor         36.9%    42.7%   +5.9%      27.6%
+  ALL             38.1%    42.4%   +4.3%      36.5%
+```
+
+**It stays one price.** The sheet quotes one price per material across both
+accounts and so does this. What moves is how much of the B2B discount is
+carried in that one price.
+
+The adjustment is a **difference, not a bonus**, and that is the part worth
+being clear about. The blended discount the history gives already contains
+B2B at whatever share the history happened to have. Adding the B2B gap on
+top of it would count that side twice. So what is applied is
+
+```
+shift = (the plan's B2B share  -  the history's B2B share) x the gap
+```
+
+read at the narrowest scope with enough units on both sides - the material,
+then its group, its division, the whole book - and the row says so:
+`-1.3pp for a 40% B2B plan`.
+
+Which means it cuts both ways, and on the real data it mostly cuts down. A
+tablet sells heavily into education and government, so its own history can be
+70% B2B while the plan expects 40%; correcting it to the plan's mix takes
+discount **off**. On one month's run 168 materials gained discount and 222
+lost it, the net being -0.47 points. Where a material's plan and history
+agree on the mix, nothing moves at all.
+
+It reaches every price built on a discount - the `rrp` rows and the `new`
+ones, whose neighbour's discount is at the neighbour's own mix and needs the
+same correction. `asp` and `kept` rows are not built on a discount and are
+left alone. `--no-mix` turns it off.
+
 ## The knobs
 
 They exist because the first real simulation improved most of the book -

@@ -163,6 +163,9 @@ class History:
         self.ref = ref
         self.by: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         self.skus: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        # The same tally split by channel, which is the only way to see what
+        # the B2B half of a month costs that the consumer half does not.
+        self.ch: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
 
     def weight(self, day) -> float:
         if not self.half or self.ref is None or day is None:
@@ -171,7 +174,7 @@ class History:
                + (self.ref % 100 - day.month))
         return 0.5 ** (max(0, age) / self.half)
 
-    def add(self, code, level, camp, qty, amt, rrp, day=None):
+    def add(self, code, level, camp, qty, amt, rrp, day=None, chan=None):
         if qty <= 0:
             return
         w = self.weight(day)
@@ -194,6 +197,11 @@ class History:
                 t[1] += amt * w
                 t[2] += qty * rrp * w
                 t[3] += qty
+            if chan:
+                t = self.ch[(scope, chan)]
+                t[0] += amt * w
+                t[1] += qty * rrp * w
+                t[2] += qty
 
     def discount(self, scope, camp):
         """1 - what was collected over what was listed, or None.
@@ -224,6 +232,23 @@ class History:
 
     def sold(self, code):
         return self.skus.get(code, [0.0, 0.0, 0.0])[2]
+
+    def mix(self, scope):
+        """(B2B's share of the units, how much deeper its discount is).
+
+        Both off the same lines, so the pair describes one population: how
+        much of it went out on the B2B side, and what that side costs over
+        the consumer one. None where either side is too thin to mean
+        anything - a gap read off three units is not a gap.
+        """
+        b = self.ch.get((scope, 'B2B'))
+        c = self.ch.get((scope, 'B2C'))
+        if not b or not c or b[2] < MIN_UNITS or c[2] < MIN_UNITS:
+            return None
+        if b[1] <= 0 or c[1] <= 0:
+            return None
+        return (b[2] / (b[2] + c[2]),
+                (1 - b[0] / b[1]) - (1 - c[0] / c[1]))
 
 
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
@@ -257,7 +282,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     miss += 1
                 h.add(code, levels.get(code, {}),
                       campaign_at(plan, canon, code, r['day']),
-                      r['qty'], r['amt'], rrp, r['day'])
+                      r['qty'], r['amt'], rrp, r['day'],
+                      chan=(r['dist'] or '').upper() or None)
             say(f'  {len(rows):,} DTC line(s); {len(h.skus):,} product(s) '
                 'with a realised price')
             if miss:
@@ -364,7 +390,8 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
-              scope: str = 'sku', rrp_at=None, new_cap: float = 0.0):
+              scope: str = 'sku', rrp_at=None, new_cap: float = 0.0,
+              b2b: float = None):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -378,6 +405,26 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 
     deep = SCOPES.index(scope if scope in SCOPES else 'sku')
     own = hist.own(k)
+
+    # The plan says what share of this material's October is meant to go out
+    # on the B2B account, and the history says what share went that way
+    # before and how much deeper that side discounts. Where the two shares
+    # differ, the blended discount the history gives is the discount of the
+    # wrong mix, and the difference is worth exactly (shift x gap).
+    #
+    # It stays one price. The sheet quotes one price per material across both
+    # accounts and so does this - what moves is how much of the B2B discount
+    # is carried in it, in proportion to how much B2B the month is planning.
+    shift = 0.0
+    if b2b is not None:
+        for sc in (('sku', k), ('div3', lv.get('div3')),
+                   ('div1', lv.get('div1')), ('all', '')):
+            if sc[1] is None:
+                continue
+            m = hist.mix(sc)
+            if m is not None:
+                shift = (b2b - m[0]) * m[1]
+                break
 
     def disc(camp):
         """This product under this campaign, then the ways round not having it.
@@ -418,10 +465,13 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 total = None
                 break
             used[(camp or '(no campaign)', from_)] += 1
-            total += rrp * (1.0 - d)
+            total += rrp * (1.0 - min(0.95, max(0.0, d + shift)))
         if total is not None:
             price = total / len(days)
             where = [f'{c} x{n} ({f})' for (c, f), n in used.most_common(4)]
+            if abs(shift) >= 0.001:
+                where.append(f'{shift * 100:+.1f}pp for a '
+                             f'{b2b * 100:.0f}% B2B plan')
             return price, 'rrp', rrp, on / len(days), where
     # Its own ASP, where it has one and no list price to discount.
     asp = hist.asp(k)
@@ -445,7 +495,14 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             note = (f'new SKU; nearest {near} at {d * 100:.1f}% off list'
                     + (f', capped to {capped * 100:.1f}%'
                        if capped < d else ''))
-            return rrp * (1.0 - capped), 'new', rrp, 0.0, [note]
+            # The neighbour's discount is at the neighbour's own mix, so it
+            # needs the same correction as any other - otherwise a new SKU
+            # is the one row on the sheet priced at somebody else's B2B
+            # share.
+            if abs(shift) >= 0.001:
+                note += f'; {shift * 100:+.1f}pp for a {b2b * 100:.0f}% B2B plan'
+            out = min(0.95, max(0.0, capped + shift))
+            return rrp * (1.0 - out), 'new', rrp, 0.0, [note]
         a = hist.asp(near)
         if a:
             return a, 'new', rrp, 0.0, [f'new SKU; ASP of nearest {near}']
@@ -454,7 +511,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 
 def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             scope: str = 'sku', decay: float = 0.0, also=None,
-            source: str = 'auto', new_cap: float = 0.0) -> dict:
+            source: str = 'auto', new_cap: float = 0.0,
+            no_mix: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -498,6 +556,16 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
+    if not no_mix:
+        m = hist.mix(('all', ''))
+        if m is None:
+            say('  no channel on the history, so the plan\u2019s B2B share '
+                'cannot be applied')
+        else:
+            say(f'  B2B took {m[0] * 100:.1f}% of the history\u2019s units '
+                f'at {m[1] * 100:+.1f}pp on the discount; the plan\u2019s '
+                'own')
+            say('  share per material moves each price by the difference')
     if scope != 'all':
         say(f'  the discount may be borrowed no further than {scope} - '
             'past that a product falls to its own ASP, then to the sheet')
@@ -533,7 +601,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     for code, it in planned['items'].items():
         price, kind, rrp, promo, where = price_for(
             code, plan, canon, hist, levels, days, it['aud'], scope=scope,
-            rrp_at=rrp_at, new_cap=new_cap)
+            rrp_at=rrp_at, new_cap=new_cap,
+            b2b=(None if no_mix else it.get('b2b')))
         how[kind] += 1
         # The nearest SKU is named on the row, not only in the prose, so a
         # sheet can filter on it: a new product priced off a neighbour is a
@@ -587,6 +656,9 @@ def main() -> int:
                          'product has none of its own (default div1, which '
                          'blocks only the whole book; all restores the '
                          'behaviour before this flag existed)')
+    ap.add_argument('--no-mix', action='store_true',
+                    help='ignore the plan\u2019s B2B share and price every '
+                         'material at the mix the history happened to have')
     ap.add_argument('--new-cap', type=float, default=0.0, metavar='PCT',
                     help='the deepest discount a new SKU may inherit from '
                          'the product it is priced off, e.g. 25 for a '
@@ -625,7 +697,7 @@ def main() -> int:
 
     out = reprice(folder, full, args.back, args.plan,
                   scope=args.scope, decay=args.decay, source=args.source,
-                  new_cap=args.new_cap / 100.0)
+                  new_cap=args.new_cap / 100.0, no_mix=args.no_mix)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -264,6 +264,9 @@ def main() -> int:
                          'the product has none of its own for that '
                          'promotion (default sku: no borrowing - its own '
                          'six-month discount is used instead)')
+    ap.add_argument('--no-mix', action='store_true',
+                    help='ignore the plan\u2019s B2B share and price every '
+                         'material at the mix the history happened to have')
     ap.add_argument('--new-cap', type=float, default=0.0, metavar='PCT',
                     help='the deepest discount a new SKU may inherit from '
                          'the product it is priced off (default 0: no cap)')
@@ -321,7 +324,7 @@ def main() -> int:
     priced = RP.reprice(folder, (2000 + ym // 100) * 100 + ym % 100,
                         args.back, args.plan,
                         scope=args.scope, decay=args.decay, also=also,
-                        new_cap=args.new_cap / 100.0)
+                        new_cap=args.new_cap / 100.0, no_mix=args.no_mix)
     price = {PM.code_norm(k): v['price'] for k, v in priced.items()
              if v.get('price')
              and not (args.blank_kept and v.get('how') == 'kept')}
