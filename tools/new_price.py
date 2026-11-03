@@ -264,6 +264,10 @@ def main() -> int:
                          'from. Default range: its own model family, which '
                          'is close enough to be worth having. sku refuses '
                          'to borrow at all; div3 and wider are too coarse')
+    ap.add_argument('--by-members', dest='by_units', action='store_false',
+                    default=True,
+                    help='a group answers with the average of its products '
+                         'rather than of its units')
     ap.add_argument('--flat-days', action='store_true',
                     help='weight every day of the month alike instead of '
                          'by how hard each campaign sells')
@@ -328,7 +332,7 @@ def main() -> int:
                         args.back, args.plan,
                         scope=args.scope, decay=args.decay, also=also,
                         new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
-                        flat_days=args.flat_days)
+                        flat_days=args.flat_days, by_units=args.by_units)
     price = {PM.code_norm(k): v['price'] for k, v in priced.items()
              if v.get('price')
              and not (args.blank_kept and v.get('how') == 'kept')}

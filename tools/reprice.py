@@ -65,6 +65,9 @@ MIN_UNITS = 5
 # How many product-days a campaign needs before its pull on volume is read.
 # A campaign seen on two days is an anecdote about two days.
 MIN_DAYS = 3
+# How many of a group's own products must have a discount before the group
+# can answer for one that has none.
+MIN_SKUS = 3
 # The product levels this borrows by, coarsest last.
 PROD_COLS = {'div3': ('Div 3', 'Div3', 'Category', 'Prod_group'),
              'div1': ('Div 1', 'Div1', 'Division 1', 'Division'),
@@ -188,6 +191,10 @@ class History:
         # is about volume and not about discount.
         self.vol: dict = collections.defaultdict(float)
         self.days: dict = collections.defaultdict(float)
+        # Which products sit in each group, so a group can be asked for the
+        # average of its members rather than the average of its units.
+        self.members: dict = collections.defaultdict(set)
+        self._lent: dict = {}
 
     def weight(self, day) -> float:
         if not self.half or self.ref is None or day is None:
@@ -209,6 +216,8 @@ class History:
         self.skus[code][2] += qty
         for scope in self.scopes(code, level):
             self.vol[(scope, camp)] += qty
+            if scope[0] != 'sku':
+                self.members[scope].add(code)
         if not rrp:
             return
         for scope in self.scopes(code, level):
@@ -295,6 +304,35 @@ class History:
         if on_d < MIN_DAYS or off_d < MIN_DAYS or on_u <= 0 or off_u <= 0:
             return None
         return min(5.0, max(0.2, (on_u / on_d) / (off_u / off_d)))
+
+    def lent(self, scope, camp, by_units=False):
+        """What a group answers with when a product has nothing of its own.
+
+        Two different questions, and the right one depends on what is being
+        got right. `by_units` gives the group's realised discount - the
+        average of its **units**, which its bestseller dominates. The
+        default averages its **products**, one vote each.
+
+        The product doing the borrowing is nearly always a thin one, and a
+        thin product does not behave like its family's bestseller: measured
+        on October, products selling 1-4 units came in 1.9 points shallower
+        than their family's unit-weighted discount while those selling 100+
+        came in 0.7 deeper. So for pricing a product rather than a pound,
+        the members are the better population to ask.
+        """
+        if by_units:
+            return self.discount(scope, camp)
+        key = (scope, camp)
+        if key in self._lent:
+            return self._lent[key]
+        ds = []
+        for code in self.members.get(scope, ()):
+            d = self.discount(('sku', code), camp)
+            if d is not None:
+                ds.append(d)
+        out = (sum(ds) / len(ds)) if len(ds) >= MIN_SKUS else None
+        self._lent[key] = out
+        return out
 
     def mix(self, scope):
         """(B2B's share of the units, how much deeper its discount is).
@@ -469,7 +507,8 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
               scope: str = 'range', rrp_at=None, new_cap: float = 0.0,
-              b2b: float = None, flat_days: bool = False):
+              b2b: float = None, flat_days: bool = False,
+              by_units: bool = True):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -521,7 +560,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         for sc, name in ladder[:deep]:
             if sc[1] is None:
                 continue
-            d = hist.discount(sc, camp)
+            d = hist.lent(sc, camp, by_units)
             if d is not None:
                 return d, f'{name}, same promotion'
         if own is not None:
@@ -606,7 +645,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             scope: str = 'range', decay: float = 0.0, also=None,
             source: str = 'auto', new_cap: float = 0.0,
-            no_mix: bool = False, flat_days: bool = False) -> dict:
+            no_mix: bool = False, flat_days: bool = False,
+            by_units: bool = True) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -711,7 +751,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         price, kind, rrp, promo, where = price_for(
             code, plan, canon, hist, levels, days, it['aud'], scope=scope,
             rrp_at=rrp_at, new_cap=new_cap, flat_days=flat_days,
-            b2b=(None if no_mix else it.get('b2b')))
+            by_units=by_units, b2b=(None if no_mix else it.get('b2b')))
         how[kind] += 1
         # The nearest SKU is named on the row, not only in the prose, so a
         # sheet can filter on it: a new product priced off a neighbour is a
@@ -771,6 +811,12 @@ def main() -> int:
     ap.add_argument('--no-mix', action='store_true',
                     help='ignore the plan\u2019s B2B share and price every '
                          'material at the mix the history happened to have')
+    ap.add_argument('--by-members', dest='by_units', action='store_false',
+                    default=True,
+                    help='when a group answers for a product that has none '
+                         'of its own, give it the average of its products '
+                         'rather than of its units. Measured, that is about '
+                         'a point shallower, so it raises a price')
     ap.add_argument('--min-units', type=int, default=MIN_UNITS,
                     metavar='N',
                     help=f'units a product needs before its own discount is '
@@ -816,7 +862,7 @@ def main() -> int:
     out = reprice(folder, full, args.back, args.plan,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
-                  flat_days=args.flat_days)
+                  flat_days=args.flat_days, by_units=args.by_units)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     path.parent.mkdir(parents=True, exist_ok=True)

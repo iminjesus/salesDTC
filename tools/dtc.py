@@ -397,6 +397,71 @@ def main() -> int:
                 print('  over-correcting the small ones. The bias crossing '
                       'nought is the better guide.')
 
+    if args.fit:
+        # The same question asked of products rather than of groups, and
+        # scored the way a sheet scores it: one vote per product, however
+        # much of it sold. A model fitted to units and scored per product
+        # is being marked against a target it was never aimed at - the two
+        # differ by eight points on October alone - so the window is chosen
+        # here against the second.
+        seen = sorted({r['ym'] for r in rows})
+        if len(seen) >= 3:
+            target, window = seen[-1], seen[-1 - args.back:-1]
+            per = collections.defaultdict(lambda: collections.defaultdict(
+                lambda: [0.0, 0.0, 0.0]))
+            for r in rows:
+                if r['rrp'] <= 0 or (r['ym'] != target
+                                     and r['ym'] not in window):
+                    continue
+                t = per[r['code']][r['ym']]
+                t[0] += r['amt']
+                t[1] += r['qty'] * r['rrp']
+                t[2] += r['qty']
+            use = {}
+            for c, by in per.items():
+                t = by.get(target)
+                if not t or t[1] <= 0 or t[2] < 5:
+                    continue
+                hist = [(m, by[m]) for m in window
+                        if m in by and by[m][1] > 0 and by[m][2] >= 5]
+                if not hist:
+                    continue
+                use[c] = (hist, 1 - t[0] / t[1])
+
+            def one(hist, half):
+                a = l = 0.0
+                for m, (amt, listed, _) in hist:
+                    age = ((window[-1] // 100 - m // 100) * 12
+                           + (window[-1] % 100 - m % 100))
+                    w = 1.0 if half <= 0 else 0.5 ** (age / half)
+                    a += amt * w
+                    l += listed * w
+                return 1 - a / l if l else None
+
+            print(f'\n  the same, per product - one vote each  '
+                  f'({len(use):,} products with a record both sides)\n')
+            print(f'  {"half-life":<12}{"mean |err| pp":>15}{"median":>9}'
+                  f'{"bias pp":>10}{"within 3pp":>12}')
+            for half in (0, 6, 3, 2, 1.5, 1, 0.75, 0.5, 0.35, 0.25):
+                errs = []
+                for c, (hist, act) in use.items():
+                    q = one(hist, half)
+                    if q is not None:
+                        errs.append((q - act) * 100)
+                if not errs:
+                    continue
+                errs.sort()
+                near = sum(1 for e in errs if abs(e) <= 3) / len(errs) * 100
+                lab = 'flat' if half == 0 else f'{half:g} month'
+                print(f'  {lab:<12}'
+                      f'{sum(abs(e) for e in errs) / len(errs):>15.2f}'
+                      f'{abs(errs[len(errs) // 2]):>9.2f}'
+                      f'{sum(errs) / len(errs):>+10.2f}{near:>11.0f}%')
+            print('\n  + means the window predicts more discount than the '
+                  'product gave, pricing it')
+            print('    too cheap. This is the column to read when every '
+                  'product counts the same.')
+
     if args.drift:
         # The re-price averages a window and applies it to the month after.
         # That is only right where the discount holds still. Where it drifts,
