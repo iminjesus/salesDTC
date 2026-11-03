@@ -51,6 +51,25 @@ Two deliberate limits:
   forecast, and inventing one would bury a price estimate inside a demand
   estimate.
 
+## Where the history comes from
+
+The **DTC export** where the folder has one (`26 DTC Sep.csv` and the like),
+and `orders_26XX` otherwise. `--source {auto,dtc,orders}` forces it either
+way.
+
+The DTC export carries the list price on the line itself - 99 lines in 100,
+against the seven products in ten the promotion plan quotes an RRP for - and
+a discount is what came off a list price, so that coverage is the whole input
+to this. It is read across every portal group, because the GSCM plan carries
+one price between its `E-STORE` and `E-STORE_B2B` rows and the all-portal
+reading lands within 1.4% of it while either half alone is 8-9% out.
+
+The campaign is still read off the plan by date, on both sides. The export's
+own `promotion_rule` is the better account of what applied, but October has
+not happened yet and has only the plan to be described by; keying one side on
+each would join on nothing. `docs/DTC.md` has the rest, including what
+changes when the source changes.
+
 ## The ladder
 
 One product, one month, in this order:

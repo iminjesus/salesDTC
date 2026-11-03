@@ -1,0 +1,71 @@
+# The DTC export
+
+```
+py tools\dtc.py                      # what the folder has
+py tools\dtc.py --month 2610 --top 20
+```
+
+Files are found by name - anything with `dtc` in it, so `26 DTC Sep.csv` and
+`26_DTC_Sep.csv` are both picked up - and the month is read from each row's
+own `Year` and `Month` columns rather than from the file name.
+
+## Why it is preferred
+
+It is the same sale the order export carries, with two things on the line
+that the re-price otherwise has to go looking for:
+
+| | |
+| --- | --- |
+| `AUD RRP` | the list price, on **99%** of lines. The promotion plan quotes one for about seven products in ten, and a discount is what came off a list price - a line without one cannot enter the discount tally at all. |
+| `promotion_rule` | the rule that actually applied, rather than the one the plan says covered that day. |
+
+Coverage is the whole input to a re-price, so this is not a convenience.
+
+## What it costs
+
+**No delivery date.** Anything about despatch, lead time, or a month's orders
+landing in the next one cannot be answered from it. That is why it does not
+simply replace the order export everywhere - the P&L page still reads
+`orders_26XX` and the profit exports, which also carry the customer, the
+rejection reason and the P&L columns this does not have.
+
+Where it is used: `tools/reprice.py` for the discount history, and
+`tools/price_spread.py` for the month as it sold. Both take
+`--source {auto,dtc,orders}`; `auto` prefers it where the folder has one.
+
+## What it changes
+
+The two exports do not reconcile, and the difference is not small. Measured
+on October against the GSCM plan's own prices, unit-weighted over the 613
+materials both sides carry:
+
+```
+actual ASP / GSCM price         skus    units   weighted   median
+every portal                     613   15,631      0.986    0.980
+S.COM only                       558    6,725      1.078    1.050
+B2B only                         520    6,204      0.908    0.908
+```
+
+Two things follow.
+
+**The plan is a blended price.** The sheet has a row per account - `E-STORE`
+and `E-STORE_B2B` - carrying one price between them, and the all-portal
+reading lands within 1.4% of it while either half alone is 8-9% out. So the
+history is read across every portal group and not narrowed to S.COM, even
+though the discount differs by group (S.COM 36.2% off list, the EPP groups
+42-43%, Internal 47.2%).
+
+**The month's headline moves.** On the order export's `Net Value (Item)` the
+month read about 5.7% *above* the planned price; on this export's `AUD
+Revenue excl. GST` it reads about 1.4% *below* it. Same month, same
+materials. This export's revenue is the product's - install and delivery are
+on their own columns and are not in it - and it is explicitly ex-GST, which
+is the basis the GSCM sheet appears to be on. That is the argument for it,
+and it is worth knowing before a number from one is read beside a number
+from the other.
+
+## What it drops, and says so
+
+A cancelled line is not a sale, and a line that nets to nothing or less has
+no price to read. Both are dropped and both are counted in the run - on
+October, 285 cancelled and 1,233 nil out of 19,519, leaving 18,001.

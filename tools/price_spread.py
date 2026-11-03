@@ -45,6 +45,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dtc as DTC                                               # noqa: E402
 import promo_match as PM                                        # noqa: E402
 import sap as SAP                                               # noqa: E402
 from asp import PRODUCT_KEYS                                    # noqa: E402
@@ -65,13 +66,34 @@ PROD_COLS = {
 LEVELS = ('biz', 'div1', 'div2', 'div3')
 
 
-def read_month(folder: Path, ym: int, say=print) -> dict:
-    """{code: [units, value]} for the month, off the order export.
+def read_month(folder: Path, ym: int, say=print,
+               source: str = 'auto') -> dict:
+    """{code: [units, value]} for the month.
+
+    The DTC export where the folder has one - it is the same sale read with
+    the list price and the promotion rule on the line - and the order export
+    otherwise. The two do not reconcile exactly, so which one answered is
+    said out loud rather than left to be inferred from a total.
 
     Rejected lines are dropped and so is anything that nets to nothing or
     less: a return has no price to read, and averaging one in would put a
     number in the ASP column that nobody sold at.
     """
+    full = ym if ym >= 100000 else (2000 + ym // 100) * 100 + ym % 100
+    if source != 'orders' and DTC.files(folder):
+        rows = DTC.read(folder, {full}, say=say)
+        if rows:
+            got: dict = {}
+            for r in rows:
+                o = got.setdefault(PM.code_norm(r['code']), [0.0, 0.0])
+                o[0] += r['qty']
+                o[1] += r['amt']
+            say(f'  the DTC export answered: {len(got):,} material(s)')
+            return got
+        if source == 'dtc':
+            say('  no DTC export for that month')
+            return {}
+
     want = str(ym)[-4:]
     files = [p for p in pick_series(folder, 'orders') if want in p.stem]
     if not files:

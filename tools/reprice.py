@@ -49,6 +49,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dtc as DTC                                               # noqa: E402
 import promo_match as PM                                        # noqa: E402
 import sap as SAP                                               # noqa: E402
 from asp import PRODUCT_KEYS                                    # noqa: E402
@@ -226,9 +227,51 @@ class History:
 
 
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
-                 say=print, half: float = 0.0) -> History:
-    """Every order line of those months, priced and banded by its campaign."""
+                 say=print, half: float = 0.0,
+                 source: str = 'auto') -> History:
+    """Every order line of those months, priced and banded by its campaign.
+
+    The DTC export is preferred where the folder has one, because it carries
+    the list price on the line itself - about 99 lines in 100 against the
+    seven products in ten the promotion plan quotes an RRP for. A discount is
+    what came off a list price, so a line with no list price is a line the
+    discount tally cannot use at all, and that coverage is the whole input to
+    this.
+
+    The campaign is still read off the plan by date, on both sides, so the
+    history and the month being priced are speaking of the same campaigns.
+    The export's own `promotion_rule` is the more accurate account of what
+    applied, but October has not happened yet and has only the plan to be
+    described by; keying one side on each would join on nothing.
+    """
     h = History(half, months[-1] if months else None)
+    if source != 'orders':
+        want = set(months)
+        rows = DTC.read(folder, want, say=say) if DTC.files(folder) else []
+        if rows:
+            miss = 0
+            for r in rows:
+                code = PM.code_norm(r['code'])
+                rrp = r['rrp'] or rrp_of(plan, r['code'])
+                if not rrp:
+                    miss += 1
+                h.add(code, levels.get(code, {}),
+                      campaign_at(plan, canon, code, r['day']),
+                      r['qty'], r['amt'], rrp, r['day'])
+            say(f'  {len(rows):,} DTC line(s); {len(h.skus):,} product(s) '
+                'with a realised price')
+            if miss:
+                say(f'  {miss:,} line(s) with no list price anywhere - they '
+                    'count towards the ASP and not the discount')
+            camps = {c for (_, c) in h.by
+                     if c and c != ANY and c != '(nationwide)'}
+            say(f'  {len(camps)} campaign(s) in that history: '
+                + ', '.join(sorted(camps)[:6]) + (' ...' if len(camps) > 6
+                                                  else ''))
+            return h
+        if source == 'dtc':
+            say('  no DTC export for those months - nothing to read')
+            return h
     want = {str(m)[-4:] for m in months}
     files = [p for p in pick_series(folder, 'orders')
              if any(w in p.stem for w in want)]
@@ -401,7 +444,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 
 
 def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
-            scope: str = 'sku', decay: float = 0.0, also=None) -> dict:
+            scope: str = 'sku', decay: float = 0.0, also=None,
+            source: str = 'auto') -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -441,7 +485,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         f'{MONTHS[(months[0] % 100) - 1]} .. '
         f'{MONTHS[(months[-1] % 100) - 1]}:')
     hist = read_history(folder, plan, canon, months, levels, say=say,
-                        half=decay)
+                        half=decay, source=source)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -534,6 +578,10 @@ def main() -> int:
                          'product has none of its own (default div1, which '
                          'blocks only the whole book; all restores the '
                          'behaviour before this flag existed)')
+    ap.add_argument('--source', default='auto',
+                    choices=('auto', 'dtc', 'orders'),
+                    help='where the history comes from: the DTC export where '
+                         'the folder has one (default), or the order export')
     ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
                     help='half-life: a line this much older counts half as '
                          'much (default 0, every month alike)')
@@ -563,7 +611,7 @@ def main() -> int:
     full = (2000 + ym // 100) * 100 + ym % 100
 
     out = reprice(folder, full, args.back, args.plan,
-                  scope=args.scope, decay=args.decay)
+                  scope=args.scope, decay=args.decay, source=args.source)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     path.parent.mkdir(parents=True, exist_ok=True)
