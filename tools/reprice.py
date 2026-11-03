@@ -79,13 +79,25 @@ ANY = '\x00any'                  # the tally that ignores which campaign it was
 # refused the product falls through to its own ASP, and failing that keeps the
 # price the sheet already had - both of which say less, and neither of which
 # invents a number.
-SCOPES = ('sku', 'div3', 'div1', 'all')
+SCOPES = ('sku', 'range', 'div3', 'div1', 'all')
 # `div1` is the default: a product may borrow from its own history, its
 # product group, or its division, and not from the book entire. That last
 # rung was measurably doing harm - a category the GSCM sheet had priced
 # tightly came back scattered, and one product group's deviation collapsed to
 # six hundredths of a dollar, which is every model in it sharing one borrowed
 # number rather than a model that fits. `all` restores it.
+
+
+def set_min_units(n: int) -> None:
+    """How many units a product needs before its own record is used.
+
+    A product that sold three scatters ten points around its own range and
+    one that sold a hundred sits within two, so the gate is really asking
+    how noisy an estimate is allowed to be before the family answers
+    instead.
+    """
+    global MIN_UNITS
+    MIN_UNITS = max(1, int(n or 1))
 
 
 def month_days(ym: int) -> list:
@@ -195,16 +207,11 @@ class History:
         self.skus[code][0] += qty * w
         self.skus[code][1] += amt * w
         self.skus[code][2] += qty
-        for scope in (('sku', code), ('div3', level.get('div3')),
-                      ('div1', level.get('div1')), ('all', '')):
-            if scope[1] is not None:
-                self.vol[(scope, camp)] += qty
+        for scope in self.scopes(code, level):
+            self.vol[(scope, camp)] += qty
         if not rrp:
             return
-        for scope in (('sku', code), ('div3', level.get('div3')),
-                      ('div1', level.get('div1')), ('all', '')):
-            if scope[1] is None:
-                continue
+        for scope in self.scopes(code, level):
             for key in ((scope, camp), (scope, ANY)):
                 t = self.by[key]
                 t[0] += qty * w
@@ -247,12 +254,28 @@ class History:
     def sold(self, code):
         return self.skus.get(code, [0.0, 0.0, 0.0])[2]
 
+    @staticmethod
+    def scopes(code, level):
+        """Every bucket a line belongs to, narrowest first.
+
+        `range` is the model family - one phone's colours and capacities. It
+        is the level a thin product has any business borrowing from: a SKU
+        that sold a hundred units sits within two points of its own range
+        and one that sold three scatters ten points around it, so the range
+        is what the thin one wants, and a division is far too coarse to be
+        it.
+        """
+        out = [('sku', code)]
+        for n in ('range', 'div3', 'div1'):
+            if level.get(n):
+                out.append((n, level[n]))
+        out.append(('all', ''))
+        return out
+
     def saw(self, code, level, camp):
         """One product-day, under whatever campaign covered it."""
-        for scope in (('sku', code), ('div3', level.get('div3')),
-                      ('div1', level.get('div1')), ('all', '')):
-            if scope[1] is not None:
-                self.days[(scope, camp)] += 1
+        for scope in self.scopes(code, level):
+            self.days[(scope, camp)] += 1
 
     def pull(self, scope, camp):
         """How much harder this campaign sells than an ordinary day.
@@ -317,6 +340,13 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             miss = 0
             for r in rows:
                 code = PM.code_norm(r['code'])
+                # The export names the model family itself, which the
+                # product master does not, and it is the level a thin
+                # product borrows from. Taken here so it rides in `levels`
+                # with the rest of the chain.
+                if r.get('range'):
+                    levels.setdefault(code, {}).setdefault('range',
+                                                           r['range'])
                 rrp = r['rrp'] or rrp_of(plan, r['code'])
                 if not rrp:
                     miss += 1
@@ -414,7 +444,7 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
         if other == k or hist.sold(other) < MIN_UNITS:
             continue
         olv = levels.get(other, {})
-        for n, tier in (('div3', 2), ('div1', 1)):
+        for n, tier in (('range', 3), ('div3', 2), ('div1', 1)):
             mine, theirs = lv.get(n), olv.get(n)
             if mine and theirs and mine == theirs:
                 break
@@ -438,7 +468,7 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
-              scope: str = 'sku', rrp_at=None, new_cap: float = 0.0,
+              scope: str = 'range', rrp_at=None, new_cap: float = 0.0,
               b2b: float = None, flat_days: bool = False):
     """One material's re-priced month, and how it was arrived at.
 
@@ -465,10 +495,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
     # is carried in it, in proportion to how much B2B the month is planning.
     shift = 0.0
     if b2b is not None:
-        for sc in (('sku', k), ('div3', lv.get('div3')),
-                   ('div1', lv.get('div1')), ('all', '')):
-            if sc[1] is None:
-                continue
+        for sc in History.scopes(k, lv):
             m = hist.mix(sc)
             if m is not None:
                 shift = (b2b - m[0]) * m[1]
@@ -487,7 +514,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         d = hist.discount(('sku', k), camp)
         if d is not None:
             return d, 'this product, same promotion'
-        ladder = ((('div3', lv.get('div3')), lv.get('div3')),
+        ladder = ((('range', lv.get('range')), lv.get('range')),
+                  (('div3', lv.get('div3')), lv.get('div3')),
                   (('div1', lv.get('div1')), lv.get('div1')),
                   (('all', ''), 'the whole book'))
         for sc, name in ladder[:deep]:
@@ -510,10 +538,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         """
         if flat_days or not camp:
             return 1.0
-        for sc in (('sku', k), ('div3', lv.get('div3')),
-                   ('div1', lv.get('div1')), ('all', '')):
-            if sc[1] is None:
-                continue
+        for sc in History.scopes(k, lv):
             p = hist.pull(sc, camp)
             if p is not None:
                 return p
@@ -579,7 +604,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 
 
 def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
-            scope: str = 'sku', decay: float = 0.0, also=None,
+            scope: str = 'range', decay: float = 0.0, also=None,
             source: str = 'auto', new_cap: float = 0.0,
             no_mix: bool = False, flat_days: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
@@ -735,7 +760,7 @@ def main() -> int:
                     help='how many months of history to read (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
-    ap.add_argument('--scope', default='sku', choices=SCOPES,
+    ap.add_argument('--scope', default='range', choices=SCOPES,
                     help='how far a discount may be borrowed from when the '
                          'product has none of its own (default div1, which '
                          'blocks only the whole book; all restores the '
@@ -746,6 +771,11 @@ def main() -> int:
     ap.add_argument('--no-mix', action='store_true',
                     help='ignore the plan\u2019s B2B share and price every '
                          'material at the mix the history happened to have')
+    ap.add_argument('--min-units', type=int, default=MIN_UNITS,
+                    metavar='N',
+                    help=f'units a product needs before its own discount is '
+                         f'read rather than its range\u2019s (default '
+                         f'{MIN_UNITS})')
     ap.add_argument('--new-cap', type=float, default=0.0, metavar='PCT',
                     help='the deepest discount a new SKU may inherit from '
                          'the product it is priced off, e.g. 25 for a '
@@ -761,6 +791,7 @@ def main() -> int:
                     help='default docs/reprice_<month>.csv')
     args = ap.parse_args()
 
+    set_min_units(args.min_units)
     folder = Path(args.dir)
     if not folder.is_absolute():
         folder = ROOT / folder

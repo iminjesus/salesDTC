@@ -192,12 +192,33 @@ deviation 288 to 225 - and made two parts of it worse, in two different ways.
 One of them has since been answered and is now the default; the other is a
 flag that stays off until there is a measurement for it.
 
-### `--scope {sku,div3,div1,all}` - borrowing from a group
+### `--scope {sku,range,div3,div1,all}` - borrowing from a group
 
-**Default `sku`: no borrowing at all.** A product that has never run this
-promotion uses its own six-month discount rather than another product's
-behaviour under a promotion it did run. `div3`, `div1` and `all` put the
-group rungs back, between step 1 and step 2 of the ladder above.
+**Default `range`: the model family.** One phone's colours and capacities,
+named by the DTC export's own `Product Range`. `sku` refuses to borrow at
+all; `div3` and wider are too coarse.
+
+The range exists because **a thin product's own record is a noisy estimate
+of its own price**, and Mobile is where that bites. On October, 42% of MX's
+products sold fewer than five units - the highest of any division - and how
+far a product sits from its own family depends on how much it sold:
+
+```
+  units sold    products   sd of the gap to its range
+  1-4                249                       9.6pp
+  5-19               194                       5.4pp
+  20-99              120                       4.8pp
+  100+                26                       2.3pp
+```
+
+A product that sold a hundred sits within two points of its family, so the
+family is a good answer for one that sold three. Before this, such a product
+fell past `sku` to a **single nearest neighbour** - one product's record
+standing in for another's - or to a division. Turning `range` on moved 99
+products from that guess to a family average, and 95 of them were MX.
+
+`--min-units` is the other half of the same question: how noisy an estimate
+is allowed to be before the family answers instead.
 
 Borrowing was doing measurable harm. REF came back scattered where the GSCM
 sheet had been tight - deviations of 39, 67 and 38 going to 78, 125 and 111 -

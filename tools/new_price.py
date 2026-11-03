@@ -259,11 +259,11 @@ def main() -> int:
                     help='months of history the re-price reads (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
-    ap.add_argument('--scope', default='sku', choices=RP.SCOPES,
-                    help='allow a discount to be borrowed from a group when '
-                         'the product has none of its own for that '
-                         'promotion (default sku: no borrowing - its own '
-                         'six-month discount is used instead)')
+    ap.add_argument('--scope', default='range', choices=RP.SCOPES,
+                    help='how far a thin product may borrow a discount '
+                         'from. Default range: its own model family, which '
+                         'is close enough to be worth having. sku refuses '
+                         'to borrow at all; div3 and wider are too coarse')
     ap.add_argument('--flat-days', action='store_true',
                     help='weight every day of the month alike instead of '
                          'by how hard each campaign sells')
