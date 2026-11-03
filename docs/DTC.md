@@ -189,6 +189,36 @@ share by month, which is the thing to watch.
 Affiliates (`rewardsgateway`, `UNIDAYS`, `blc`) move it much less: 35% to 42%
 off list on MX against 37.8% for no affiliate at all.
 
+## `--asp` - the scatter the simple model is left with
+
+```
+py tools\dtc.py --asp
+py tools\dtc.py --asp --back 9
+```
+
+The simple model prices a product from its own window ASP and then nudges it
+by ratios read for its **group**. A group nudge moves every member alike, so
+**it cannot change the scatter inside a group** - whatever deviation is left
+within a division is entirely how far each product's newest month sits from
+its own past.
+
+This measures that, per division, at several half-lives:
+
+```
+  division     products      flat        3m        1m      0.5m     0.25m
+  MX                343      4.7%      4.7%      5.2%      6.4%      7.9%
+  TV & SD           125      0.7%      0.7%      0.8%      0.9%      1.1%
+```
+
+Read which way the row moves, because the two cases want opposite things:
+
+| the row | what it means | what to do |
+| --- | --- | --- |
+| falls as the half-life shortens | prices **drifted** inside the window, and a flat average is a blend of two prices no month had | shorten `--decay` |
+| rises as the half-life shortens | prices are **noisy but steady**, and averaging is what takes the noise out | leave `--decay` at nought, and `--back` further if anything |
+
+Both are fixed with a flag and neither needs the model touched.
+
 ## What it drops, and says so
 
 A cancelled line is not a sale, and a line that nets to nothing or less has

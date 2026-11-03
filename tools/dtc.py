@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import statistics
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -191,6 +192,10 @@ def main() -> int:
                     help='what share of each month carried a trade-in or a '
                          'voucher, and what each cost - a mix that moves '
                          'moves the price with no campaign changing')
+    ap.add_argument('--asp', action='store_true',
+                    help='how far each product\u2019s newest month sits from '
+                         'its own window ASP, by division and by half-life '
+                         '- the scatter the simple model is left with')
     ap.add_argument('--tail', type=float, default=0.5, metavar='MONTHS',
                     help='the half-life the per-product tail is broken down '
                          'at (default 0.5)')
@@ -519,6 +524,88 @@ def main() -> int:
                     act = use[c][1] * 100
                     print(f'  {c[:23]:<24}{q:>7,.0f}{act + e:>10.1f}%'
                           f'{act:>8.1f}%{e:>+8.1f}')
+
+    if args.asp:
+        # The simple model predicts a product's price from its own ASP over
+        # the window, and a group nudge cannot change the scatter inside a
+        # group - it moves every member alike. So whatever scatter is left
+        # is this: how far a product's October sits from its own past, and
+        # how much of that a shorter memory takes out.
+        seen = sorted({r['ym'] for r in rows})
+        if len(seen) < 3:
+            print('\n  --asp needs the month to predict and a window before '
+                  'it')
+        else:
+            target, window = seen[-1], seen[-1 - args.back:-1]
+            per = collections.defaultdict(lambda: collections.defaultdict(
+                lambda: [0.0, 0.0]))
+            div = {}
+            for r in rows:
+                if r['ym'] != target and r['ym'] not in window:
+                    continue
+                div[r['code']] = r['div'] or '?'
+                t = per[r['code']][r['ym']]
+                t[0] += r['amt']
+                t[1] += r['qty']
+            use = {}
+            for c, by in per.items():
+                t = by.get(target)
+                if not t or t[1] < 5:
+                    continue
+                hist = [(m, by[m]) for m in window
+                        if m in by and by[m][1] >= 5]
+                if not hist:
+                    continue
+                use[c] = (hist, t[0] / t[1])
+
+            def asp_at(hist, half):
+                a = q = 0.0
+                for m, (amt, qty) in hist:
+                    age = ((window[-1] // 100 - m // 100) * 12
+                           + (window[-1] % 100 - m % 100))
+                    w = 1.0 if half <= 0 else 0.5 ** (age / half)
+                    a += amt * w
+                    q += qty * w
+                return a / q if q else None
+
+            halves = (0, 3, 1, 0.5, 0.25)
+            pot = collections.defaultdict(list)
+            for c, (hist, act) in use.items():
+                row = []
+                for h in halves:
+                    e = asp_at(hist, h)
+                    row.append(None if e is None or act <= 0
+                               else (e / act - 1) * 100)
+                if all(x is not None for x in row):
+                    pot[div.get(c, '?')].append(row)
+            print(f'\n  how far a product\u2019s {MONTHS[(target % 100) - 1]} '
+                  f'sits from its own window, per product\n')
+            print(f'  {"division":<12}{"products":>9}'
+                  + ''.join(f'{("flat" if h == 0 else f"{h:g}m"):>10}'
+                            for h in halves))
+            print(f'  {"":<12}{"":>9}'
+                  + ''.join(f'{"sd %":>10}' for _ in halves))
+            allrows = []
+            for d in sorted(pot, key=lambda d: -len(pot[d])):
+                rs = pot[d]
+                if len(rs) < 10:
+                    continue
+                allrows += rs
+                print(f'  {d[:11]:<12}{len(rs):>9}'
+                      + ''.join(
+                          f'{statistics.pstdev([r[i] for r in rs]):>9.1f}%'
+                          for i in range(len(halves))))
+            if allrows:
+                print(f'  {"ALL":<12}{len(allrows):>9}'
+                      + ''.join(
+                          f'{statistics.pstdev([r[i] for r in allrows]):>9.1f}%'
+                          for i in range(len(halves))))
+            print('\n  sd of the error, one vote per product. A division '
+                  'whose number falls as the')
+            print('  half-life shortens is one whose prices moved inside '
+                  'the window, and a flat')
+            print('  average of it is a blend of two prices that no month '
+                  'actually had.')
 
     if args.drift:
         # The re-price averages a window and applies it to the month after.
