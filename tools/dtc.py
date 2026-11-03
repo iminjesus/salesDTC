@@ -191,6 +191,9 @@ def main() -> int:
                     help='what share of each month carried a trade-in or a '
                          'voucher, and what each cost - a mix that moves '
                          'moves the price with no campaign changing')
+    ap.add_argument('--tail', type=float, default=0.5, metavar='MONTHS',
+                    help='the half-life the per-product tail is broken down '
+                         'at (default 0.5)')
     ap.add_argument('--fit', action='store_true',
                     help='how well a flat window predicts the newest month '
                          'against a recency-weighted one, and which '
@@ -409,10 +412,12 @@ def main() -> int:
             target, window = seen[-1], seen[-1 - args.back:-1]
             per = collections.defaultdict(lambda: collections.defaultdict(
                 lambda: [0.0, 0.0, 0.0]))
+            meta_div = {}
             for r in rows:
                 if r['rrp'] <= 0 or (r['ym'] != target
                                      and r['ym'] not in window):
                     continue
+                meta_div[r['code']] = r['div'] or '?'
                 t = per[r['code']][r['ym']]
                 t[0] += r['amt']
                 t[1] += r['qty'] * r['rrp']
@@ -461,6 +466,59 @@ def main() -> int:
                   'product gave, pricing it')
             print('    too cheap. This is the column to read when every '
                   'product counts the same.')
+
+            # A mean far above the median is a tail, and a tail is a
+            # different problem from a window: no half-life fixes a
+            # minority that is wrong by twenty points. Find out which
+            # products they are before tuning anything else.
+            half = args.tail
+            rec = []
+            for c, (hist, act) in use.items():
+                q = one(hist, half)
+                if q is None:
+                    continue
+                rec.append((abs((q - act) * 100), (q - act) * 100, c,
+                            per[c][target][2],
+                            sum(h[1][2] for h in hist)))
+            if rec:
+                rec.sort()
+                lab = 'flat' if half == 0 else f'{half:g} month'
+                n = len(rec)
+                print(f'\n  where that error sits, at {lab}  '
+                      f'({n:,} products)\n')
+                qs = [('p25', n // 4), ('median', n // 2),
+                      ('p75', 3 * n // 4), ('p90', int(n * 0.9)),
+                      ('p99', int(n * 0.99)), ('worst', n - 1)]
+                print('  ' + ''.join(f'{k:>9}' for k, _ in qs))
+                print('  ' + ''.join(f'{rec[i][0]:>8.1f}' for _, i in qs))
+
+                tail = [r for r in rec if r[0] > 10]
+                print(f'\n  {len(tail):,} products ({len(tail)/n*100:.0f}%) '
+                      f'are out by more than 10pp, and they carry')
+                print(f'  {sum(r[3] for r in tail):,.0f} of the month\u2019s '
+                      f'{sum(r[3] for r in rec):,.0f} units')
+                by = collections.Counter()
+                vol = collections.Counter()
+                for r in tail:
+                    by[meta_div.get(r[2], '?')] += 1
+                    q = r[3]
+                    vol['5-9' if q < 10 else '10-49' if q < 50
+                        else '50-199' if q < 200 else '200+'] += 1
+                print(f'\n  {"division":<14}{"in the tail":>12}{"of":>6}')
+                for k, v in by.most_common(6):
+                    allk = sum(1 for r in rec if meta_div.get(r[2]) == k)
+                    print(f'  {k[:13]:<14}{v:>12}{allk:>6}')
+                print(f'\n  {"units in Oct":<14}{"in the tail":>12}')
+                for k in ('5-9', '10-49', '50-199', '200+'):
+                    if vol[k]:
+                        print(f'  {k:<14}{vol[k]:>12}')
+                print(f'\n  the worst of them:')
+                print(f'  {"product":<24}{"units":>7}{"predicted":>11}'
+                      f'{"actual":>9}{"err":>8}')
+                for a, e, c, q, _ in rec[-8:][::-1]:
+                    act = use[c][1] * 100
+                    print(f'  {c[:23]:<24}{q:>7,.0f}{act + e:>10.1f}%'
+                          f'{act:>8.1f}%{e:>+8.1f}')
 
     if args.drift:
         # The re-price averages a window and applies it to the month after.

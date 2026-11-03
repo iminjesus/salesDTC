@@ -134,6 +134,29 @@ Those are left out of the fit and named, rather than silently dropped.
 
 Pass the half-life to `reprice` as `--decay`.
 
+### Per product, one vote each
+
+The same backtest run over products rather than groups, which is how a sheet
+reads it. On October it says something the group table cannot:
+
+```
+  half-life     mean |err| pp   median   bias pp  within 3pp
+  flat                   7.69     2.98     +4.22         32%
+  0.5 month              6.41     1.28     +2.59         39%
+  0.25 month             6.03     0.34     +1.56         38%
+```
+
+**The median is already solved and the mean is not.** Half the products land
+within a third of a point at a short half-life, while the mean sits near six
+- so a minority is wrong by a lot, and no half-life fixes a minority. The
+share landing within three points stops improving at 39% whatever the
+window, which is the same thing said plainly.
+
+So the window is not the lever past about 0.5, and `--tail` breaks down
+where the error actually sits: the quartiles, how many products are out by
+more than ten points and how many units they carry, which divisions and
+which volumes they are, and the worst of them by name.
+
 ## `--deals` - what else came off the price
 
 ```
