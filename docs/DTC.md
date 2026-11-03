@@ -118,9 +118,21 @@ A positive bias means the window predicts more discount than the month gave,
 which prices it too cheap. The flat average is biased that way across most of
 the book, by over two points of a roughly forty-point discount.
 
-It is one month of backtest over a dozen groups, so the sharp bottom of the
-curve is not to be trusted to a decimal - the shape is. Pass the half-life to
-`reprice` as `--decay`.
+**Read the three columns together, and do not take the last line as the
+answer.** The listed-weighted error follows the big groups and keeps falling
+as the half-life shortens; the unweighted one turns back up once a half-life
+begins over-correcting the small ones. On October the unweighted error
+bottoms at 0.5 and the bias crosses nought between 0.5 and 0.35 - past that,
+groups that were already predicted a little shallow (Air Purifier, DW,
+Tablet) are driven several points the other way. The bias crossing nought is
+the better guide, and the sharp bottom of the weighted curve is over-fitting
+to one month.
+
+A group selling above its own list price has no discount to read - gift
+cards come through at -36% and -82% - and its error dwarfs every real one.
+Those are left out of the fit and named, rather than silently dropped.
+
+Pass the half-life to `reprice` as `--decay`.
 
 ## What it drops, and says so
 

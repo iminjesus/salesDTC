@@ -251,7 +251,7 @@ def main() -> int:
                 t = pot[r[lvl] or '(blank)'][r['ym']]
                 t[0] += r['amt']
                 t[1] += r['qty'] * r['rrp']
-            use = {}
+            use, odd = {}, []
             for k, by in pot.items():
                 if target not in by or by[target][1] <= 0:
                     continue
@@ -259,8 +259,16 @@ def main() -> int:
                         if m in by and by[m][1] > 0]
                 if len(hist) < 2:
                     continue
-                use[k] = (hist, 1 - by[target][0] / by[target][1],
-                          by[target][1])
+                act = 1 - by[target][0] / by[target][1]
+                # A group that sells above its own list price has no
+                # discount to read, and its error dwarfs every real one -
+                # gift cards come through at -36% and -82% and would be
+                # most of an unweighted average on their own. Named, not
+                # silently dropped.
+                if act < -0.02 or act > 0.95:
+                    odd.append((k, act))
+                    continue
+                use[k] = (hist, act, by[target][1])
 
             def predict(hist, half):
                 """The window's discount, weighted by age in months."""
@@ -275,7 +283,11 @@ def main() -> int:
 
             print(f'\n  predicting {MONTHS[(target % 100) - 1]} from '
                   + ', '.join(MONTHS[(m % 100) - 1] for m in window)
-                  + f'  ({lvl}, {len(use)} group(s))\n')
+                  + f'  ({lvl}, {len(use)} group(s))')
+            if odd:
+                print('  left out, no discount to read: '
+                      + ', '.join(f'{k} ({a * 100:+.0f}%)' for k, a in odd))
+            print()
             print(f'  {"half-life":<12}{"mean |err| pp":>15}'
                   f'{"listed-wtd":>13}{"bias pp":>10}')
             best = None
@@ -315,6 +327,12 @@ def main() -> int:
                       'the month gave, which')
                 print('    prices the month too cheap. Pass the half-life to '
                       'reprice as --decay.')
+                print('  Read the two error columns together: the weighted '
+                      'one follows the big groups and')
+                print('  keeps falling, the unweighted one turns back up '
+                      'once a half-life starts')
+                print('  over-correcting the small ones. The bias crossing '
+                      'nought is the better guide.')
 
     if args.drift:
         # The re-price averages a window and applies it to the month after.
