@@ -176,6 +176,12 @@ def main() -> int:
                     help='one month, 2610 or 202610 (default all of them)')
     ap.add_argument('--top', type=int, default=0, metavar='N',
                     help='also list the N biggest products')
+    ap.add_argument('--fit', action='store_true',
+                    help='how well a flat window predicts the newest month '
+                         'against a recency-weighted one, and which '
+                         'half-life came closest')
+    ap.add_argument('--back', type=int, default=6, metavar='N',
+                    help='months of history --fit reads (default 6)')
     ap.add_argument('--drift', default=None, metavar='LEVEL',
                     nargs='?', const='cat',
                     choices=('div', 'cat', 'range'),
@@ -217,6 +223,98 @@ def main() -> int:
         print(f'  {MONTHS[(ym % 100) - 1] + " " + str(ym // 100):<10}'
               f'{q:>10,.0f}{a:>14,.0f}'
               f'{("-" if off is None else f"{off:.1f}%"):>10}')
+
+    if args.fit:
+        # The re-price takes a window of months, averages the discount in it
+        # and applies that to the month after. This asks the only question
+        # that settles how to weight that window: which weighting would have
+        # got the month that already happened right.
+        #
+        # It is one month of backtest over a dozen categories, so the sharp
+        # bottom of the curve is not to be trusted to a decimal - the shape
+        # is. A flat window that is biased in one direction across most of
+        # the book is a finding; the exact half-life is a starting point.
+        lvl = args.drift if args.drift in ('div', 'cat', 'range') else 'cat'
+        seen = sorted({r['ym'] for r in rows})
+        if len(seen) < 3:
+            print('\n  --fit needs the month to predict and a window before '
+                  'it')
+        else:
+            target = seen[-1]
+            window = seen[-1 - args.back:-1]
+            pot = collections.defaultdict(lambda: collections.defaultdict(
+                lambda: [0.0, 0.0]))
+            for r in rows:
+                if r['rrp'] <= 0 or (r['ym'] != target
+                                     and r['ym'] not in window):
+                    continue
+                t = pot[r[lvl] or '(blank)'][r['ym']]
+                t[0] += r['amt']
+                t[1] += r['qty'] * r['rrp']
+            use = {}
+            for k, by in pot.items():
+                if target not in by or by[target][1] <= 0:
+                    continue
+                hist = [(m, by[m]) for m in window
+                        if m in by and by[m][1] > 0]
+                if len(hist) < 2:
+                    continue
+                use[k] = (hist, 1 - by[target][0] / by[target][1],
+                          by[target][1])
+
+            def predict(hist, half):
+                """The window's discount, weighted by age in months."""
+                a = l = 0.0
+                for m, (amt, listed) in hist:
+                    age = ((window[-1] // 100 - m // 100) * 12
+                           + (window[-1] % 100 - m % 100))
+                    w = 1.0 if half <= 0 else 0.5 ** (age / half)
+                    a += amt * w
+                    l += listed * w
+                return 1 - a / l if l else None
+
+            print(f'\n  predicting {MONTHS[(target % 100) - 1]} from '
+                  + ', '.join(MONTHS[(m % 100) - 1] for m in window)
+                  + f'  ({lvl}, {len(use)} group(s))\n')
+            print(f'  {"half-life":<12}{"mean |err| pp":>15}'
+                  f'{"listed-wtd":>13}{"bias pp":>10}')
+            best = None
+            for half in (0, 6, 3, 2, 1.5, 1, 0.75, 0.5, 0.35, 0.25):
+                errs, wsum, wq, bias = [], 0.0, 0.0, 0.0
+                for k, (hist, act, listed) in use.items():
+                    p = predict(hist, half)
+                    if p is None:
+                        continue
+                    e = (p - act) * 100
+                    errs.append(abs(e))
+                    wsum += abs(e) * listed
+                    bias += e * listed
+                    wq += listed
+                if not errs or wq <= 0:
+                    continue
+                lab = 'flat' if half == 0 else f'{half:g} month'
+                print(f'  {lab:<12}{sum(errs) / len(errs):>15.2f}'
+                      f'{wsum / wq:>13.2f}{bias / wq:>+10.2f}')
+                if best is None or wsum / wq < best[1]:
+                    best = (half, wsum / wq)
+            if best:
+                lab = 'flat' if best[0] == 0 else f'{best[0]:g} month'
+                print(f'\n  closest: {lab}')
+                print(f'  {"group":<16}{"flat":>8}{"best":>8}{"actual":>8}'
+                      f'{"flat err":>10}{"best err":>10}')
+                for k, (hist, act, listed) in sorted(
+                        use.items(), key=lambda kv: -kv[1][2]):
+                    f = predict(hist, 0)
+                    d = predict(hist, best[0])
+                    if f is None or d is None:
+                        continue
+                    print(f'  {k[:15]:<16}{f * 100:>8.1f}{d * 100:>8.1f}'
+                          f'{act * 100:>8.1f}{(f - act) * 100:>+10.1f}'
+                          f'{(d - act) * 100:>+10.1f}')
+                print('\n  + means the window predicts more discount than '
+                      'the month gave, which')
+                print('    prices the month too cheap. Pass the half-life to '
+                      'reprice as --decay.')
 
     if args.drift:
         # The re-price averages a window and applies it to the month after.

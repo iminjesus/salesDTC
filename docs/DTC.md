@@ -91,6 +91,37 @@ has drifted, and is the case `--decay` exists for.
 It needs no product master: the export names its own division, category and
 range.
 
+## `--fit` - which weighting would have been right
+
+```
+py tools\dtc.py --fit
+py tools\dtc.py --fit --back 6 --drift div
+```
+
+`--drift` shows that the discount moves. `--fit` answers the only question
+that settles what to do about it: **which weighting would have got the month
+that already happened right.** It takes the newest month in the folder, 
+predicts it from the months before it under a flat average and under a range
+of half-lives, and reports the error of each.
+
+Measured on October from April to September:
+
+```
+  half-life     mean |err| pp   listed-wtd   bias pp
+  flat                   3.29         3.15     +2.37
+  1 month                2.64         3.33     +2.30
+  0.5 month              2.27         2.39     +1.25
+  0.35 month             2.16         1.78     +0.64
+```
+
+A positive bias means the window predicts more discount than the month gave,
+which prices it too cheap. The flat average is biased that way across most of
+the book, by over two points of a roughly forty-point discount.
+
+It is one month of backtest over a dozen groups, so the sharp bottom of the
+curve is not to be trusted to a decimal - the shape is. Pass the half-life to
+`reprice` as `--decay`.
+
 ## What it drops, and says so
 
 A cancelled line is not a sale, and a line that nets to nothing or less has
