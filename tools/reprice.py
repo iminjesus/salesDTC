@@ -195,6 +195,13 @@ class History:
         # average of its members rather than the average of its units.
         self.members: dict = collections.defaultdict(set)
         self._lent: dict = {}
+        # For the simple model: the same money split three ways at group
+        # level - on a campaign or not, on an unplanned deal or not, and by
+        # month so a penetration can be read recently rather than flat.
+        self.cg: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        self.pr: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        self.pen: dict = collections.defaultdict(lambda: [0.0, 0.0])
+        self.aspm: dict = collections.defaultdict(lambda: [0.0, 0.0])
 
     def weight(self, day) -> float:
         if not self.half or self.ref is None or day is None:
@@ -203,10 +210,25 @@ class History:
                + (self.ref % 100 - day.month))
         return 0.5 ** (max(0, age) / self.half)
 
-    def add(self, code, level, camp, qty, amt, rrp, day=None, chan=None):
+    def add(self, code, level, camp, qty, amt, rrp, day=None, chan=None,
+            deal=False, ym=None):
         if qty <= 0:
             return
         w = self.weight(day)
+        if rrp:
+            on = 'on' if camp else 'off'
+            kind = 'deal' if deal else 'clean'
+            for scope in self.scopes(code, level):
+                for key in ((scope, on), (scope, kind)):
+                    t = self.cg[key] if key[1] in ('on', 'off') else \
+                        self.pr[key]
+                    t[0] += amt
+                    t[1] += qty * rrp
+                    t[2] += qty
+                if ym is not None:
+                    t = self.pen[(scope, ym)]
+                    t[0] += qty if deal else 0.0
+                    t[1] += qty
         # The ASP tally takes every line; the discount tally takes only the
         # lines that have a list price to be a discount off. Mixing them put
         # money in the numerator with nothing in the denominator and read as a
@@ -334,6 +356,49 @@ class History:
         self._lent[key] = out
         return out
 
+    @staticmethod
+    def _rate(t):
+        return (1 - t[0] / t[1]) if t and t[1] > 0 else None
+
+    def campaign(self, scope):
+        """(share of units sold on a campaign, what a campaign is worth).
+
+        Both read off the same lines, so the pair says how much of the
+        group's selling happened under a promotion and how many points
+        deeper it went than the rest.
+        """
+        on, off = self.cg.get((scope, 'on')), self.cg.get((scope, 'off'))
+        if not on or not off or on[2] < MIN_UNITS or off[2] < MIN_UNITS:
+            return None
+        a, b = self._rate(on), self._rate(off)
+        if a is None or b is None:
+            return None
+        return on[2] / (on[2] + off[2]), a - b
+
+    def deals(self, scope, months):
+        """(penetration lately, penetration over the window, what it costs).
+
+        The unplanned discounts - a voucher, a trade-in, an e-promoter code.
+        They are not in any plan and never will be, so nothing forecasts
+        them; what can be done is to notice the group has been running them
+        harder lately than the window's average and move the price by the
+        difference.
+        """
+        d, c = self.pr.get((scope, 'deal')), self.pr.get((scope, 'clean'))
+        if not d or not c or d[2] < MIN_UNITS or c[2] < MIN_UNITS:
+            return None
+        a, b = self._rate(d), self._rate(c)
+        if a is None or b is None:
+            return None
+        got = [(m, self.pen.get((scope, m))) for m in months]
+        got = [(m, t) for m, t in got if t and t[1] > 0]
+        if not got:
+            return None
+        late = got[-1][1][0] / got[-1][1][1]
+        allq = sum(t[1] for _, t in got)
+        flat = sum(t[0] for _, t in got) / allq if allq else late
+        return late, flat, a - b
+
     def mix(self, scope):
         """(B2B's share of the units, how much deeper its discount is).
 
@@ -354,7 +419,7 @@ class History:
 
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  say=print, half: float = 0.0,
-                 source: str = 'auto') -> History:
+                 source: str = 'auto', want_days: bool = True) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -391,15 +456,18 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                 h.add(code, levels.get(code, {}),
                       campaign_at(plan, canon, code, r['day']),
                       r['qty'], r['amt'], rrp, r['day'],
-                      chan=(r['dist'] or '').upper() or None)
+                      chan=(r['dist'] or '').upper() or None,
+                      deal=bool(r.get('trade') or r.get('vouch')),
+                      ym=r.get('ym'))
             # One pass over every product and every day of the window,
             # so a campaign's days are counted whether or not it sold on
             # them - a promotion that sold nothing is still a day it was on.
-            span = [d for m in months for d in month_days(m)]
-            for code in list(h.skus):
-                lv = levels.get(code, {})
-                for d in span:
-                    h.saw(code, lv, campaign_at(plan, canon, code, d))
+            if want_days:
+                span = [d for m in months for d in month_days(m)]
+                for code in list(h.skus):
+                    lv = levels.get(code, {})
+                    for d in span:
+                        h.saw(code, lv, campaign_at(plan, canon, code, d))
             say(f'  {len(rows):,} DTC line(s); {len(h.skus):,} product(s) '
                 'with a realised price')
             if miss:
@@ -503,6 +571,75 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
         if score is None or here > score:
             best, score = other, here
     return best
+
+
+def simple_price(code, plan, canon, hist, levels, days, gscm,
+                 months, b2b=None):
+    """One price per product, from its own record and three group nudges.
+
+    The product's own six-month ASP is the whole of the per-product part.
+    Nothing is borrowed, nothing is keyed by campaign per product: an
+    estimate made per product per promotion is made from a handful of lines
+    and the scatter it adds is the thing being minimised here.
+
+    What moves it are three ratios, each read for the product's group and
+    each the difference between what October is planned to be and what the
+    window happened to be:
+
+        campaign   October's planned promotion days against the window's
+        B2B        the plan's B2B share against the window's
+        deals      voucher, trade-in and the like, lately against the window
+
+    A group ratio adds no per-product scatter, which is the point. None of
+    them fires where the two sides agree, which is the property that makes
+    the whole thing safe to leave on.
+    """
+    k = PM.code_norm(code)
+    asp = hist.asp(k)
+    if not asp:
+        return gscm, 'kept', None, 0.0, ['no six-month ASP of its own']
+    lv = levels.get(k, {})
+    on = sum(1 for d in days if campaign_at(plan, canon, k, d)) / len(days)
+
+    def group(fn):
+        for sc in History.scopes(k, lv):
+            got = fn(sc)
+            if got is not None:
+                return got, sc[1] or 'the whole book'
+        return None, None
+
+    adj, why = 0.0, []
+    got, where = group(hist.campaign)
+    if got:
+        d = (on - got[0]) * got[1]
+        adj += d
+        why.append(f'{on * 100:.0f}% of days on promotion against '
+                   f'{got[0] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
+    if b2b is not None:
+        got, where = group(hist.mix)
+        if got:
+            d = (b2b - got[0]) * got[1]
+            adj += d
+            why.append(f'{b2b * 100:.0f}% B2B planned against '
+                       f'{got[0] * 100:.0f}%: {d * 100:+.1f}pp')
+    got, where = group(lambda sc: hist.deals(sc, months))
+    if got:
+        d = (got[0] - got[1]) * got[2]
+        adj += d
+        why.append(f'unplanned deals on {got[0] * 100:.0f}% of units lately '
+                   f'against {got[1] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
+
+    # A change in discount is not a change in price until it is divided by
+    # what was left of the list price to begin with: two points off a
+    # product already half off is twice the move it is on one at list.
+    base = hist.own(k)
+    if base is None:
+        got, _ = group(lambda sc: History._rate(hist.cg.get((sc, 'off'))))
+        base = got
+    room = 1.0 - (base if base is not None else 0.0)
+    price = asp * (1.0 - adj / room) if room > 0.05 else asp
+    price = max(price, asp * 0.5)
+    return price, 'asp', None, on, why or ['six-month ASP, nothing to nudge']
 
 
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
@@ -646,7 +783,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             scope: str = 'range', decay: float = 0.0, also=None,
             source: str = 'auto', new_cap: float = 0.0,
             no_mix: bool = False, flat_days: bool = False,
-            by_units: bool = True) -> dict:
+            by_units: bool = True, model: str = 'simple') -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -686,11 +823,14 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         f'{MONTHS[(months[0] % 100) - 1]} .. '
         f'{MONTHS[(months[-1] % 100) - 1]}:')
     hist = read_history(folder, plan, canon, months, levels, say=say,
-                        half=decay, source=source)
+                        half=decay, source=source,
+                        want_days=(model != 'simple'))
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
-    if flat_days:
+    if model == 'simple':
+        pass
+    elif flat_days:
         say('  every day of the month weighted alike')
     else:
         got = sorted(p for p in (hist.pull(('all', ''), c)
@@ -715,7 +855,10 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 f'at {m[1] * 100:+.1f}pp on the discount; the plan\u2019s '
                 'own')
             say('  share per material moves each price by the difference')
-    if scope != 'all':
+    if model == 'simple':
+        say('  each product off its own six-month ASP, nudged by its '
+            'group\u2019s ratios - nothing borrowed')
+    elif scope != 'all':
         say(f'  the discount may be borrowed no further than {scope} - '
             'past that a product falls to its own ASP, then to the sheet')
     else:
@@ -748,10 +891,16 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     out = {}
     how = collections.Counter()
     for code, it in planned['items'].items():
-        price, kind, rrp, promo, where = price_for(
-            code, plan, canon, hist, levels, days, it['aud'], scope=scope,
-            rrp_at=rrp_at, new_cap=new_cap, flat_days=flat_days,
-            by_units=by_units, b2b=(None if no_mix else it.get('b2b')))
+        if model == 'simple':
+            price, kind, rrp, promo, where = simple_price(
+                code, plan, canon, hist, levels, days, it['aud'], months,
+                b2b=(None if no_mix else it.get('b2b')))
+        else:
+            price, kind, rrp, promo, where = price_for(
+                code, plan, canon, hist, levels, days, it['aud'],
+                scope=scope, rrp_at=rrp_at, new_cap=new_cap,
+                flat_days=flat_days, by_units=by_units,
+                b2b=(None if no_mix else it.get('b2b')))
         how[kind] += 1
         # The nearest SKU is named on the row, not only in the prose, so a
         # sheet can filter on it: a new product priced off a neighbour is a
@@ -767,6 +916,17 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         }
     say(f'\nre-priced {len(out):,} material(s): '
         + ', '.join(f'{n:,} {k}' for k, n in how.most_common()))
+    if model == 'simple':
+        say('  asp  = its own six-month ASP, nudged by its group\u2019s '
+            'campaign, B2B and deal ratios')
+        say('  kept = no six-month ASP of its own, so the GSCM price is '
+            'unchanged')
+        fresh = [(c, v) for c, v in out.items() if v['how'] == 'kept']
+        if fresh:
+            say(f'\n  {len(fresh):,} material(s) with no record to price '
+                f'from, {sum(v["qty"] for _, v in fresh):,.0f} planned '
+                'unit(s)')
+        return out
     say('  rrp  = list price x what this product came off it under the same')
     say('         promotion, and its own six-month discount on the rest')
     say('  asp  = no list price in the plan, so its six-month ASP stands in')
@@ -800,6 +960,12 @@ def main() -> int:
                     help='how many months of history to read (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
+    ap.add_argument('--model', default='simple',
+                    choices=('simple', 'campaign'),
+                    help='simple: each product\u2019s own six-month ASP, '
+                         'nudged by three group ratios. campaign: the older '
+                         'per-product per-campaign discount off RRP, with '
+                         'its borrowing ladder')
     ap.add_argument('--scope', default='range', choices=SCOPES,
                     help='how far a discount may be borrowed from when the '
                          'product has none of its own (default div1, which '
@@ -862,7 +1028,8 @@ def main() -> int:
     out = reprice(folder, full, args.back, args.plan,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
-                  flat_days=args.flat_days, by_units=args.by_units)
+                  flat_days=args.flat_days, by_units=args.by_units,
+                  model=args.model)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     path.parent.mkdir(parents=True, exist_ok=True)

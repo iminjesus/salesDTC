@@ -259,6 +259,11 @@ def main() -> int:
                     help='months of history the re-price reads (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
+    ap.add_argument('--model', default='simple',
+                    choices=('simple', 'campaign'),
+                    help='simple: each product\u2019s own six-month ASP, '
+                         'nudged by three group ratios. campaign: the older '
+                         'per-product per-campaign discount off RRP')
     ap.add_argument('--scope', default='range', choices=RP.SCOPES,
                     help='how far a thin product may borrow a discount '
                          'from. Default range: its own model family, which '
@@ -332,7 +337,8 @@ def main() -> int:
                         args.back, args.plan,
                         scope=args.scope, decay=args.decay, also=also,
                         new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
-                        flat_days=args.flat_days, by_units=args.by_units)
+                        flat_days=args.flat_days, by_units=args.by_units,
+                        model=args.model)
     price = {PM.code_norm(k): v['price'] for k, v in priced.items()
              if v.get('price')
              and not (args.blank_kept and v.get('how') == 'kept')}

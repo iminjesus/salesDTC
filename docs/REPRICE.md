@@ -70,7 +70,55 @@ not happened yet and has only the plan to be described by; keying one side on
 each would join on nothing. `docs/DTC.md` has the rest, including what
 changes when the source changes.
 
-## The ladder
+## The simple model (the default)
+
+One estimate per product, and three ratios read for its group.
+
+```
+price  =  the product's own six-month ASP
+          nudged by  (October's promotion days  -  the window's)  x  what a
+                      campaign is worth to its group
+          nudged by  (the plan's B2B share  -  the window's)  x  what B2B
+                      costs its group
+          nudged by  (deals lately  -  deals over the window)  x  what an
+                      unplanned deal costs its group
+```
+
+**Nothing is borrowed and nothing is keyed by campaign per product.** An
+estimate made per product per promotion is made from a handful of lines, and
+the scatter that adds is the thing being minimised. The product-level part
+is one number - its own ASP - which is the most stable thing the window
+holds about it.
+
+Every nudge is a **group** ratio, so it moves a whole group together and
+adds no per-product scatter. Each is a *difference* between what October is
+planned to be and what the window happened to be, so **none of them fires
+where the two sides agree** - which is what makes them safe to leave on.
+
+The third is for the discounts no plan will ever carry: a voucher, a
+trade-in, an e-promoter code. They are standing offers, not campaigns, so
+nothing forecasts them; what can be done is to notice a group has been
+running them harder lately than its window average and move the price by the
+difference.
+
+A change in discount becomes a change in price only after dividing by what
+was left of the list price to begin with - two points off a product already
+half off is twice the move it is on one at list.
+
+A product with no six-month ASP of its own is left at the GSCM price and
+counted as `kept`. The run says how many, and the row carries its own
+arithmetic:
+
+```
+100% of days on promotion against 61% (TV): +9.8pp; 46% B2B planned
+against 79%: -1.0pp; unplanned deals on 31% of units lately against 27%
+```
+
+`--model campaign` is the older per-product per-campaign discount off RRP,
+with the borrowing ladder below. It is kept because it is what every
+measurement so far was taken against.
+
+## The ladder (the `campaign` model)
 
 One product, one month, in this order:
 
