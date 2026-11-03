@@ -53,6 +53,12 @@ ROOT = Path(__file__).resolve().parent.parent
 
 CODE = ('Item', 'Material', 'Material Code', 'SKU', 'Model')
 OUT_MARK = '_new_price'
+# What a row gets when the sheet lists the material but October does not plan
+# it - no quantity and no amount in the month's own columns, so there is
+# nothing to re-price and nothing went wrong. An empty cell would say the
+# same thing and say it ambiguously, and a column of unexplained blanks is a
+# question every reader has to ask once.
+NO_PLAN = 'not in Oct plan'
 
 
 def find_sheet(folder: Path, stem: str):
@@ -132,8 +138,9 @@ def with_openpyxl(src, dst, price, basis, near, mon, label, say):
         if p is not None:
             ws.cell(row=r, column=new, value=round(p, 2)).number_format = fmt
             hit += 1
-        if basis.get(k):
-            ws.cell(row=r, column=new + 1, value=basis[k])
+        ws.cell(row=r, column=new + 1,
+                value=basis.get(k) or (NO_PLAN.replace('Oct', mon)
+                                       if k else None))
         if near.get(k):
             ws.cell(row=r, column=new + 2, value=near[k])
     wb.save(dst)
@@ -184,7 +191,9 @@ def with_stdlib(src, dst, price, basis, near, mon, label, say):
         body = [num(v) for v in r]
         out.append(body[:after + 1]
                    + [round(p, 2) if p is not None else None,
-                      basis.get(k) or None, near.get(k) or None]
+                      basis.get(k) or (NO_PLAN.replace('Oct', mon)
+                                       if k else None),
+                      near.get(k) or None]
                    + body[after + 1:])
     styles = [XL.MONEY if i == after + 1 else XL.PLAIN
               for i in range(len(out[0]))]
@@ -286,6 +295,14 @@ def main() -> int:
     hit, rows = got
     print(f'  {hit:,} of {rows:,} row(s) carry a price, '
           f'{rows - hit:,} left blank')
+    if rows > hit:
+        # The commonest reason by far, and the one that looks like a fault
+        # until it is named: the sheet carries three months and this is one
+        # of them.
+        print(f'  a row with no {mon} quantity and no {mon} amount is not '
+              f'part of {mon}\u2019s plan - there is')
+        print(f'  nothing to re-price, and its Basis says so rather than '
+              'being left empty')
     print('  ' + ', '.join(f'{n:,} {k}' for k, n in sorted(
         how.items(), key=lambda kv: -kv[1])))
     if how.get('kept') and not args.blank_kept:

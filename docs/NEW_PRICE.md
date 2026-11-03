@@ -47,7 +47,14 @@ price is the material's, so each of its rows carries the same number.
 | no list price, so its own six-month ASP stood in | the new price (`asp`) |
 | nothing of its own - a new SKU, priced off the named neighbour | the new price (`new`) |
 | not even a neighbour | the GSCM price, unchanged (`kept`) |
-| the sheet prices it and the re-price never saw it | blank |
+| the sheet lists it but the month does not plan it | `not in Oct plan`, price blank |
+
+The last row is the one that looks like a fault and is not. The GSCM sheet
+carries three months side by side, so a material planned for November and
+December only has no October quantity and no October amount - there is
+nothing to re-price. It says so rather than being left empty, because a
+column of unexplained blanks is a question every reader has to ask once. On
+the October sheet that is 71 rows of 1,299.
 
 The third row is the one to watch. A `kept` material comes back carrying the
 number the sheet already had - that is what the card shows, and on the card it
