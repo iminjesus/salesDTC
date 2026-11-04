@@ -258,9 +258,18 @@ So **where the month being priced is not running one, a product's past
 ones come out of the window**, from its ASP and from the campaign rate
 both.
 
-They are matched **by kind** - `clearance`, `secret`, `eofy` - so a month
-running a Secret Sale keeps a product's past Secret Sales and still drops
-its past EOFY. October runs a Secret Sale for 19 of its 678 materials and
+A launch belongs with them and one product showed why. A Fold8's whole
+window is its pre-order: Jul 2,053, Aug 2,032 and Sep 2,331 on 149, 120 and
+26 units, against 2,756 in October. Splitting that window by promotion
+could not reach it - its promoted side came out at 2,048 against 2,114
+quiet, three per cent apart and both of them launch prices - because the
+pre-order bonuses were on the quiet days too, and its B2C side sold at
+about 2,300 where October's S.COM price is 3,271.82. A launch happens once.
+
+They are matched **by kind** - `clearance`, `secret`, `eofy`, `launch`,
+`pre-order` - so a month running a Secret Sale keeps a product's past
+Secret Sales and still drops its past EOFY, and a product on Tab S12 Launch
+in October keeps its own launch months. October runs a Secret Sale for 19 of its 678 materials and
 nothing else of the three, so every product's EOFY and clearance comes out
 and 659 of them lose their secret sales too.
 

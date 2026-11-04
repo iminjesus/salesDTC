@@ -740,7 +740,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                 'with a realised price')
             if dropped[0]:
                 say(f'  {dropped[0]:,} line(s), {dropped[1]:,.0f} unit(s) '
-                    'left out: a clearance, secret sale or EOFY the month '
+                    'left out: a clearance, secret sale, EOFY or launch '
+                    'the month '
                     'being priced is not running')
             if miss:
                 say(f'  {miss:,} line(s) with no list price anywhere - they '
