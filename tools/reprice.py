@@ -388,6 +388,26 @@ class History:
             return None
         return min(5.0, max(0.2, (on_u / on_d) / (off_u / off_d)))
 
+    def tilt(self, scope):
+        """Units per promoted day over units per quiet day, for a bucket.
+
+        `pull` answers it for one named campaign; this answers it for
+        promotion in general, which is what turns a month's **days** into
+        the share of its **units** that will be sold under one. A promotion
+        is not worth its share of the calendar - it is worth what it sells,
+        and a promoted day shifts two to three times a quiet one.
+
+        Clamped, because a campaign that ran over one freak weekend should
+        move a month's price and not define it.
+        """
+        on_u = sum(v for (sc, c), v in self.vol.items() if sc == scope and c)
+        on_d = sum(v for (sc, c), v in self.days.items() if sc == scope and c)
+        off_u = self.vol.get((scope, NO_CAMP), 0.0)
+        off_d = self.days.get((scope, NO_CAMP), 0.0)
+        if on_d < MIN_DAYS or off_d < MIN_DAYS or on_u <= 0 or off_u <= 0:
+            return None
+        return min(3.0, max(0.8, (on_u / on_d) / (off_u / off_d)))
+
     def lent(self, scope, camp, by_units=False):
         """What a group answers with when a product has nothing of its own.
 
@@ -758,11 +778,26 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
         mine = hist.coverage(('sku', k))
         was = mine if mine is not None else got[0]
         whose = 'its own past' if mine is not None else where
-        d = (on - was) * got[1]
+
+        # Days become units before they are compared. A promotion is not
+        # worth its share of the calendar, it is worth what it sells, and a
+        # promoted day shifts two to three times a quiet one - so nine days
+        # of promotion in a month is nearer a fifth of its units than a
+        # third. **Both sides go through the same factor**, which is what
+        # keeps the term at nought where the month's calendar matches its
+        # past, whatever the factor is or whether it had to be clamped.
+        c, pull_from = group(hist.tilt)
+        c = c if c else 1.0
+        up = (lambda f: (f * c) / (f * c + 1.0 - f)) if c != 1.0 else (
+            lambda f: f)
+        a, b = up(on), up(was)
+        d = (a - b) * got[1]
         adj += d
-        parts.update(was=was, gap=got[1], campaign=d, rate_from=where)
-        why.append(f'{on * 100:.0f}% of days on promotion against '
-                   f'{was * 100:.0f}% over {whose}, at {where} rates: '
+        parts.update(was=b, gap=got[1], campaign=d, rate_from=where, tilt=c,
+                     on_units=a)
+        why.append(f'{on * 100:.0f}% of days on promotion is '
+                   f'{a * 100:.0f}% of the units at {c:.1f}x ({pull_from}), '
+                   f'against {b * 100:.0f}% over {whose}, at {where} rates: '
                    f'{d * 100:+.1f}pp')
     got, where = group(lambda sc: hist.deals(sc, months))
     if got:
@@ -835,22 +870,27 @@ def explain_terms(out, levels, say):
         a = agg.setdefault(d, collections.defaultdict(float))
         a['w'] += w
         a['n'] += 1
-        for key in ('on', 'was', 'campaign', 'b2b_nudge', 'deals_nudge',
-                    'room'):
+        for key in ('on', 'on_units', 'was', 'campaign', 'b2b_nudge',
+                    'deals_nudge', 'room'):
             a[key] += p.get(key, 0.0) * w
         a['move'] += (p['price'] / p['asp'] - 1.0) * w
 
     say('\n  what each nudge did, unit-weighted, in points of discount:')
-    say(f"    {'division':14}{'skus':>5}{'plan days':>11}{'its past':>10}"
-        f"{'campaign':>10}{'B2B':>8}{'deals':>8}{'room':>7}"
+    say(f"    {'division':14}{'skus':>5}{'plan days':>11}{'as units':>10}"
+        f"{'its past':>10}{'campaign':>10}{'deals':>8}{'B2B':>8}{'room':>7}"
         f"{'price move':>12}")
     for d, a in sorted(agg.items(), key=lambda x: -x[1]['w']):
         w = a['w'] or 1.0
         say(f"    {d[:14]:14}{a['n']:5.0f}{a['on'] / w * 100:10.0f}%"
-            f"{a['was'] / w * 100:9.0f}%{a['campaign'] / w * 100:9.1f}pp"
-            f"{a['b2b_nudge'] / w * 100:7.1f}pp"
-            f"{a['deals_nudge'] / w * 100:7.1f}pp{a['room'] / w * 100:6.0f}%"
+            f"{a['on_units'] / w * 100:9.0f}%{a['was'] / w * 100:9.0f}%"
+            f"{a['campaign'] / w * 100:9.1f}pp"
+            f"{a['deals_nudge'] / w * 100:7.1f}pp"
+            f"{a['b2b_nudge'] / w * 100:7.1f}pp{a['room'] / w * 100:6.0f}%"
             f"{a['move'] / w * 100:11.1f}%")
+    say('    plan days are the month\u2019s calendar, as units is the '
+        'same after')
+    say('    a promoted day\u2019s selling strength, and its past is the '
+        'window in units.')
     say('    a positive nudge is a deeper discount, so a cheaper price;')
     say('    the move is what the three come to once divided by the room.')
 

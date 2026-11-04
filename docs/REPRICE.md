@@ -77,9 +77,9 @@ own record, and three nudges on top of it.
 
 ```
 price  =  the product's own window ASP
-          nudged by  (the month's promotion days  -  ITS OWN past days)
-                      x  what a campaign is worth, its own rate or its
-                         group's
+          nudged by  (the month's promotion days  -  ITS OWN past days,
+                      both turned into shares of the UNITS)  x  what a
+                      campaign is worth, its own rate or its group's
           nudged by  (deals lately  -  deals over the window)  x  what an
                       unplanned deal costs its group
           nudged by  (the plan's B2B share  -  the plan's own for its
@@ -288,7 +288,26 @@ nothing forecasts them; what can be done is to notice that a group has been
 running them harder lately than its window average and move the price by
 the difference.
 
-The campaign nudge counts **days on both sides**. October has not happened,
+### Days become units
+
+A promotion is not worth its share of the calendar; it is worth what it
+sells, and a promoted day shifts two to three times a quiet one. So nine
+days of promotion in a month is nearer a fifth of its units than a third,
+and it is the unit share the discount has to be applied to.
+
+The factor is units per promoted day over units per quiet day, measured for
+the product itself where it has the days and its group's where it does not,
+clamped to 0.8-3.0. **Both sides of the nudge pass through the same
+factor**, which is what keeps the term at nought where the month's calendar
+matches its past - whatever the factor is, and whether or not it had to be
+clamped. Where it cannot be measured at all the factor is one and the nudge
+is back to counting days, which is the honest fallback.
+
+`--explain` prints the conversion: `plan days` is the month's calendar,
+`as units` is the same after selling strength, and `its past` is the
+window on the same footing.
+
+The nudge counts **days on both sides** before that conversion. October has not happened,
 so its calendar is all there is to count; and a campaign sells about two
 and a half times an ordinary day, so its share of a window's units runs far
 above its share of the days. Comparing the one against the other reads a
