@@ -87,6 +87,26 @@ per product, out of its own record.
 4  nudged by B2B, only where 1 and 2 could not carry it per product
 ```
 
+### The quiet part is priced off the list, not off a past ASP
+
+What a product fetched on days no campaign covered and what it will fetch
+in a month with no campaign are the same thing **only for a product whose
+window was ordinary trading**. A Fold8 fetched about 2,300 on its quiet
+days because its quiet days were launch days too, and October's S.COM
+price for it is 3,271.82.
+
+So the unpromoted part of a month is `the month's list price x (1 - the
+**group's** ordinary markdown off list)`, by channel where both channels
+answer and re-mixed at the plan's B2B share. The markdown is deliberately
+a group figure: a group's ordinary trading discount is steady and is
+nobody's launch, while the same number read per product reads that
+product's launch again under another name. The list price is October's, so
+nothing stale comes forward with it.
+
+The cost is that a product which always sells below its group is now
+priced at its group's markdown. `--quiet-asp` restores the old behaviour -
+the product's own quiet days - to compare against.
+
 ### Why the promotion goes first
 
 A blended ASP is one number for two different trades. A Fold8 sold its

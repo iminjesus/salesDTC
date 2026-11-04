@@ -237,6 +237,11 @@ class History:
         # promotion and without one, to B2B and to B2C - see `sides`.
         self.sc: dict = collections.defaultdict(
             lambda: collections.defaultdict(lambda: [0.0, 0.0]))
+        # (bucket, channel) -> [paid, listed, units] on days with no
+        # campaign on them. What a product fetches off its list price when
+        # nothing is running, which is a group fact and a steady one - see
+        # `quiet`.
+        self.qc: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
         # The same tally split by channel, which is the only way to see what
         # the B2B half of a month costs that the consumer half does not.
         self.ch: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -333,6 +338,14 @@ class History:
                 t[0] += amt * w
                 t[1] += qty * rrp * w
                 t[2] += qty
+            if not camp:
+                for c in (chan, ''):
+                    if c is None:
+                        continue
+                    t = self.qc[(scope, c)]
+                    t[0] += amt * w
+                    t[1] += qty * rrp * w
+                    t[2] += qty
 
     def discount(self, scope, camp):
         """1 - what was collected over what was listed, or None.
@@ -357,6 +370,22 @@ class History:
             return sum(t[1] / t[0] for t in live) / len(live)
         q = sum(t[0] for t in live)
         return (sum(t[1] for t in live) / q) if q else None
+
+    def quiet(self, scope, chan=''):
+        """What this bucket comes off its list price with nothing running.
+
+        **A group fact, and deliberately not a product one.** The quiet
+        price of a product in its launch months is a launch price - a Fold8
+        sold at about 2,300 on days no campaign covered, where October's
+        S.COM price is 3,271.82 - so reading it per product reads the
+        launch again by another name. A whole group's ordinary markdown off
+        list is steady, and applied to the month's own list price it says
+        what the product will fetch when nothing is on.
+        """
+        t = self.qc.get((scope, chan))
+        if not t or t[2] < MIN_UNITS or t[1] <= 0:
+            return None
+        return max(0.0, 1.0 - t[0] / t[1])
 
     def sides(self, code, b2b=None):
         """(what it fetches on a promotion, and without one) - and how.
@@ -847,7 +876,8 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 
 def simple_price(code, plan, canon, hist, levels, days, gscm,
-                 months, b2b=None, plan_mix=None):
+                 months, b2b=None, plan_mix=None, rrp_at=None,
+                 quiet_asp=False):
     """One price per product: its own ASP, then promotion on top.
 
     **The ASP comes first and the promotion second.** The product's own
@@ -895,7 +925,20 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     k = PM.code_norm(code)
     lv = levels.get(k, {})
     blended = hist.asp(k)
-    promo, clean, by_chan = hist.sides(k, b2b)
+    promo, own_quiet, by_chan = hist.sides(k, b2b)
+
+    # (2) The quiet part of the month is priced off the **list price**, not
+    # off what the product fetched on quiet days. Those two are the same
+    # thing only for a product whose window is ordinary trading: a Fold8
+    # fetched about 2,300 on days no campaign covered, because its quiet
+    # days were launch days too, where October's S.COM price is 3,271.82.
+    # A group's ordinary markdown off list is steady and is not anybody's
+    # launch, and on the month's own list price it says what the product
+    # goes out at with nothing running.
+    rrp = (rrp_at(k) if rrp_at else None) or rrp_of(plan, code)
+    clean, quiet_from = None, None
+    if quiet_asp:
+        clean, quiet_from = own_quiet, 'its own quiet days'
     if not blended and promo is None and clean is None:
         # Nothing of its own, and nothing borrowed: a neighbour's ASP
         # is a guess dressed as a measurement, and the sheet's own
@@ -917,6 +960,30 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
 
     adj, why = 0.0, []
     parts = {'code': k, 'on': on, 'by_chan': by_chan}
+
+    def off_rate(chan):
+        for sc in History.scopes(k, lv):
+            if sc[0] == 'sku':
+                continue
+            got = hist.quiet(sc, chan)
+            if got is not None:
+                return got, (sc[1] or 'the whole book')
+        return None, None
+
+    if rrp and clean is None:
+        if b2b is not None:
+            bb, from_b = off_rate('B2B')
+            cc, from_c = off_rate('B2C')
+            if bb is not None and cc is not None:
+                clean = rrp * (1.0 - (bb * b2b + cc * (1.0 - b2b)))
+                quiet_from = (f'{bb * 100:.0f}% B2B / {cc * 100:.0f}% B2C '
+                              f'off list ({from_b})')
+        if clean is None:
+            got, where = off_rate('')
+            if got is not None:
+                clean = rrp * (1.0 - got)
+                quiet_from = f'{got * 100:.0f}% off list ({where})'
+    parts.update(clean_from=quiet_from, rrp=rrp)
 
     # Days become units first. A promotion is not worth its share of the
     # calendar, it is worth what it sells, and a promoted day shifts two to
@@ -943,15 +1010,20 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
         asp = promo * w + clean * (1.0 - w)
         why.append(f'{on * 100:.0f}% of days on promotion is '
                    f'{w * 100:.0f}% of the units at {c:.1f}x ({pull_from}): '
-                   f'{promo:,.0f} on one, {clean:,.0f} off one{mixed}')
-    elif clean is not None and w < 0.5:
+                   f'{promo:,.0f} of its own on one{mixed}, '
+                   f'{clean:,.0f} off one'
+                   + (f' - {rrp:,.0f} list at {quiet_from}' if rrp
+                      else f' ({quiet_from})'))
+    elif clean is not None:
         asp = clean
-        why.append(f'{on * 100:.0f}% of days on promotion, and nothing of '
-                   f'its own under one: {clean:,.0f} off one{mixed}')
+        why.append(f'{on * 100:.0f}% of days on promotion and nothing of '
+                   f'its own under one: '
+                   + (f'{rrp:,.0f} list at {quiet_from} = ' if rrp else '')
+                   + f'{clean:,.0f}')
     elif promo is not None and w >= 0.5:
         asp = promo
-        why.append(f'{on * 100:.0f}% of days on promotion, and nothing of '
-                   f'its own without one: {promo:,.0f}{mixed}')
+        why.append(f'{on * 100:.0f}% of days on promotion, and no list '
+                   f'price to work from: {promo:,.0f}{mixed}')
 
     if asp is None:
         # Neither side is its own, so the blended ASP stands in and the
@@ -1122,31 +1194,30 @@ def why_one(codes, hist, out, levels, say):
         pr, cl = p.get('promo'), p.get('clean')
         chan = ' (mixed B2B/B2C)' if p.get('by_chan') else ''
         if pr is not None or cl is not None:
-            a = f'{pr:,.0f}' if pr is not None else '-'
-            b = f'{cl:,.0f}' if cl is not None else '-'
-            say(f'                on a promotion {a:>9}'
-                f'   without one {b:>9}{chan}')
-            # The four cells the two sides were built from, so a side that
-            # came out surprising can be read rather than guessed at.
-            got = hist.sc.get(k) or {}
-            say(f"      {'':8}{'cell':>16}{'months':>8}{'units':>9}"
-                f"{'ASP':>10}")
-            for on in (True, False):
+            if pr is not None:
+                say(f'                under a promotion {pr:>12,.0f}'
+                    f'   its own{chan}')
+                got = hist.sc.get(k) or {}
                 for ch in ('B2B', 'B2C', None):
-                    live = [(ym, t) for (ym, o, c), t in got.items()
-                            if o is on and (c == ch if ch else True)
-                            and t[0] > 0]
+                    live = [t for (_, o, c), t in got.items()
+                            if o and (c == ch if ch else True) and t[0] > 0]
                     if not live:
                         continue
-                    vote = [t for _, t in live if t[0] >= MIN_UNITS]
-                    q = sum(t[0] for _, t in live)
-                    amt = sum(t[1] for _, t in live)
-                    name = ('on ' if on else 'off ') + (ch or 'both')
-                    say(f"      {'':8}{name:>16}{len(vote):>5}/{len(live):<2}"
-                        f"{q:>9,.0f}{(amt / q if q else 0):>10,.0f}")
+                    q = sum(t[0] for t in live)
+                    say(f"      {'':16}{'on ' + (ch or 'both'):>12}"
+                        f"{len([t for t in live if t[0] >= MIN_UNITS]):>4}"
+                        f" month(s){q:>8,.0f}u"
+                        f"{(sum(t[1] for t in live) / q if q else 0):>10,.0f}")
+            else:
+                say('                under a promotion            -'
+                    '   nothing of its own')
+            if cl is not None:
+                say(f"                without one       {cl:>12,.0f}"
+                    f"   {p.get('rrp') or 0:,.0f} list at "
+                    f"{p.get('clean_from') or '-'}")
             say(f"                -> base {p['asp']:,.0f}")
         else:
-            say(f"                neither side is its own, so the blended "
+            say(f"                neither side answers, so the blended "
                 f"{p['asp']:,.0f} stands in")
         if 'campaign' in p:
             say(f"                against {p['was'] * 100:.0f}% over its "
@@ -1378,7 +1449,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             by_units: bool = True, model: str = 'simple',
             explain: bool = False, pooled: bool = False,
             campaigns: str = '', clearance: bool = True,
-            why=()) -> dict:
+            why=(), quiet_asp: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1539,7 +1610,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             price, kind, rrp, promo, where = simple_price(
                 code, plan, canon, hist, levels, days, it['aud'], months,
                 b2b=(None if no_mix else it.get('b2b')),
-                plan_mix=plan_mix)
+                plan_mix=plan_mix, rrp_at=rrp_at,
+                quiet_asp=quiet_asp)
         else:
             price, kind, rrp, promo, where = price_for(
                 code, plan, canon, hist, levels, days, it['aud'],
@@ -1653,6 +1725,11 @@ def main() -> int:
                          'before - a product sells most when it is cheapest, '
                          'so this reads the window a couple of points too '
                          'cheap')
+    ap.add_argument('--quiet-asp', action='store_true',
+                    help='price the unpromoted part of a month off what '
+                         'the product itself fetched on quiet days, rather '
+                         'than off the month\u2019s list price at its '
+                         'group\u2019s ordinary markdown')
     ap.add_argument('--why', nargs='+', default=(), metavar='CODE',
                     help='every step of one material\u2019s price - the '
                          'months that made its ASP and each nudge with '
@@ -1703,6 +1780,7 @@ def main() -> int:
     out = reprice(folder, full, args.back, args.plan, explain=args.explain,
                   pooled=args.pooled, campaigns=args.campaigns,
                   clearance=args.clearance, why=args.why,
+                  quiet_asp=args.quiet_asp,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,
