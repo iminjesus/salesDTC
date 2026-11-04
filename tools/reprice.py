@@ -877,7 +877,7 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 def simple_price(code, plan, canon, hist, levels, days, gscm,
                  months, b2b=None, plan_mix=None, rrp_at=None,
-                 quiet_list=False):
+                 quiet_list=False, promo_first=False):
     """One price per product: its own ASP, then promotion on top.
 
     **The ASP comes first and the promotion second.** The product's own
@@ -925,7 +925,13 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     k = PM.code_norm(code)
     lv = levels.get(k, {})
     blended = hist.asp(k)
-    promo, own_quiet, by_chan = hist.sides(k, b2b)
+    # Measured on October, pricing the promotion first and the quiet days
+    # second came to 191 against 177 for the ASP with the promotion as a
+    # nudge on top - the same book, the same rows. It is right about the
+    # product it was built for and wrong about the book, which is the
+    # trade it has to win and does not, so it waits behind --promo-first.
+    promo, own_quiet, by_chan = (
+        hist.sides(k, b2b) if promo_first else (None, None, False))
 
     # (2) The quiet part of the month is priced off the **list price**, not
     # off what the product fetched on quiet days. Those two are the same
@@ -1468,7 +1474,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             by_units: bool = True, model: str = 'simple',
             explain: bool = False, pooled: bool = False,
             campaigns: str = '', clearance: bool = True,
-            why=(), quiet_list: bool = False) -> dict:
+            why=(), quiet_list: bool = False,
+            promo_first: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1630,7 +1637,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 code, plan, canon, hist, levels, days, it['aud'], months,
                 b2b=(None if no_mix else it.get('b2b')),
                 plan_mix=plan_mix, rrp_at=rrp_at,
-                quiet_list=quiet_list)
+                quiet_list=quiet_list, promo_first=promo_first)
         else:
             price, kind, rrp, promo, where = price_for(
                 code, plan, canon, hist, levels, days, it['aud'],
@@ -1744,6 +1751,11 @@ def main() -> int:
                          'before - a product sells most when it is cheapest, '
                          'so this reads the window a couple of points too '
                          'cheap')
+    ap.add_argument('--promo-first', action='store_true',
+                    help='price the promoted part of a month off what the '
+                         'product fetched under a promotion and the rest '
+                         'off its quiet days, instead of taking its ASP '
+                         'and nudging that')
     ap.add_argument('--quiet-list', action='store_true',
                     help='price the unpromoted part of a month off the '
                          'month\u2019s list price at its group\u2019s '
@@ -1800,6 +1812,7 @@ def main() -> int:
                   pooled=args.pooled, campaigns=args.campaigns,
                   clearance=args.clearance, why=args.why,
                   quiet_list=args.quiet_list,
+                  promo_first=args.promo_first,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,

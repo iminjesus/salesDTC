@@ -70,10 +70,29 @@ not happened yet and has only the plan to be described by; keying one side on
 each would join on nothing. `docs/DTC.md` has the rest, including what
 changes when the source changes.
 
+## Scoring a run
+
+Two things wreck a pivot before the model is in question.
+
+**A material that sold nothing.** The sheet plans and prices materials that
+October never sold, and `Actual - New` for one of those is the whole of
+`New`: one tablet at nought against 2,506, a monitor at nought against
+2,967. Thirty-odd of them carry most of a book's apparent error and
+dominate its deviation. **Filter the pivot to `Actual > 0`**, or the number
+is about the sheet's coverage and not about any price.
+
+**`--blank-kept`.** It leaves a `kept` row empty rather than carrying the
+sheet's own price, which is right for a simulation and wrong for a pivot
+that subtracts, for the same reason. Compare only runs that had it set the
+same way.
+
 ## The simple model (the default)
 
-**The promotion first, then the quiet days, then the rest.** One estimate
-per product, out of its own record.
+**The ASP first, the promotion as a nudge on it.** One estimate per
+product, out of its own record. `--promo-first` prices the promoted part
+of the month off what the product fetched under a promotion and the rest
+off its quiet days instead; it is right about the product it was built for
+and measured worse on the book, so it waits behind the flag.
 
 ```
 1  what it fetched UNDER a promotion   x  the share of the month's units
