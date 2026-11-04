@@ -72,90 +72,83 @@ changes when the source changes.
 
 ## The simple model (the default)
 
-One estimate per product, from its own record, and two ratios read for its
-group.
+**The ASP first, the promotion second.** One estimate per product, from its
+own record, and three nudges on top of it.
 
 ```
-price  =  the product's own ASP on promotion   x  the share of the month's
-                                                  units expected on one
-       +  the product's own ASP off promotion  x  the rest
+price  =  the product's own window ASP
+          nudged by  (the month's promotion days  -  ITS OWN past days)
+                      x  what a campaign is worth, its own rate or its
+                         group's
           nudged by  (the plan's B2B share  -  the window's)  x  what B2B
                       costs its group
           nudged by  (deals lately  -  deals over the window)  x  what an
                       unplanned deal costs its group
 ```
 
-**Nothing is borrowed.** A product's own window is the whole of the
-product-level part; what the group supplies is only the two ratios, and a
-group ratio moves every member alike.
+The base is the ASP and stays the ASP. Everything after it is a
+**difference** between what the month being priced is planned to be and
+what the window actually was, so where the month looks like its past every
+term is nought and the price is the ASP. The model's resting state is to
+not move, which is what keeps it from swinging.
 
-### Why the base is split
+### Why the base is not re-mixed
 
-A window ASP is a blend of promoted days and quiet ones, mixed at whatever
-ratio the window happened to have. Applying it to a month with a different
-promotion calendar is wrong by the difference - and that difference is the
-whole of what looks like seasonality, because **a busy month is busy because
-it is promoted**. So the base is split - what the product fetched under a
-promotion, what it fetched without one - and re-blended at the share the
-month being priced is planned to carry.
+An earlier version split the base into what a product fetched on promotion
+and what it fetched off it, and re-blended the two at the month's own
+calendar. The algebra is sound - re-blend an unchanged calendar with a
+selling strength measured on the same window and the window ASP comes back
+exactly, which a run against a flat window confirms to within a tenth of a
+point. What it rests on is not. The blend needs a promoted day's selling
+strength; that is estimated per product and **clamped to 0.8-3.0**, and
+where the clamp binds or the estimate has to be borrowed the identity
+breaks and the base moves on its own. The error it then makes is the full
+promoted-to-quiet price gap times the blend error, which on a deeply
+promoted product is a lot of money.
 
-Days become units before they weight anything. A promoted day shifts more
-than a quiet one, so 61% of a month's days on promotion is nearer 80% of its
-units. The ratio is measured per product, units per promoted day over units
-per quiet day, clamped to 0.8-3.0, with the group's standing in where a
-product is too thin to say. That is the "promotion period and revenue" part,
-and it is the only place the calendar enters.
+As a nudge the same evidence passes through a gentler transform: a
+difference in coverage times a difference in discount points, divided by
+what was left of the list price. And nothing is lost by it - the scope
+ladder already prefers a product's **own** campaign rate wherever it sold
+five units either side of the line, so the per-product evidence is still
+used. It is used as a correction rather than as a replacement.
 
-**This replaced a drift term, and the replacement is why.** A nudge for how
-far the newest month's level sat from the window's looked like the fix for
-the same symptom and was not: it counted the promotion twice, priced the
-book about 8% dear - REF worst, 114,325 against an actual 95,299 - and took
-the deviation from 127 to 198, worse than the plan it was meant to beat.
-Keying a price to the promotion is already keying it to the season; keying
-it to both charges for the same thing twice.
+### Coverage is never borrowed
 
-A product without five units either side of the line cannot be split. It
-falls back to the group's coverage gap - (the month's promotion days - the
-window's) x what a campaign is worth to that group - which is what every
-product used before.
+The two halves of the campaign nudge are not alike. What a campaign is
+worth is a price fact - thin for one product, fairly taken from its group.
+How much of a month a product spends on promotion is a **calendar** fact,
+and a group's calendar is simply somebody else's. Days carry no unit
+threshold, so a product's own coverage is always countable.
 
-### The group ratios
+REF is what this is for. A fridge is on promotion 84% of October and most
+of every other month, so almost none of them clear five units off
+promotion. Falling back to a borrowed coverage figure - taken from a book
+where promotions are occasional - said their October was far more promoted
+than their past and priced them about 8% under what they sold for, every
+line out the same way: a level, not a scatter. Against their own calendar
+the same rows read 100% against 100% and the nudge does not fire. Measured
+over the plan, that is worth +8.4% to HA against the 8.7% it was short.
 
-Each is a *difference* between what the month is planned to be and what the
-window happened to be, so **neither fires where the two sides agree**, which
-is what makes them safe to leave on. Being group-level they move a whole
-group together and add no per-product scatter - which is precisely why the
-scatter has to come out of the base, and now does.
+### The other two
+
+Each is a difference too, so **neither fires where the two sides agree**.
+Being group-level they move a whole group together and add no per-product
+scatter.
 
 The deals ratio is for the discounts no plan will ever carry: a voucher, a
 trade-in, an e-promoter code. They are standing offers, not campaigns, so
 nothing forecasts them; what can be done is to notice that a group has been
-running them harder lately than its window average and move the price by the
-difference.
+running them harder lately than its window average and move the price by
+the difference.
 
-The fallback campaign nudge measures October's coverage against **the
-product's own past**, not its group's. The two halves of that nudge are not
-alike: what a campaign is worth is a price fact, thin for one product and
-fairly taken from its group, while how much of a month a product spends on
-promotion is a calendar fact - and a group's calendar is simply somebody
-else's. Days carry no unit threshold, so a product's own coverage is always
-countable and is never borrowed.
-
-REF is what this is for. A fridge is on promotion 84% of October and most of
-every other month, so almost none of them clear five units off promotion and
-almost none can be split. Falling back to a borrowed coverage figure - taken
-from a book where promotions are occasional - said their October was far
-more promoted than their past and priced them about 8% under what they sold
-for, every line out the same way: a level, not a scatter. Against their own
-calendar the same rows read 100% against 100% and the nudge does not fire.
-
-The nudge counts **days on both sides**. October has not
-happened, so its calendar is all there is to count; and a campaign sells
-about two and a half times an ordinary day, so its share of a window's units
-runs far above its share of the days. Comparing the one against the other
-reads a difference where there is none - on one run, October's 40% of days
-against the window's 57% of units, a spurious 17 points that lifted every
-price about 1.4%.
+The campaign nudge counts **days on both sides**. October has not happened,
+so its calendar is all there is to count; and a campaign sells about two
+and a half times an ordinary day, so its share of a window's units runs far
+above its share of the days. Comparing the one against the other reads a
+difference where there is none - on one run, October's 40% of days against
+the window's 57% of units, a spurious 17 points that lifted every price
+about 1.4%.
 
 A change in discount becomes a change in price only after dividing by what
 was left of the list price to begin with - two points off a product already
