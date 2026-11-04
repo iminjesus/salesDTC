@@ -128,17 +128,22 @@ def months_back(ym: int, n: int) -> list:
     return list(reversed(out))
 
 
-# A campaign whose name says it is emptying a shelf rather than running a
-# sale. `--campaigns` on October's window says these are the deep ones -
-# Accessories' two Clearance lines at 56.9% and 50.6% against 33.3% for an
-# ordinary nationwide day - and an ASP that averages them in carries a
-# run-out forward into a month that is not running one.
-CLEARANCE = ('clearance', 'secret')
+# Campaigns that are not ordinary trading, named so in the plan.
+# `--campaigns` on the real window shows them as the deep ones - APS
+# Clearance at 56.9% off and Accessories Clearance at 50.6% against 33.3%
+# for a nationwide day, REF's Early EOFY at 46.5% against 38.2% for a
+# Samsung Week - and a window that averages one in carries it forward into
+# a month that is not running it.
+#
+# Matched **by kind**, so a month running a Secret Sale keeps a product's
+# past Secret Sales and still drops its past EOFY. One list, one place.
+SPECIAL = ('clearance', 'secret', 'eofy')
 
 
-def is_clearance(camp: str) -> bool:
+def special_kinds(camp: str) -> frozenset:
+    """Which of them this campaign's name claims to be, if any."""
     low = (camp or '').lower()
-    return any(w in low for w in CLEARANCE)
+    return frozenset(w for w in SPECIAL if w in low)
 
 
 def campaign_at(plan, canon, code: str, day) -> str:
@@ -672,8 +677,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                 'with a realised price')
             if dropped[0]:
                 say(f'  {dropped[0]:,} line(s), {dropped[1]:,.0f} unit(s) '
-                    'left out: a clearance the month being priced is not '
-                    'running')
+                    'left out: a clearance, secret sale or EOFY the month '
+                    'being priced is not running')
             if miss:
                 say(f'  {miss:,} line(s) with no list price anywhere - they '
                     'count towards the ASP and not the discount')
@@ -1227,16 +1232,21 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     skip = None
     if clearance:
         span = month_days(ym)
-        keep = {PM.code_norm(c) for c in planned['items']
-                if any(is_clearance(campaign_at(plan, canon,
-                                                PM.code_norm(c), d))
-                       for d in span)}
-        say(f'  {len(keep):,} of {len(planned["items"]):,} material(s) are '
-            f'on a clearance in the month being priced; for the rest, what '
-            f'they sold under one is left out of the window')
+        keep = collections.defaultdict(set)
+        for c in planned['items']:
+            k = PM.code_norm(c)
+            for d in span:
+                keep[k] |= special_kinds(campaign_at(plan, canon, k, d))
+        on_one = sum(1 for v in keep.values() if v)
+        kinds = sorted({w for v in keep.values() for w in v})
+        say(f'  {on_one:,} of {len(planned["items"]):,} material(s) are on '
+            f'a {"/".join(kinds) if kinds else "special"} campaign in the '
+            f'month being priced; for the rest, what they sold under one '
+            f'is left out of the window')
 
         def skip(code, camp):
-            return is_clearance(camp) and code not in keep
+            got = special_kinds(camp)
+            return bool(got) and not (got & keep.get(code, frozenset()))
 
     months = months_back(ym, back)
     say(f'\nreading what those products sold at over '
@@ -1453,9 +1463,9 @@ def main() -> int:
                          'cheap')
     ap.add_argument('--keep-clearance', dest='clearance',
                     action='store_false',
-                    help='leave a product\u2019s past clearances in the '
-                         'window even where the month being priced is not '
-                         'running one - as it was before')
+                    help='leave a product\u2019s past clearances, secret '
+                         'sales and EOFY in the window even where the '
+                         'month being priced is running none - as before')
     ap.add_argument('--campaigns', nargs='?', const='div3', default='',
                     choices=('range', 'div3', 'div1'),
                     help='what each named campaign sold at, and how much of '

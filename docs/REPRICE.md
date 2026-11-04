@@ -235,28 +235,42 @@ move where TV needs 5.9%. TV's gap is not a coverage story: October was its
 deepest month in seven - 44.1% against 39.4-41.3% for May to September -
 and nothing in the window foretells a Black Friday ramp.
 
-### A clearance comes out of the window
+### A campaign the month is not running comes out of the window
 
-A clearance is a shelf being emptied, not a sale being run. `--campaigns`
-on the real window says so plainly - Accessories' Clearance lines at 56.9%
-and 50.6% against 33.3% for an ordinary nationwide day, TV's at 51.0%
-against 40.6% - and a window that averages those in carries a run-out
-forward into a month that is not running one.
+Some campaigns are not ordinary trading, and `--campaigns` on the real
+window shows them as the deep ones:
 
-So **where the month being priced has no clearance for a product, that
-product's past clearances come out of the window**, both from its ASP and
-from the campaign rate. October runs one for 19 of its 678 materials; the
-other 659 are priced off a window with their clearances removed.
+```
+  Accessories   APS Clearance            56.9%   against 33.3% nationwide
+                Accessories Clearance    50.6%
+  TV            Clearance                51.0%   against 40.6% nationwide
+  REF           Early EOFY               46.5%   against 38.2% Samsung Week
+  Wearable      SECRET SALE              54.8%
+```
+
+A window that averages one of those in carries it forward into a month that
+is not running it - which is most of REF's gap, because REF's May and June
+sold 1,237 and 1,172 units under Early EOFY at 46.5% and 46.9% and October
+has no EOFY at all.
+
+So **where the month being priced is not running one, a product's past
+ones come out of the window**, from its ASP and from the campaign rate
+both.
+
+They are matched **by kind** - `clearance`, `secret`, `eofy` - so a month
+running a Secret Sale keeps a product's past Secret Sales and still drops
+its past EOFY. October runs a Secret Sale for 19 of its 678 materials and
+nothing else of the three, so every product's EOFY and clearance comes out
+and 659 of them lose their secret sales too.
 
 The days go with the sales. A day whose sales were dropped is not a day the
 product traded, or its coverage would count a stretch the discount tally
 never saw - the same pairing the rest of the model keeps.
 
-A campaign counts as a clearance when its name says so: **`clearance` or
-`secret`**. The second is a judgement rather than a certainty - a Secret
-Sale is not only old stock - but the discounts put it with the clearances
-and not with the trading weeks, and it is one list in one place to change.
-`--keep-clearance` leaves them in, as before.
+`secret` is a judgement rather than a certainty; a Secret Sale is not only
+old stock. But its discounts sit with the clearances and not with the
+trading weeks, and `SPECIAL` is one list in one place to change.
+`--keep-clearance` leaves all three in, as before.
 
 ### `--campaigns` - telling a clearance from a sale
 
