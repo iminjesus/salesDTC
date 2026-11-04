@@ -87,7 +87,32 @@ per product, out of its own record.
 4  nudged by B2B, only where 1 and 2 could not carry it per product
 ```
 
-### The quiet part is priced off the list, not off a past ASP
+### `--quiet-list`, and why it is not the default
+
+The unpromoted part of a month could be priced off **the month's list
+price** times the group's ordinary markdown, instead of off what the
+product itself fetched on quiet days. It sounds right - a Fold8 fetched
+about 2,100 on its quiet days because its quiet days were launch days too,
+where October's S.COM price for it is 3,271.82 - and it does not work,
+because there is no group whose markdown fits a product like that:
+
+```
+  read at its range  (Fold8 Online Exclusive)   45% B2B / 39% B2C off list
+  read at its division (Mobile)                 47% B2B / 44% B2C off list
+  what October actually took off it on B2C                      9%
+```
+
+Its own range **is** its launch, so reading the markdown there reads the
+launch again. Widening to the division brings in every older and cheaper
+phone, which discounts harder than a flagship does. A group average
+markdown is not a premium product's markdown at any level, and the right
+tool for a launch is to leave the launch out of the window, which is what
+`SPECIAL` does.
+
+So it stays behind `--quiet-list` to compare against. It reads no narrower
+than a division when it is used, for the reason above.
+
+### What the quiet side is
 
 What a product fetched on days no campaign covered and what it will fetch
 in a month with no campaign are the same thing **only for a product whose

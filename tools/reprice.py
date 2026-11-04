@@ -877,7 +877,7 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 def simple_price(code, plan, canon, hist, levels, days, gscm,
                  months, b2b=None, plan_mix=None, rrp_at=None,
-                 quiet_asp=False):
+                 quiet_list=False):
     """One price per product: its own ASP, then promotion on top.
 
     **The ASP comes first and the promotion second.** The product's own
@@ -937,7 +937,7 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     # goes out at with nothing running.
     rrp = (rrp_at(k) if rrp_at else None) or rrp_of(plan, code)
     clean, quiet_from = None, None
-    if quiet_asp:
+    if not quiet_list:
         clean, quiet_from = own_quiet, 'its own quiet days'
     if not blended and promo is None and clean is None:
         # Nothing of its own, and nothing borrowed: a neighbour's ASP
@@ -961,9 +961,16 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     adj, why = 0.0, []
     parts = {'code': k, 'on': on, 'by_chan': by_chan}
 
+    # Read no narrower than a division. A `range` is one phone's colours
+    # and capacities, and a launch takes the whole range at once - reading
+    # the markdown there reads that launch again, which is the thing this
+    # is here to avoid. A Fold8's range said 42% B2B and 33% B2C off list,
+    # which is its pre-order and not anybody's ordinary trading.
+    QUIET_FROM = SCOPES.index('div3')
+
     def off_rate(chan):
         for sc in History.scopes(k, lv):
-            if sc[0] == 'sku':
+            if SCOPES.index(sc[0]) < QUIET_FROM:
                 continue
             got = hist.quiet(sc, chan)
             if got is not None:
@@ -1449,7 +1456,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             by_units: bool = True, model: str = 'simple',
             explain: bool = False, pooled: bool = False,
             campaigns: str = '', clearance: bool = True,
-            why=(), quiet_asp: bool = False) -> dict:
+            why=(), quiet_list: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1611,7 +1618,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 code, plan, canon, hist, levels, days, it['aud'], months,
                 b2b=(None if no_mix else it.get('b2b')),
                 plan_mix=plan_mix, rrp_at=rrp_at,
-                quiet_asp=quiet_asp)
+                quiet_list=quiet_list)
         else:
             price, kind, rrp, promo, where = price_for(
                 code, plan, canon, hist, levels, days, it['aud'],
@@ -1725,11 +1732,11 @@ def main() -> int:
                          'before - a product sells most when it is cheapest, '
                          'so this reads the window a couple of points too '
                          'cheap')
-    ap.add_argument('--quiet-asp', action='store_true',
-                    help='price the unpromoted part of a month off what '
-                         'the product itself fetched on quiet days, rather '
-                         'than off the month\u2019s list price at its '
-                         'group\u2019s ordinary markdown')
+    ap.add_argument('--quiet-list', action='store_true',
+                    help='price the unpromoted part of a month off the '
+                         'month\u2019s list price at its group\u2019s '
+                         'ordinary markdown, rather than off what the '
+                         'product itself fetched on quiet days')
     ap.add_argument('--why', nargs='+', default=(), metavar='CODE',
                     help='every step of one material\u2019s price - the '
                          'months that made its ASP and each nudge with '
@@ -1780,7 +1787,7 @@ def main() -> int:
     out = reprice(folder, full, args.back, args.plan, explain=args.explain,
                   pooled=args.pooled, campaigns=args.campaigns,
                   clearance=args.clearance, why=args.why,
-                  quiet_asp=args.quiet_asp,
+                  quiet_list=args.quiet_list,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,
