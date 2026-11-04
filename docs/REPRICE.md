@@ -72,67 +72,68 @@ changes when the source changes.
 
 ## The simple model (the default)
 
-**The ASP first, the promotion second.** One estimate per product, from its
-own record, and three nudges on top of it.
+**The promotion first, then the quiet days, then the rest.** One estimate
+per product, out of its own record.
 
 ```
-price  =  the product's own window ASP
-          nudged by  (the month's promotion days  -  ITS OWN past days,
-                      both turned into shares of the UNITS)  x  what a
-                      campaign is worth, its own rate or its group's
-          nudged by  (deals lately  -  deals over the window)  x  what an
-                      unplanned deal costs its group
-          nudged by  (the plan's B2B share  -  the plan's own for its
-                      group)  x  what B2B costs its group
+1  what it fetched UNDER a promotion   x  the share of the month's units
+                                          expected on one
+2  what it fetched WITHOUT one         x  the rest
+
+   each of the two already mixed to the plan's B2B share, B2B against B2C
+
+3  nudged by  (deals lately - deals over the window)  x  what an
+               unplanned deal costs its group
+4  nudged by B2B, only where 1 and 2 could not carry it per product
 ```
 
-The three are **summed**, so their order is the reader's convenience and
-not the arithmetic's - written in the order above, and the same price
-whichever way round they go.
+### Why the promotion goes first
 
-The base is the ASP and stays the ASP. Everything after it is a
-**difference** between what the month being priced is planned to be and
-what the window actually was, so where the month looks like its past every
-term is nought and the price is the ASP. The model's resting state is to
-not move, which is what keeps it from swinging.
+A blended ASP is one number for two different trades. A Fold8 sold its
+whole window under a pre-order at 47% off and sells October at 9% off; its
+blended ASP carries the pre-order forward and comes out 20% light. The
+quiet side of the same window says what it fetches when nothing is running,
+which is what October is.
 
-### Why the base is not re-mixed
+So the month being priced is answered in its own terms: the days it is
+promoted out of what the product fetched promoted, and the days it is not
+out of what it fetched quiet. Where it runs no promotion at all, the quiet
+side is the whole of the answer and the launch never enters.
 
-An earlier version split the base into what a product fetched on promotion
-and what it fetched off it, and re-blended the two at the month's own
-calendar. The algebra is sound - re-blend an unchanged calendar with a
-selling strength measured on the same window and the window ASP comes back
-exactly, which a run against a flat window confirms to within a tenth of a
-point. What it rests on is not. The blend needs a promoted day's selling
-strength; that is estimated per product and **clamped to 0.8-3.0**, and
-where the clamp binds or the estimate has to be borrowed the identity
-breaks and the base moves on its own. The error it then makes is the full
-promoted-to-quiet price gap times the blend error, which on a deeply
-promoted product is a lot of money.
+Days become units before they weight anything - a promoted day shifts two
+to three times a quiet one, so nine days of promotion is nearer a fifth of
+a month's units than a third. The factor is units per promoted day over
+units per quiet day, the product's own where it has the days and its
+group's where it does not, clamped to 0.8-3.0.
 
-As a nudge the same evidence passes through a gentler transform: a
-difference in coverage times a difference in discount points, divided by
-what was left of the list price. And nothing is lost by it - the scope
-ladder already prefers a product's **own** campaign rate wherever it sold
-five units either side of the line, so the per-product evidence is still
-used. It is used as a correction rather than as a replacement.
+### B2B is inside it, not after it
 
-### Coverage is never borrowed
+Each of the two sides is asked **by channel** where both channels answer,
+and re-mixed at the share of the month's units the plan puts through B2B.
 
-The two halves of the campaign nudge are not alike. What a campaign is
-worth is a price fact - thin for one product, fairly taken from its group.
-How much of a month a product spends on promotion is a **calendar** fact,
-and a group's calendar is simply somebody else's. Days carry no unit
-threshold, so a product's own coverage is always countable.
+This is the only place a channel shift can be caught per product. The B2B
+half of a window is EPP-priced - a standing welcome voucher, an e-promoter
+code, an EPP campaign - and the consumer half is not. The same Fold8 sold
+at 3,271.82 flat on S.COM and at 2,280-2,617 through EDU and the partner
+portals, and the promotion rules on its S.COM lines are PWP text that move
+the price not at all. Its price is set by its channel, and no campaign term
+can see that.
 
-REF is what this is for. A fridge is on promotion 84% of October and most
-of every other month, so almost none of them clear five units off
-promotion. Falling back to a borrowed coverage figure - taken from a book
-where promotions are occasional - said their October was far more promoted
-than their past and priced them about 8% under what they sold for, every
-line out the same way: a level, not a scatter. Against their own calendar
-the same rows read 100% against 100% and the nudge does not fire. Measured
-over the plan, that is worth +8.4% to HA against the 8.7% it was short.
+Where one channel is too thin to answer, that side falls back to its
+combined figure and the group-level B2B nudge does what it can afterwards,
+as before.
+
+### When neither side is its own
+
+A product without MIN_UNITS on a side in MIN_MONTHS of months cannot be
+split. It falls back to the blended ASP with the group's campaign rate
+correcting it - (the month's promotion days - its **own** past days, both
+as unit shares) x what a campaign is worth to its group - which is what
+every product used before.
+
+`--explain` says how many took which path: `own base` is the share priced
+off its own promoted and quiet days, `by chan` the share of those mixed
+B2B against B2C.
 
 ### One month is one vote
 

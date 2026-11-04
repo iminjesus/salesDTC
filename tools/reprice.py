@@ -224,6 +224,12 @@ class History:
         # ask, of a campaign, how much of what it shifted was a product on
         # its way out - see `campaign_report`.
         self.cm: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        # product -> {(month, on a promotion?, channel): [units, paid]}.
+        # The ASP kept apart by promotion and by channel, so a month can be
+        # answered in its own terms - what this product fetches under a
+        # promotion and without one, to B2B and to B2C - see `sides`.
+        self.sc: dict = collections.defaultdict(
+            lambda: collections.defaultdict(lambda: [0.0, 0.0]))
         # The same tally split by channel, which is the only way to see what
         # the B2B half of a month costs that the consumer half does not.
         self.ch: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -294,6 +300,9 @@ class History:
             t = self.smon[(code, ym)]
             t[0] += qty * w
             t[1] += amt * w
+            t = self.sc[code][(ym, bool(camp), chan or '')]
+            t[0] += qty * w
+            t[1] += amt * w
             if rrp:
                 t = self.cm[(camp, code, ym)]
                 t[0] += qty
@@ -329,6 +338,53 @@ class History:
         if not t or t[3] < MIN_UNITS or t[2] <= 0:
             return None
         return max(0.0, 1.0 - (t[1] / t[2]))
+
+    def _cell(self, got, on, chan):
+        """One month one vote over the months that fill one cell."""
+        live = [t for (_, o, c), t in got.items()
+                if o is on and (chan is None or c == chan)
+                and t[0] >= MIN_UNITS and t[1] > 0]
+        if not live:
+            return None
+        if len(live) >= MIN_MONTHS:
+            return sum(t[1] / t[0] for t in live) / len(live)
+        q = sum(t[0] for t in live)
+        return (sum(t[1] for t in live) / q) if q else None
+
+    def sides(self, code, b2b=None):
+        """(what it fetches on a promotion, and without one) - and how.
+
+        One month one vote inside each cell, for the reason the blended ASP
+        takes one; a cell without MIN_MONTHS of its own is pooled over its
+        units, and a cell with no month at all is None.
+
+        Each side is asked **by channel** where both channels answer, and
+        re-mixed at the share of the month's units the plan puts through
+        B2B. B2B runs several points deeper than B2C, so a product whose
+        own channel mix moves is wrong by that difference with no campaign
+        having changed - and this is the only place that difference can be
+        caught per product rather than per group.
+
+        This is what lets a month be answered in its own terms. A Fold8
+        sold its whole window under a pre-order at 47% off and sells
+        October at 9% off; a blended ASP carries the pre-order forward and
+        is 20% light, while the quiet side of the same window says what it
+        fetches when nothing is running.
+        """
+        got = self.sc.get(code)
+        if not got:
+            return None, None, False
+        out, split = [], False
+        for on in (True, False):
+            if b2b is not None:
+                bb = self._cell(got, on, 'B2B')
+                cc = self._cell(got, on, 'B2C')
+                if bb is not None and cc is not None:
+                    out.append(bb * b2b + cc * (1.0 - b2b))
+                    split = True
+                    continue
+            out.append(self._cell(got, on, None))
+        return out[0], out[1], split
 
     def asp(self, code):
         """What the product fetched over the window, one month one vote.
@@ -830,11 +886,12 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     """
     k = PM.code_norm(code)
     lv = levels.get(k, {})
-    asp = hist.asp(k)
-    if not asp:
-        # Nothing of its own, and nothing borrowed: a neighbour's ASP is a
-        # guess dressed as a measurement, and the sheet's own price is the
-        # better answer where there is no record to beat it with.
+    blended = hist.asp(k)
+    promo, clean, by_chan = hist.sides(k, b2b)
+    if not blended and promo is None and clean is None:
+        # Nothing of its own, and nothing borrowed: a neighbour's ASP
+        # is a guess dressed as a measurement, and the sheet's own
+        # price is the better answer where there is no record.
         return gscm, 'kept', None, 0.0, ['no ASP of its own']
     on = sum(1 for d in days if campaign_at(plan, canon, k, d)) / len(days)
 
@@ -851,51 +908,64 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
         return None, None
 
     adj, why = 0.0, []
-    parts = {'code': k, 'asp': asp, 'on': on}
+    parts = {'code': k, 'on': on, 'by_chan': by_chan}
 
-    # Promotion comes second, and only ever as a difference. What a
-    # campaign is worth is the product's own where it sold five units
-    # either side of the line and its group's where it did not - the ladder
-    # settles that - but the coverage it is measured against is always the
-    # product's own calendar, because a calendar never needs borrowing.
-    got, where = group(hist.campaign)
-    if got:
-        mine = hist.coverage(('sku', k))
-        was = mine if mine is not None else got[0]
-        whose = 'its own past' if mine is not None else where
+    # Days become units first. A promotion is not worth its share of the
+    # calendar, it is worth what it sells, and a promoted day shifts two to
+    # three times a quiet one - nine days of promotion is nearer a fifth of
+    # a month's units than a third.
+    c, pull_from = group(hist.tilt)
+    c = c if c else 1.0
+    up = (lambda f: (f * c) / (f * c + 1.0 - f)) if c != 1.0 else (
+        lambda f: f)
+    w = up(on)
+    parts.update(tilt=c, on_units=w)
 
-        # Days become units before they are compared. A promotion is not
-        # worth its share of the calendar, it is worth what it sells, and a
-        # promoted day shifts two to three times a quiet one - so nine days
-        # of promotion in a month is nearer a fifth of its units than a
-        # third. **Both sides go through the same factor**, which is what
-        # keeps the term at nought where the month's calendar matches its
-        # past, whatever the factor is or whether it had to be clamped.
-        c, pull_from = group(hist.tilt)
-        c = c if c else 1.0
-        up = (lambda f: (f * c) / (f * c + 1.0 - f)) if c != 1.0 else (
-            lambda f: f)
-        a, b = up(on), up(was)
-        d = (a - b) * got[1]
-        adj += d
-        parts.update(was=b, gap=got[1], campaign=d, rate_from=where, tilt=c,
-                     on_units=a)
+    # (1) The promotion answers first, out of what this product fetched
+    # under one, and the rest of the month out of what it fetched without
+    # one - each already mixed to the plan's B2B share where both channels
+    # answer, because the B2B half of a window is EPP-priced and the
+    # consumer half is not. Where the month runs no promotion the quiet
+    # side is the whole of it, which is the point: a Fold8 whose window is
+    # a pre-order at 47% off and whose October is 9% off is priced off its
+    # quiet days and not off its launch.
+    mixed = f' at {b2b * 100:.0f}% B2B' if by_chan else ''
+    asp = None
+    if promo is not None and clean is not None:
+        asp = promo * w + clean * (1.0 - w)
         why.append(f'{on * 100:.0f}% of days on promotion is '
-                   f'{a * 100:.0f}% of the units at {c:.1f}x ({pull_from}), '
-                   f'against {b * 100:.0f}% over {whose}, at {where} rates: '
-                   f'{d * 100:+.1f}pp')
-    got, where = group(lambda sc: hist.deals(sc, months))
-    if got:
-        d = (got[0] - got[1]) * got[2]
-        adj += d
-        parts.update(deals=got[0], deals_was=got[1], deals_nudge=d)
-        why.append(f'unplanned deals on {got[0] * 100:.0f}% of units lately '
-                   f'against {got[1] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
+                   f'{w * 100:.0f}% of the units at {c:.1f}x ({pull_from}): '
+                   f'{promo:,.0f} on one, {clean:,.0f} off one{mixed}')
+    elif clean is not None and w < 0.5:
+        asp = clean
+        why.append(f'{on * 100:.0f}% of days on promotion, and nothing of '
+                   f'its own under one: {clean:,.0f} off one{mixed}')
+    elif promo is not None and w >= 0.5:
+        asp = promo
+        why.append(f'{on * 100:.0f}% of days on promotion, and nothing of '
+                   f'its own without one: {promo:,.0f}{mixed}')
 
-    # A change in discount is not a change in price until it is divided by
-    # what was left of the list price to begin with: two points off a
-    # product already half off is twice the move it is on one at list.
-    if b2b is not None:
+    if asp is None:
+        # Neither side is its own, so the blended ASP stands in and the
+        # group's campaign rate corrects it, as it did before.
+        asp = blended
+        got, where = group(hist.campaign)
+        if got:
+            mine = hist.coverage(('sku', k))
+            was = mine if mine is not None else got[0]
+            whose = 'its own past' if mine is not None else where
+            b = up(was)
+            d = (w - b) * got[1]
+            adj += d
+            parts.update(was=b, gap=got[1], campaign=d, rate_from=where)
+            why.append(f'{on * 100:.0f}% of days on promotion is '
+                       f'{w * 100:.0f}% of the units at {c:.1f}x, against '
+                       f'{b * 100:.0f}% over {whose}, at {where} rates: '
+                       f'{d * 100:+.1f}pp')
+    parts.update(asp=asp, promo=promo, clean=clean)
+
+    # (3) B2B, only where the base could not already carry it per product.
+    if b2b is not None and not by_chan:
         got, where = group(hist.mix)
         if got:
             # What B2B costs comes from the history, which is the only place
@@ -1041,9 +1111,21 @@ def why_one(codes, hist, out, levels, say):
         say(f"    promotion   {p['on'] * 100:.0f}% of the month\u2019s days"
             f" = {p.get('on_units', p['on']) * 100:.0f}% of its units "
             f"at {p.get('tilt', 1.0):.2f}x")
-        say(f"                against {p['was'] * 100:.0f}% over its past, "
-            f"at {p.get('gap', 0) * 100:.1f}pp a campaign"
-            f"  ->{p.get('campaign', 0) * 100:+7.2f}pp")
+        pr, cl = p.get('promo'), p.get('clean')
+        chan = ' (mixed B2B/B2C)' if p.get('by_chan') else ''
+        if pr is not None or cl is not None:
+            a = f'{pr:,.0f}' if pr is not None else '-'
+            b = f'{cl:,.0f}' if cl is not None else '-'
+            say(f'                on a promotion {a:>9}'
+                f'   without one {b:>9}{chan}')
+            say(f"                -> base {p['asp']:,.0f}")
+        else:
+            say(f"                neither side is its own, so the blended "
+                f"{p['asp']:,.0f} stands in")
+        if 'campaign' in p:
+            say(f"                against {p['was'] * 100:.0f}% over its "
+                f"past, at {p.get('gap', 0) * 100:.1f}pp a campaign"
+                f"  ->{p['campaign'] * 100:+7.2f}pp")
         if 'deals_nudge' in p:
             say(f"    deals       {p['deals'] * 100:.0f}% of units lately "
                 f"against {p['deals_was'] * 100:.0f}%"
@@ -1095,27 +1177,33 @@ def explain_terms(out, levels, say):
         a = agg.setdefault(d, collections.defaultdict(float))
         a['w'] += w
         a['n'] += 1
-        for key in ('on', 'on_units', 'was', 'campaign', 'b2b_nudge',
+        for key in ('on', 'on_units', 'campaign', 'b2b_nudge',
                     'deals_nudge', 'room'):
             a[key] += p.get(key, 0.0) * w
+        a['own'] += w if p.get('promo') is not None or \
+            p.get('clean') is not None else 0.0
+        a['chan'] += w if p.get('by_chan') else 0.0
         a['move'] += (p['price'] / p['asp'] - 1.0) * w
 
     say('\n  what each nudge did, unit-weighted, in points of discount:')
     say(f"    {'division':14}{'skus':>5}{'plan days':>11}{'as units':>10}"
-        f"{'its past':>10}{'campaign':>10}{'deals':>8}{'B2B':>8}{'room':>7}"
-        f"{'price move':>12}")
+        f"{'own base':>10}{'by chan':>9}{'campaign':>10}{'deals':>8}"
+        f"{'B2B':>8}{'room':>7}{'price move':>12}")
     for d, a in sorted(agg.items(), key=lambda x: -x[1]['w']):
         w = a['w'] or 1.0
         say(f"    {d[:14]:14}{a['n']:5.0f}{a['on'] / w * 100:10.0f}%"
-            f"{a['on_units'] / w * 100:9.0f}%{a['was'] / w * 100:9.0f}%"
-            f"{a['campaign'] / w * 100:9.1f}pp"
+            f"{a['on_units'] / w * 100:9.0f}%{a['own'] / w * 100:9.0f}%"
+            f"{a['chan'] / w * 100:8.0f}%{a['campaign'] / w * 100:9.1f}pp"
             f"{a['deals_nudge'] / w * 100:7.1f}pp"
             f"{a['b2b_nudge'] / w * 100:7.1f}pp{a['room'] / w * 100:6.0f}%"
             f"{a['move'] / w * 100:11.1f}%")
-    say('    plan days are the month\u2019s calendar, as units is the '
-        'same after')
-    say('    a promoted day\u2019s selling strength, and its past is the '
-        'window in units.')
+    say('    plan days are the month\u2019s calendar and as units is '
+        'the same after a')
+    say('    promoted day\u2019s selling strength. own base is the share '
+        'priced off its')
+    say('    own promoted and quiet days, by chan the share of those '
+        'mixed B2B/B2C;')
+    say('    the campaign nudge only fires on what is left.')
     say('    a positive nudge is a deeper discount, so a cheaper price;')
     say('    the move is what the three come to once divided by the room.')
 
