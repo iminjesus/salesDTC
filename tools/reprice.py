@@ -62,6 +62,9 @@ ROOT = Path(__file__).resolve().parent.parent
 # as that pair's own. Below it the pair borrows from its division, and below
 # that from the month: three units at an odd price is an anecdote.
 MIN_UNITS = 5
+# How many months of its own a product needs before its ASP is read one
+# month one vote rather than pooled. Two numbers are not an average.
+MIN_MONTHS = 3
 
 # What each nudge did to each product, for --explain. A re-price that comes
 # out wrong by a level rather than a scatter is one term over-firing for a
@@ -313,8 +316,12 @@ class History:
 
         A month under MIN_UNITS does not get a vote - averaging a month of
         three units beside a month of three hundred trades a bias for a
-        variance - and a product with fewer than two such months keeps the
-        pooled figure it always had.
+        variance - and a product without MIN_MONTHS of them keeps the
+        pooled figure it always had. Two numbers are not an average: a
+        colour variant selling eight a month clears the bar in two months
+        of six and the mean of those two carries more noise than the bias
+        it removes, which showed up as MX's scatter rising while its level
+        fell.
         """
         q, a, raw = self.skus.get(code, [0.0, 0.0, 0.0])
         if raw < MIN_UNITS or q <= 0:
@@ -323,7 +330,7 @@ class History:
             return a / q
         each = [t[1] / t[0] for (c, _), t in self.smon.items()
                 if c == code and t[0] >= MIN_UNITS and t[1] > 0]
-        return sum(each) / len(each) if len(each) >= 2 else a / q
+        return sum(each) / len(each) if len(each) >= MIN_MONTHS else a / q
 
     def own(self, code):
         """This product's own discount over the window, campaigns together.

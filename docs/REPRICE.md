@@ -162,7 +162,23 @@ behaviour for comparison.
 
 A month under `MIN_UNITS` gets no vote - averaging a month of three units
 beside a month of three hundred trades a bias for a variance - and a
-product with fewer than two such months keeps the pooled figure.
+product without **three** such months keeps the pooled figure. Two numbers
+are not an average: at a two-month bar, MX's level came in hard (HHP's gap
+to actual fell from +4,827 to +1,881) while its scatter went the other way
+(155 to 197), which is a colour variant selling eight a month clearing the
+bar twice in six and the mean of those two carrying more noise than the
+bias it removed.
+
+### Reading a run against another one
+
+`--blank-kept` leaves a `kept` row empty rather than carrying the sheet's
+own price. That is right for a simulation, where a blank cannot be mistaken
+for a forecast, and **wrong for a pivot that subtracts**: `Actual - New`
+with `New` blank is the whole of `Actual`, so a dozen blank rows read as a
+dozen enormous misses. On one run twelve blank tablets alone carried a
+39,473 gap and a 648 deviation, and took the book's from 127 to 248.
+
+So score with it off, and compare only runs that had it set the same way.
 
 ### Vouchers, trade-ins and e-promoter codes
 
