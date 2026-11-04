@@ -1051,7 +1051,19 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
                        f'{d * 100:+.1f}pp')
     parts.update(asp=asp, promo=promo, clean=clean)
 
-    # (3) B2B, only where the base could not already carry it per product.
+    # (3) The discounts no plan will ever carry: a voucher, a trade-in, an
+    # e-promoter code. They are standing offers, so nothing forecasts them;
+    # what can be done is to notice a group has been running them harder
+    # lately than its window average and move the price by the difference.
+    got, where = group(lambda sc: hist.deals(sc, months))
+    if got:
+        d = (got[0] - got[1]) * got[2]
+        adj += d
+        parts.update(deals=got[0], deals_was=got[1], deals_nudge=d)
+        why.append(f'unplanned deals on {got[0] * 100:.0f}% of units lately '
+                   f'against {got[1] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
+
+    # (4) B2B, only where the base could not already carry it per product.
     if b2b is not None and not by_chan:
         got, where = group(hist.mix)
         if got:
