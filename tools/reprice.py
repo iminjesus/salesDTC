@@ -385,6 +385,27 @@ class History:
     def _rate(t):
         return (1 - t[0] / t[1]) if t and t[1] > 0 else None
 
+    def coverage(self, scope):
+        """What share of this bucket's product-days carried a campaign.
+
+        Days need no unit threshold - a day a product was live is a day,
+        whether it sold or not - so this is answerable for every product
+        individually and **is never borrowed**. That matters because the
+        two halves of the campaign nudge are not alike: what a campaign is
+        worth is a price fact, thin for one product and fairly taken from
+        its group; how much of the month a product spends on promotion is a
+        calendar fact, and its group's is simply somebody else's calendar.
+
+        A fridge is on promotion most of the month, every month. Borrowing
+        a coverage figure from a book where promotions are occasional said
+        its October was far more promoted than its past, and priced it
+        about 8% under what it sold for - every REF line out the same way,
+        a level and not a scatter.
+        """
+        don = sum(v for (sc, c), v in self.days.items() if sc == scope and c)
+        doff = self.days.get((scope, NO_CAMP), 0.0)
+        return don / (don + doff) if don + doff > 0 else None
+
     def campaign(self, scope):
         """(share of product-days on a campaign, what a campaign is worth).
 
@@ -691,14 +712,19 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
                    f'{w * 100:.0f}% of the units at {c:.1f}x ({where}): '
                    f'{a_on:,.0f} on it, {a_off:,.0f} off it')
     else:
-        # Nothing of its own either side, so the group's coverage gap
-        # stands in, as it did before.
+        # Too thin to split, so what a campaign is worth comes from the
+        # group - but the coverage it is measured against is the product's
+        # own, because a calendar never needs borrowing.
         got, where = group(hist.campaign)
         if got:
-            d = (on - got[0]) * got[1]
+            mine = hist.coverage(('sku', k))
+            base = mine if mine is not None else got[0]
+            whose = 'its own past' if mine is not None else where
+            d = (on - base) * got[1]
             adj += d
             why.append(f'{on * 100:.0f}% of days on promotion against '
-                       f'{got[0] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
+                       f'{base * 100:.0f}% over {whose}, at {where} rates: '
+                       f'{d * 100:+.1f}pp')
     if b2b is not None:
         got, where = group(hist.mix)
         if got:

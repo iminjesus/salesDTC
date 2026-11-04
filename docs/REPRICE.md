@@ -133,7 +133,23 @@ nothing forecasts them; what can be done is to notice that a group has been
 running them harder lately than its window average and move the price by the
 difference.
 
-The fallback campaign nudge counts **days on both sides**. October has not
+The fallback campaign nudge measures October's coverage against **the
+product's own past**, not its group's. The two halves of that nudge are not
+alike: what a campaign is worth is a price fact, thin for one product and
+fairly taken from its group, while how much of a month a product spends on
+promotion is a calendar fact - and a group's calendar is simply somebody
+else's. Days carry no unit threshold, so a product's own coverage is always
+countable and is never borrowed.
+
+REF is what this is for. A fridge is on promotion 84% of October and most of
+every other month, so almost none of them clear five units off promotion and
+almost none can be split. Falling back to a borrowed coverage figure - taken
+from a book where promotions are occasional - said their October was far
+more promoted than their past and priced them about 8% under what they sold
+for, every line out the same way: a level, not a scatter. Against their own
+calendar the same rows read 100% against 100% and the nudge does not fire.
+
+The nudge counts **days on both sides**. October has not
 happened, so its calendar is all there is to count; and a campaign sells
 about two and a half times an ordinary day, so its share of a window's units
 runs far above its share of the days. Comparing the one against the other
