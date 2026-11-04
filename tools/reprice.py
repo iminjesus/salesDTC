@@ -711,8 +711,11 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
         campaign   the month's promotion days against **its own** past
                    coverage, at its own rate where it has one and its
                    group's where it does not
-        B2B        the plan's B2B share against the window's
         deals      voucher, trade-in and the like, lately against the window
+        B2B        the plan's B2B share against the plan's own for its group
+
+    They are summed, so the order is the reader's convenience and not the
+    arithmetic's: the price is the same whichever way round they go.
 
     Coverage is never borrowed. What a campaign is worth is a price fact,
     thin for one product and fairly taken from its group; how much of a
@@ -761,6 +764,17 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
         why.append(f'{on * 100:.0f}% of days on promotion against '
                    f'{was * 100:.0f}% over {whose}, at {where} rates: '
                    f'{d * 100:+.1f}pp')
+    got, where = group(lambda sc: hist.deals(sc, months))
+    if got:
+        d = (got[0] - got[1]) * got[2]
+        adj += d
+        parts.update(deals=got[0], deals_was=got[1], deals_nudge=d)
+        why.append(f'unplanned deals on {got[0] * 100:.0f}% of units lately '
+                   f'against {got[1] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
+
+    # A change in discount is not a change in price until it is divided by
+    # what was left of the list price to begin with: two points off a
+    # product already half off is twice the move it is on one at list.
     if b2b is not None:
         got, where = group(hist.mix)
         if got:
@@ -788,17 +802,6 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
             why.append(f'{b2b * 100:.0f}% B2B planned against '
                        f'{was * 100:.0f}% planned for {whose}: '
                        f'{d * 100:+.1f}pp')
-    got, where = group(lambda sc: hist.deals(sc, months))
-    if got:
-        d = (got[0] - got[1]) * got[2]
-        adj += d
-        parts.update(deals=got[0], deals_was=got[1], deals_nudge=d)
-        why.append(f'unplanned deals on {got[0] * 100:.0f}% of units lately '
-                   f'against {got[1] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
-
-    # A change in discount is not a change in price until it is divided by
-    # what was left of the list price to begin with: two points off a
-    # product already half off is twice the move it is on one at list.
     base = hist.own(k)
     if base is None:
         got, _ = group(lambda sc: History._rate(hist.cg.get((sc, 'off'))))

@@ -80,11 +80,15 @@ price  =  the product's own window ASP
           nudged by  (the month's promotion days  -  ITS OWN past days)
                       x  what a campaign is worth, its own rate or its
                          group's
-          nudged by  (the plan's B2B share  -  the window's)  x  what B2B
-                      costs its group
           nudged by  (deals lately  -  deals over the window)  x  what an
                       unplanned deal costs its group
+          nudged by  (the plan's B2B share  -  the plan's own for its
+                      group)  x  what B2B costs its group
 ```
+
+The three are **summed**, so their order is the reader's convenience and
+not the arithmetic's - written in the order above, and the same price
+whichever way round they go.
 
 The base is the ASP and stays the ASP. Everything after it is a
 **difference** between what the month being priced is planned to be and
