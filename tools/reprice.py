@@ -202,6 +202,10 @@ class History:
         # window is weighted by units and a product sells most when it is
         # cheapest. See `asp`.
         self.smon: dict = collections.defaultdict(lambda: [0.0, 0.0])
+        # (campaign, product, month) -> [units, paid, listed]. Enough to
+        # ask, of a campaign, how much of what it shifted was a product on
+        # its way out - see `campaign_report`.
+        self.cm: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
         # The same tally split by channel, which is the only way to see what
         # the B2B half of a month costs that the consumer half does not.
         self.ch: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -272,6 +276,11 @@ class History:
             t = self.smon[(code, ym)]
             t[0] += qty * w
             t[1] += amt * w
+            if rrp:
+                t = self.cm[(camp, code, ym)]
+                t[0] += qty
+                t[1] += amt
+                t[2] += qty * rrp
         for scope in self.scopes(code, level):
             self.vol[(scope, camp)] += qty
             if scope[0] != 'sku':
@@ -892,6 +901,71 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     return price, 'asp', None, on, why or ['its own ASP, nothing to nudge']
 
 
+def campaign_report(hist, levels, say, level='div3'):
+    """What each named campaign sold at, and how much of it was a run-out.
+
+    The model reduces a campaign to on-or-off, which is all a **forecast**
+    can use: the month being priced is a calendar and not a sale. The
+    window knows more. A clearance week and an ordinary trading week are
+    both 'on' and they are not the same discount, and where a group is
+    promoted every day of every month - REF is - the flag says nothing at
+    all and this is the only place left to look.
+
+    Two numbers per campaign. What came off the list, and **what share of
+    its units were products in their last two live months** - a product
+    that sold on and then stopped. A campaign that is deep *and* full of
+    products on their way out is a run-out; a campaign that is deep and
+    full of products still selling is a trading promotion. The flag cannot
+    tell them apart and the pair of numbers can.
+    """
+    months = sorted({ym for (_, ym) in hist.smon})
+    newest = months[-1] if months else None
+    live = collections.defaultdict(list)
+    for (code, ym), t in hist.smon.items():
+        if t[0] >= 3:
+            live[code].append(ym)
+    out_months = {}
+    for code, ms in live.items():
+        ms.sort()
+        if len(ms) >= 4 and ms[-1] != newest:
+            out_months[code] = set(ms[-2:])
+
+    rows = collections.defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
+    for (camp, code, ym), t in hist.cm.items():
+        if not camp:
+            continue
+        lv = levels.get(code, {})
+        grp = lv.get(level) or lv.get('div1') or '(unknown)'
+        r = rows[(grp, camp)]
+        r[0] += t[1]
+        r[1] += t[2]
+        r[2] += t[0]
+        if ym in out_months.get(code, ()):
+            r[3] += t[0]
+
+    say(f'\n  what each campaign sold at, by {level}:')
+    say(f"    {'group':12}{'units':>8}{'off list':>10}{'run-out':>9}  "
+        f"campaign")
+    grps = collections.defaultdict(float)
+    for (grp, _), r in rows.items():
+        grps[grp] += r[2]
+    for grp in sorted(grps, key=lambda g: -grps[g]):
+        mine = [(c, r) for (g, c), r in rows.items() if g == grp and r[2] >= 20]
+        if not mine:
+            continue
+        mine.sort(key=lambda x: -(1 - x[1][0] / x[1][1]) if x[1][1] else 0)
+        for i, (c, r) in enumerate(mine):
+            d = (1 - r[0] / r[1]) * 100 if r[1] > 0 else 0.0
+            say(f"    {(grp[:12] if i == 0 else ''):12}{r[2]:8,.0f}"
+                f"{d:9.1f}%{r[3] / r[2] * 100:8.0f}%  {c[:52]}")
+    say('    run-out is the share of the campaign\u2019s units that were '
+        'products in')
+    say('    their last two live months. deep and high is a clearance; '
+        'deep and low')
+    say('    is a trading promotion, and the on-or-off flag reads them the '
+        'same.')
+
+
 def explain_terms(out, levels, say):
     """Each nudge's own contribution, per division.
 
@@ -1080,7 +1154,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             source: str = 'auto', new_cap: float = 0.0,
             no_mix: bool = False, flat_days: bool = False,
             by_units: bool = True, model: str = 'simple',
-            explain: bool = False, pooled: bool = False) -> dict:
+            explain: bool = False, pooled: bool = False,
+            campaigns: str = '') -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1251,6 +1326,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 'unit(s)')
         if explain:
             explain_terms(out, levels, say)
+        if campaigns:
+            campaign_report(hist, levels, say, level=campaigns)
         return out
     say('  rrp  = list price x what this product came off it under the same')
     say('         promotion, and its own six-month discount on the rest')
@@ -1326,6 +1403,11 @@ def main() -> int:
                          'before - a product sells most when it is cheapest, '
                          'so this reads the window a couple of points too '
                          'cheap')
+    ap.add_argument('--campaigns', nargs='?', const='div3', default='',
+                    choices=('range', 'div3', 'div1'),
+                    help='what each named campaign sold at, and how much of '
+                         'it was a product on its way out - which is how a '
+                         'clearance is told from a trading promotion')
     ap.add_argument('--explain', action='store_true',
                     help='what each nudge did to each division, in points '
                          'of discount - for a month that comes out wrong by '
@@ -1360,7 +1442,7 @@ def main() -> int:
     full = (2000 + ym // 100) * 100 + ym % 100
 
     out = reprice(folder, full, args.back, args.plan, explain=args.explain,
-                  pooled=args.pooled,
+                  pooled=args.pooled, campaigns=args.campaigns,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,

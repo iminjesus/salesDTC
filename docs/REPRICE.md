@@ -235,6 +235,38 @@ move where TV needs 5.9%. TV's gap is not a coverage story: October was its
 deepest month in seven - 44.1% against 39.4-41.3% for May to September -
 and nothing in the window foretells a Black Friday ramp.
 
+### `--campaigns` - telling a clearance from a sale
+
+```
+py tools\reprice.py --campaigns
+py tools\reprice.py --campaigns div1
+```
+
+The model reduces a campaign to **on or off**, which is all a forecast can
+use: the month being priced is a calendar and not a sale. The window knows
+more than that, and where a group is on promotion every day of every month
+the flag says nothing at all.
+
+So this breaks the window open by campaign **name**, with two numbers each:
+what came off the list, and **what share of the campaign's units were
+products in their last two live months**.
+
+```
+    group      units  off list  run-out  campaign
+    TV         1,204     52.1%      61%  <a campaign>
+               3,880     44.0%       3%  <another>
+```
+
+A campaign that is deep **and** full of products on their way out is a
+run-out. A campaign that is deep and full of products still selling is a
+trading promotion. The on-or-off flag reads the two the same, and the pair
+of numbers separates them - which is what makes it possible to say which
+of a group's campaigns were clearing stock and roughly what that cost.
+
+`py tools\dtc.py --aging` answers the same question from the other side,
+without the plan: it takes the products that stopped selling and compares
+their last two months against their own months before.
+
 ### REF, and what the plan cannot say
 
 REF reads low in every run - about 4 to 6% under what it sold for - while
