@@ -186,9 +186,15 @@ class History:
     """
 
     def __init__(self, half: float = 0.0, ref: int | None = None,
-                 pooled: bool = False):
+                 pooled: bool = False, by_units: bool = True):
         self.half = max(0.0, half or 0.0)
         self.pooled = pooled
+        # True pools a group's promoted lines against its unpromoted ones;
+        # False averages the members' own gaps instead, which is cleaner in
+        # principle - pooling compares two different sets of products - and
+        # measured worse on TV, so it is behind --by-members until a run
+        # says otherwise.
+        self.by_units = by_units
         self.ref = ref
         self.by: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         self.skus: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -210,6 +216,7 @@ class History:
         # average of its members rather than the average of its units.
         self.members: dict = collections.defaultdict(set)
         self._lent: dict = {}
+        self._gap: dict = {}
         # For the simple model: the same money split three ways at group
         # level - on a campaign or not, on an unplanned deal or not, and by
         # month so a penetration can be read recently rather than flat.
@@ -437,6 +444,31 @@ class History:
         self._lent[key] = out
         return out
 
+    def _gaps(self, scope):
+        """The mean of the members' own promoted-to-quiet gaps, or None.
+
+        Only products that sold MIN_UNITS either side of the line can say
+        anything, and under MIN_SKUS of them is not a group average - both
+        fall back to the pooled figure, which is wrong in a known direction
+        rather than unknown.
+        """
+        if scope[0] == 'sku':
+            return None
+        if scope in self._gap:
+            return self._gap[scope]
+        out = []
+        for code in self.members.get(scope, ()):
+            on = self.cg.get((('sku', code), 'on'))
+            off = self.cg.get((('sku', code), 'off'))
+            if not on or not off or on[2] < MIN_UNITS or off[2] < MIN_UNITS:
+                continue
+            a, b = self._rate(on), self._rate(off)
+            if a is not None and b is not None:
+                out.append(a - b)
+        got = (sum(out) / len(out)) if len(out) >= MIN_SKUS else None
+        self._gap[scope] = got
+        return got
+
     @staticmethod
     def _rate(t):
         return (1 - t[0] / t[1]) if t and t[1] > 0 else None
@@ -480,6 +512,15 @@ class History:
         a, b = self._rate(on), self._rate(off)
         if a is None or b is None:
             return None
+        # What a campaign is worth, **one product one vote**. Pooling a
+        # group's promoted lines against its unpromoted ones compares two
+        # different sets of products, so whatever else differs between them
+        # - a dearer model promoted, a cheaper one not - is read as the
+        # promotion's doing. Measured on October, REF pools to 24.4pp where
+        # the same fridges measured one at a time say 1.0pp.
+        each = None if self.by_units else self._gaps(scope)
+        if each is not None:
+            a, b = b + each, b
         don = sum(v for (sc, c), v in self.days.items()
                   if sc == scope and c)
         doff = self.days.get((scope, NO_CAMP), 0.0)
@@ -543,7 +584,8 @@ class History:
 
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  say=print, half: float = 0.0, source: str = 'auto',
-                 want_days: bool = True, pooled: bool = False) -> History:
+                 want_days: bool = True, pooled: bool = False,
+                 by_units: bool = True) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -559,7 +601,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
     applied, but October has not happened yet and has only the plan to be
     described by; keying one side on each would join on nothing.
     """
-    h = History(half, months[-1] if months else None, pooled=pooled)
+    h = History(half, months[-1] if months else None, pooled=pooled,
+                by_units=by_units)
     if source != 'orders':
         want = set(months)
         rows = DTC.read(folder, want, say=say) if DTC.files(folder) else []
@@ -1077,8 +1120,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         f'{MONTHS[(months[0] % 100) - 1]} .. '
         f'{MONTHS[(months[-1] % 100) - 1]}:')
     hist = read_history(folder, plan, canon, months, levels, say=say,
-                        half=decay, source=source,
-                        want_days=True)
+                        half=decay, source=source, want_days=True,
+                        pooled=pooled, by_units=by_units)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')

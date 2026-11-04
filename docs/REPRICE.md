@@ -235,6 +235,39 @@ move where TV needs 5.9%. TV's gap is not a coverage story: October was its
 deepest month in seven - 44.1% against 39.4-41.3% for May to September -
 and nothing in the window foretells a Black Friday ramp.
 
+### REF, and what the plan cannot say
+
+REF reads low in every run - about 4 to 6% under what it sold for - while
+everything else reads a little high. The cause is not in the model.
+
+```
+  the plan's campaign coverage, by month
+            Apr   May   Jun   Jul   Aug   Sep   Oct
+  REF       61%  100%  100%   64%  100%  100%  100%
+  TV        73%   97%   90%   35%   61%   97%  100%
+
+  what the month actually discounted
+  REF     41.3% 46.2% 46.6% 40.7% 37.2% 39.1% 39.5%
+  TV      47.0% 39.4% 40.9% 40.0% 39.5% 41.3% 44.1%
+```
+
+A fridge is under a campaign **every day of almost every month**, so its
+coverage is saturated and carries no signal - and underneath that flat
+100% its discount still swings 9.4 points, from 37.2% to 46.6%. October's
+coverage is 100% and its past is 100%, so the campaign term is nought and
+every penny of the price comes from the ASP, which is averaging a May and
+a June that ran four to five points deeper than October did. That is
+2.35pp over the window, and over the room about 4% - which is REF's gap.
+
+So the model cannot see what made May and June deep. Whatever it was - an
+end-of-financial-year run-out on big-ticket appliances is the obvious
+candidate - the plan does not distinguish it from any other day REF spends
+on promotion, because REF spends every day on promotion. TV, whose
+coverage runs from 35% to 100%, has a term that can at least try.
+
+Closing it needs an input the files do not carry, not a different
+calculation.
+
 ### B2B is measured plan against plan
 
 What the B2B side costs comes from the history, which is the only place a
