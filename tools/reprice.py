@@ -62,6 +62,12 @@ ROOT = Path(__file__).resolve().parent.parent
 # as that pair's own. Below it the pair borrows from its division, and below
 # that from the month: three units at an odd price is an anecdote.
 MIN_UNITS = 5
+
+# What each nudge did to each product, for --explain. A re-price that comes
+# out wrong by a level rather than a scatter is one term over-firing for a
+# whole division, and the only way to see which is to keep the terms apart
+# instead of summing them into a price and guessing afterwards.
+BREAKDOWN: list = []
 # How many product-days a campaign needs before its pull on volume is read.
 # A campaign seen on two days is an anecdote about two days.
 MIN_DAYS = 3
@@ -615,7 +621,7 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 
 def simple_price(code, plan, canon, hist, levels, days, gscm,
-                 months, b2b=None):
+                 months, b2b=None, plan_mix=None):
     """One price per product: its own ASP, then promotion on top.
 
     **The ASP comes first and the promotion second.** The product's own
@@ -672,6 +678,7 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
         return None, None
 
     adj, why = 0.0, []
+    parts = {'code': k, 'asp': asp, 'on': on}
 
     # Promotion comes second, and only ever as a difference. What a
     # campaign is worth is the product's own where it sold five units
@@ -685,20 +692,42 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
         whose = 'its own past' if mine is not None else where
         d = (on - was) * got[1]
         adj += d
+        parts.update(was=was, gap=got[1], campaign=d, rate_from=where)
         why.append(f'{on * 100:.0f}% of days on promotion against '
                    f'{was * 100:.0f}% over {whose}, at {where} rates: '
                    f'{d * 100:+.1f}pp')
     if b2b is not None:
         got, where = group(hist.mix)
         if got:
-            d = (b2b - got[0]) * got[1]
+            # What B2B costs comes from the history, which is the only place
+            # a realised discount lives. What it is measured against comes
+            # from the **plan**, because the plan's B2B share is an
+            # allocation and the history's is a realisation, and subtracting
+            # one from the other reads a shift where there is none. Over the
+            # whole book the two agree to a point, but by division they do
+            # not: October's plan put REF at 41% B2B and REF sold 29%, the
+            # widest gap in the sheet, and the nudge charged REF for a
+            # twelve-point shift that never happened. Against its own
+            # plan-side group the same row reads nearly flat.
+            was, whose = None, where
+            if plan_mix is not None:
+                for sc in History.scopes(k, lv):
+                    if sc in plan_mix:
+                        was, whose = plan_mix[sc], sc[1] or 'the whole plan'
+                        break
+            if was is None:
+                was = got[0]
+            d = (b2b - was) * got[1]
             adj += d
+            parts.update(b2b=b2b, b2b_was=was, b2b_nudge=d)
             why.append(f'{b2b * 100:.0f}% B2B planned against '
-                       f'{got[0] * 100:.0f}%: {d * 100:+.1f}pp')
+                       f'{was * 100:.0f}% planned for {whose}: '
+                       f'{d * 100:+.1f}pp')
     got, where = group(lambda sc: hist.deals(sc, months))
     if got:
         d = (got[0] - got[1]) * got[2]
         adj += d
+        parts.update(deals=got[0], deals_was=got[1], deals_nudge=d)
         why.append(f'unplanned deals on {got[0] * 100:.0f}% of units lately '
                    f'against {got[1] * 100:.0f}% ({where}): {d * 100:+.1f}pp')
 
@@ -712,7 +741,50 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     room = 1.0 - (base if base is not None else 0.0)
     price = asp * (1.0 - adj / room) if room > 0.05 else asp
     price = max(price, asp * 0.5)
+    parts.update(room=room, adj=adj, price=price)
+    BREAKDOWN.append(parts)
     return price, 'asp', None, on, why or ['six-month ASP, nothing to nudge']
+
+
+def explain_terms(out, levels, say):
+    """Each nudge's own contribution, per division.
+
+    A re-price that is wrong by a *level* for a whole division is one term
+    firing too hard for that division, and a price is the sum of four
+    things - there is no reading it back out of the total. So the terms are
+    kept apart on the way through and averaged here, in points of discount,
+    unit-weighted, beside the price move they add up to.
+    """
+    by = {p['code']: p for p in BREAKDOWN}
+    agg = {}
+    for code, v in out.items():
+        p = by.get(PM.code_norm(code))
+        if p is None:
+            continue
+        lv = levels.get(PM.code_norm(code), {})
+        d = lv.get('div3') or lv.get('div1') or '?'
+        w = max(v['qty'], 0.0) or 1.0
+        a = agg.setdefault(d, collections.defaultdict(float))
+        a['w'] += w
+        a['n'] += 1
+        for key in ('on', 'was', 'campaign', 'b2b_nudge', 'deals_nudge',
+                    'room'):
+            a[key] += p.get(key, 0.0) * w
+        a['move'] += (p['price'] / p['asp'] - 1.0) * w
+
+    say('\n  what each nudge did, unit-weighted, in points of discount:')
+    say(f"    {'division':14}{'skus':>5}{'plan days':>11}{'its past':>10}"
+        f"{'campaign':>10}{'B2B':>8}{'deals':>8}{'room':>7}"
+        f"{'price move':>12}")
+    for d, a in sorted(agg.items(), key=lambda x: -x[1]['w']):
+        w = a['w'] or 1.0
+        say(f"    {d[:14]:14}{a['n']:5.0f}{a['on'] / w * 100:10.0f}%"
+            f"{a['was'] / w * 100:9.0f}%{a['campaign'] / w * 100:9.1f}pp"
+            f"{a['b2b_nudge'] / w * 100:7.1f}pp"
+            f"{a['deals_nudge'] / w * 100:7.1f}pp{a['room'] / w * 100:6.0f}%"
+            f"{a['move'] / w * 100:11.1f}%")
+    say('    a positive nudge is a deeper discount, so a cheaper price;')
+    say('    the move is what the three come to once divided by the room.')
 
 
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
@@ -856,7 +928,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             scope: str = 'range', decay: float = 0.0, also=None,
             source: str = 'auto', new_cap: float = 0.0,
             no_mix: bool = False, flat_days: bool = False,
-            by_units: bool = True, model: str = 'simple') -> dict:
+            by_units: bool = True, model: str = 'simple',
+            explain: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -954,6 +1027,27 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         say(f'  {extra:,} more material(s) the month does not plan but does '
             'price - re-priced too, at nought planned units')
 
+    # The plan's own B2B share, per group, so the B2B nudge can measure a
+    # planned share against a planned share. A sheet that allocates a
+    # division 41% B2B where it sells 29% is not forecasting a shift; it is
+    # allocating, and both sides of the subtraction have to come from the
+    # same side of that fence.
+    plan_mix = {}
+    if not no_mix:
+        tally = collections.defaultdict(lambda: [0.0, 0.0, 0])
+        for code, it in planned['items'].items():
+            q, b = it.get('qty') or 0.0, it.get('b2b')
+            if q <= 0 or b is None:
+                continue
+            for sc in History.scopes(PM.code_norm(code),
+                                     levels.get(PM.code_norm(code), {})):
+                t = tally[sc]
+                t[0] += q * b
+                t[1] += q
+                t[2] += 1
+        plan_mix = {sc: t[0] / t[1] for sc, t in tally.items()
+                    if t[1] > 0 and t[2] >= MIN_SKUS}
+
     days = month_days(ym)
     # One lookup per code, shared with the nearest-neighbour search, which
     # asks for a lot of them.
@@ -970,13 +1064,15 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         if model == 'simple':
             price, kind, rrp, promo, where = simple_price(
                 code, plan, canon, hist, levels, days, it['aud'], months,
-                b2b=(None if no_mix else it.get('b2b')))
+                b2b=(None if no_mix else it.get('b2b')),
+                plan_mix=plan_mix)
         else:
             price, kind, rrp, promo, where = price_for(
                 code, plan, canon, hist, levels, days, it['aud'],
                 scope=scope, rrp_at=rrp_at, new_cap=new_cap,
                 flat_days=flat_days, by_units=by_units,
-                b2b=(None if no_mix else it.get('b2b')))
+                b2b=(None if no_mix else it.get('b2b')),
+                plan_mix=plan_mix)
         how[kind] += 1
         # The nearest SKU is named on the row, not only in the prose, so a
         # sheet can filter on it: a new product priced off a neighbour is a
@@ -1003,6 +1099,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             say(f'\n  {len(fresh):,} material(s) with no record to price '
                 f'from, {sum(v["qty"] for _, v in fresh):,.0f} planned '
                 'unit(s)')
+        if explain:
+            explain_terms(out, levels, say)
         return out
     say('  rrp  = list price x what this product came off it under the same')
     say('         promotion, and its own six-month discount on the rest')
@@ -1073,6 +1171,10 @@ def main() -> int:
                     choices=('auto', 'dtc', 'orders'),
                     help='where the history comes from: the DTC export where '
                          'the folder has one (default), or the order export')
+    ap.add_argument('--explain', action='store_true',
+                    help='what each nudge did to each division, in points '
+                         'of discount - for a month that comes out wrong by '
+                         'a level rather than a scatter')
     ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
                     help='half-life: a line this much older counts half as '
                          'much (default 0, every month alike)')
@@ -1102,7 +1204,7 @@ def main() -> int:
         ym = 2600 + have[0]
     full = (2000 + ym // 100) * 100 + ym % 100
 
-    out = reprice(folder, full, args.back, args.plan,
+    out = reprice(folder, full, args.back, args.plan, explain=args.explain,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,

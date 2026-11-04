@@ -130,6 +130,47 @@ line out the same way: a level, not a scatter. Against their own calendar
 the same rows read 100% against 100% and the nudge does not fire. Measured
 over the plan, that is worth +8.4% to HA against the 8.7% it was short.
 
+### B2B is measured plan against plan
+
+What the B2B side costs comes from the history, which is the only place a
+realised discount lives. What it is measured **against** comes from the
+plan, because the sheet's B2B share is an *allocation* and the export's is a
+*realisation*, and subtracting one from the other reads a shift where there
+is none.
+
+Over the whole book the two agree - October planned 39% B2B and sold 40%.
+By division they do not:
+
+```
+  category        plan B2B   actual B2B    gap
+  REF                  41%          29%   +13pp
+  Air Purifier         18%           6%   +12pp
+  WM                   40%          31%    +9pp
+  TV                   45%          38%    +7pp
+  Tablet               40%          54%   -14pp
+  whole book           39%          40%    -1pp
+```
+
+So the nudge was charging REF for a twelve-point swing to a deeper-discounted
+channel that never happened. Against its own plan-side group the same rows
+read nearly flat: REF's B2B term falls from +2.4pp to +0.4pp and its price
+rises 2.8%. Most divisions collapse to about nought, which is the honest
+answer - the plan's B2B split carries no reliable per-division signal, only
+a within-group one, and that is now all it is asked for.
+
+### `--explain` - which term did it
+
+```
+py tools\reprice.py --explain
+```
+
+A month that comes out wrong by a **level** for a whole division is one term
+firing too hard, and a price is the sum of four things with no reading them
+back out of the total. So the terms are kept apart on the way through and
+averaged per division, in points of discount, beside the price move they
+come to. It is how both of the errors above were found, and it is the first
+thing to run when a division looks wrong.
+
 ### The other two
 
 Each is a difference too, so **neither fires where the two sides agree**.
