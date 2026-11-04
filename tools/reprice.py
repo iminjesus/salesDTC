@@ -182,11 +182,17 @@ class History:
     history cannot be made to look sufficient by weighting it.
     """
 
-    def __init__(self, half: float = 0.0, ref: int | None = None):
+    def __init__(self, half: float = 0.0, ref: int | None = None,
+                 pooled: bool = False):
         self.half = max(0.0, half or 0.0)
+        self.pooled = pooled
         self.ref = ref
         self.by: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         self.skus: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        # The same tally kept month by month, because an ASP pooled over a
+        # window is weighted by units and a product sells most when it is
+        # cheapest. See `asp`.
+        self.smon: dict = collections.defaultdict(lambda: [0.0, 0.0])
         # The same tally split by channel, which is the only way to see what
         # the B2B half of a month costs that the consumer half does not.
         self.ch: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -252,6 +258,10 @@ class History:
         self.skus[code][0] += qty * w
         self.skus[code][1] += amt * w
         self.skus[code][2] += qty
+        if ym is not None:
+            t = self.smon[(code, ym)]
+            t[0] += qty * w
+            t[1] += amt * w
         for scope in self.scopes(code, level):
             self.vol[(scope, camp)] += qty
             if scope[0] != 'sku':
@@ -284,8 +294,36 @@ class History:
         return max(0.0, 1.0 - (t[1] / t[2]))
 
     def asp(self, code):
+        """What the product fetched over the window, one month one vote.
+
+        **A product sells most when it is cheapest.** An ASP pooled over a
+        window - all the revenue over all the units - is therefore weighted
+        towards its own cheap months, and what is being predicted is not a
+        unit but a *month*. So the window over-states the discount, and it
+        over-states it in the same direction every time: on October the
+        backtest puts a flat pooled window 4.2 points deep per product,
+        never the other way.
+
+        That is also why a half-life appears to fix it and does not. The
+        bias is selection, not age; shortening the window drops whichever
+        heavy months happen to sit at the back, which works for a quiet
+        month like October and reverses for a loud one like November, so
+        the fitted half-life would have to be re-fitted every month. One
+        month one vote needs no fitting and holds whatever the month is.
+
+        A month under MIN_UNITS does not get a vote - averaging a month of
+        three units beside a month of three hundred trades a bias for a
+        variance - and a product with fewer than two such months keeps the
+        pooled figure it always had.
+        """
         q, a, raw = self.skus.get(code, [0.0, 0.0, 0.0])
-        return (a / q) if raw >= MIN_UNITS and q > 0 else None
+        if raw < MIN_UNITS or q <= 0:
+            return None
+        if self.pooled:
+            return a / q
+        each = [t[1] / t[0] for (c, _), t in self.smon.items()
+                if c == code and t[0] >= MIN_UNITS and t[1] > 0]
+        return sum(each) / len(each) if len(each) >= 2 else a / q
 
     def own(self, code):
         """This product's own discount over the window, campaigns together.
@@ -425,6 +463,14 @@ class History:
     def deals(self, scope, months):
         """(penetration lately, penetration over the window, what it costs).
 
+        A voucher, a trade-in, an e-promoter code. They are the biggest
+        single thing between MX's list price and what was paid - October
+        sold 5,409 MX units clean at 31.7% off and 5,336 on a voucher at
+        40.0%, with a trade-in beside it at 43.7% and both at 49.4% - and
+        **all of it is already inside the revenue**, so the window ASP
+        carries it at whatever rate that window ran. What does not carry is
+        the rate itself, which swings hard month to month.
+
         The unplanned discounts - a voucher, a trade-in, an e-promoter code.
         They are not in any plan and never will be, so nothing forecasts
         them; what can be done is to notice the group has been running them
@@ -441,9 +487,13 @@ class History:
         got = [(m, t) for m, t in got if t and t[1] > 0]
         if not got:
             return None
+        # One month one vote on both sides, for the same reason the ASP
+        # takes one: pooling the window's units lets its busiest months
+        # decide, and a busy month is busy because it was discounting, so
+        # the window reads a higher penetration than a typical month has.
         late = got[-1][1][0] / got[-1][1][1]
-        allq = sum(t[1] for _, t in got)
-        flat = sum(t[0] for _, t in got) / allq if allq else late
+        each = [t[0] / t[1] for _, t in got]
+        flat = sum(each) / len(each) if each else late
         return late, flat, a - b
 
     def mix(self, scope):
@@ -465,8 +515,8 @@ class History:
 
 
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
-                 say=print, half: float = 0.0,
-                 source: str = 'auto', want_days: bool = True) -> History:
+                 say=print, half: float = 0.0, source: str = 'auto',
+                 want_days: bool = True, pooled: bool = False) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -482,7 +532,7 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
     applied, but October has not happened yet and has only the plan to be
     described by; keying one side on each would join on nothing.
     """
-    h = History(half, months[-1] if months else None)
+    h = History(half, months[-1] if months else None, pooled=pooled)
     if source != 'orders':
         want = set(months)
         rows = DTC.read(folder, want, say=say) if DTC.files(folder) else []
@@ -929,7 +979,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             source: str = 'auto', new_cap: float = 0.0,
             no_mix: bool = False, flat_days: bool = False,
             by_units: bool = True, model: str = 'simple',
-            explain: bool = False) -> dict:
+            explain: bool = False, pooled: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1171,6 +1221,11 @@ def main() -> int:
                     choices=('auto', 'dtc', 'orders'),
                     help='where the history comes from: the DTC export where '
                          'the folder has one (default), or the order export')
+    ap.add_argument('--pooled-asp', dest='pooled', action='store_true',
+                    help="the window's ASP pooled over its units, as it was "
+                         'before - a product sells most when it is cheapest, '
+                         'so this reads the window a couple of points too '
+                         'cheap')
     ap.add_argument('--explain', action='store_true',
                     help='what each nudge did to each division, in points '
                          'of discount - for a month that comes out wrong by '
@@ -1205,6 +1260,7 @@ def main() -> int:
     full = (2000 + ym // 100) * 100 + ym % 100
 
     out = reprice(folder, full, args.back, args.plan, explain=args.explain,
+                  pooled=args.pooled,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,

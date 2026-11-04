@@ -130,6 +130,64 @@ line out the same way: a level, not a scatter. Against their own calendar
 the same rows read 100% against 100% and the nudge does not fire. Measured
 over the plan, that is worth +8.4% to HA against the 8.7% it was short.
 
+### One month is one vote
+
+**A product sells most when it is cheapest.** An ASP pooled over a window -
+all its revenue over all its units - is therefore weighted towards its own
+cheap months, while the thing being predicted is not a unit but a *month*.
+So the window over-states the discount, and it over-states it the same way
+every time: the backtest puts a flat pooled window **4.2 points deep per
+product**, never the other way.
+
+The months say it plainly. The big months are big because they discount:
+
+```
+  Feb 58k units 46.3% off     Jan 15k units 38.8% off
+  Mar 67k units 46.1%         Sep 21k units 38.3%
+  Aug 43k units 44.1%         Oct 19k units 39.8%
+```
+
+So every month-level figure the window gives up - a product's ASP, and the
+rate at which its group ran vouchers and trade-ins - is the **average of
+the monthly figures**, one month one vote, not the pooled total.
+
+This is also why `--decay` looks like the fix and is not. The bias is
+selection, not age. Shortening the window drops whichever heavy months
+happen to sit at the back, which works for a quiet month like October -
+the fit puts the best half-life near 0.25 - and reverses for a loud one
+like November, so the half-life would have to be re-fitted every month.
+That is a parameter, not a model. One month one vote needs no fitting and
+holds whichever month is being priced. `--pooled-asp` restores the old
+behaviour for comparison.
+
+A month under `MIN_UNITS` gets no vote - averaging a month of three units
+beside a month of three hundred trades a bias for a variance - and a
+product with fewer than two such months keeps the pooled figure.
+
+### Vouchers, trade-ins and e-promoter codes
+
+They are the biggest single thing between MX's list price and what was
+paid:
+
+```
+  MX, October       units   off list
+  clean             5,409      31.7%
+  voucher           5,336      40.0%
+  trade-in            264      43.7%
+  both                610      49.4%
+```
+
+54% of MX's units carried a voucher - SECRETGALAXY, GALAXYBOOST, EARLYBF.
+No plan carries any of them; they are standing offers.
+
+**None of it leaks.** All of it is already inside `AUD Revenue excl. GST`,
+so the window ASP carries it at whatever rate that window ran, and the
+re-price carries it forward. What does not carry is the **rate**, which
+swings hard month to month. That is what the deals nudge is: the newest
+month's penetration against the window's, times what a deal costs. On
+October it is the largest term on MX - Mobile -1.4pp, Accessories -1.7pp,
+Tablet -2.4pp, each of them raising the price.
+
 ### B2B is measured plan against plan
 
 What the B2B side costs comes from the history, which is the only place a
