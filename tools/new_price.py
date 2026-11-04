@@ -285,6 +285,17 @@ def main() -> int:
     ap.add_argument('--decay', type=float, default=0.0, metavar='MONTHS',
                     help='half-life: a line this much older counts half as '
                          'much (default 0, every month alike)')
+    # The re-price's own switches, so a column can be written from any run
+    # the dashboard can draw. `reprice.py --help` explains each.
+    ap.add_argument('--promo-first', action='store_true')
+    ap.add_argument('--quiet-list', action='store_true')
+    ap.add_argument('--pooled-asp', dest='pooled', action='store_true')
+    ap.add_argument('--keep-clearance', dest='clearance',
+                    action='store_false')
+    ap.add_argument('--explain', action='store_true')
+    ap.add_argument('--campaigns', nargs='?', const='div3', default='',
+                    choices=('range', 'div3', 'div1'))
+    ap.add_argument('--why', nargs='+', default=(), metavar='CODE')
     ap.add_argument('--with-basis', action='store_true',
                     help='also write Basis and Nearest SKU. Off by default: '
                          'one column in keeps every other column where the '
@@ -338,7 +349,10 @@ def main() -> int:
                         scope=args.scope, decay=args.decay, also=also,
                         new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                         flat_days=args.flat_days, by_units=args.by_units,
-                        model=args.model)
+                        model=args.model, promo_first=args.promo_first,
+                        quiet_list=args.quiet_list, pooled=args.pooled,
+                        clearance=args.clearance, explain=args.explain,
+                        campaigns=args.campaigns, why=args.why)
     price = {PM.code_norm(k): v['price'] for k, v in priced.items()
              if v.get('price')
              and not (args.blank_kept and v.get('how') == 'kept')}

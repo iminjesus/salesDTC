@@ -73,6 +73,22 @@ from a prediction that happens to agree. The run says how many there are, and
 **`--blank-kept`** leaves them empty instead, which is usually what a
 simulation wants: a blank cannot be mistaken for a forecast.
 
+## The re-price's own switches
+
+Every flag that changes a price is passed straight through, so a column can
+be written from any run the dashboard can draw and the two cannot disagree:
+
+```
+py tools\new_price.py --promo-first --quiet-list
+py tools\new_price.py --pooled-asp
+py tools\new_price.py --keep-clearance
+py tools\new_price.py --explain
+py tools\new_price.py --why SM-F971BZGHATS
+```
+
+`py tools\reprice.py --help` explains each of them, and `docs/REPRICE.md`
+says what they are for.
+
 ## Running it twice
 
 Safe. The tool skips its own output when looking for the sheet, and a sheet
