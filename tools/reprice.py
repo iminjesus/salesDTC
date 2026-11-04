@@ -933,14 +933,10 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     promo, own_quiet, by_chan = (
         hist.sides(k, b2b) if promo_first else (None, None, False))
 
-    # (2) The quiet part of the month is priced off the **list price**, not
-    # off what the product fetched on quiet days. Those two are the same
-    # thing only for a product whose window is ordinary trading: a Fold8
-    # fetched about 2,300 on days no campaign covered, because its quiet
-    # days were launch days too, where October's S.COM price is 3,271.82.
-    # A group's ordinary markdown off list is steady and is not anybody's
-    # launch, and on the month's own list price it says what the product
-    # goes out at with nothing running.
+    # (2) The quiet part of the month. By default it is what the product
+    # itself fetched on days no campaign covered; `--quiet-list` takes the
+    # sheet's own planned price for the month instead, which is the better
+    # answer for a product too new to have a past worth averaging.
     rrp = (rrp_at(k) if rrp_at else None) or rrp_of(plan, code)
     clean, quiet_from = None, None
     if not quiet_list:
@@ -967,35 +963,20 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     adj, why = 0.0, []
     parts = {'code': k, 'on': on, 'by_chan': by_chan}
 
-    # Read no narrower than a division. A `range` is one phone's colours
-    # and capacities, and a launch takes the whole range at once - reading
-    # the markdown there reads that launch again, which is the thing this
-    # is here to avoid. A Fold8's range said 42% B2B and 33% B2C off list,
-    # which is its pre-order and not anybody's ordinary trading.
-    QUIET_FROM = SCOPES.index('div3')
-
-    def off_rate(chan):
-        for sc in History.scopes(k, lv):
-            if SCOPES.index(sc[0]) < QUIET_FROM:
-                continue
-            got = hist.quiet(sc, chan)
-            if got is not None:
-                return got, (sc[1] or 'the whole book')
-        return None, None
-
-    if rrp and clean is None:
-        if b2b is not None:
-            bb, from_b = off_rate('B2B')
-            cc, from_c = off_rate('B2C')
-            if bb is not None and cc is not None:
-                clean = rrp * (1.0 - (bb * b2b + cc * (1.0 - b2b)))
-                quiet_from = (f'{bb * 100:.0f}% B2B / {cc * 100:.0f}% B2C '
-                              f'off list ({from_b})')
-        if clean is None:
-            got, where = off_rate('')
-            if got is not None:
-                clean = rrp * (1.0 - got)
-                quiet_from = f'{got * 100:.0f}% off list ({where})'
+    sheet_price = bool(quiet_list and gscm)
+    if sheet_price:
+        # The month's own planned price, as the sheet writes it. A product
+        # that is not on promotion sells at the price that was set for it,
+        # and that price is already there for a product too new to have a
+        # past worth averaging - which is the case this is for.
+        #
+        # No markdown is read off anybody. A group's markdown comes from
+        # the products that have been selling longest, and dragging a new
+        # model down to those is reading their age as its discount. The
+        # sheet carries one price per material across E-STORE and
+        # E-STORE_B2B, and over October it landed within 1.4% of what the
+        # portals actually realised, so it needs no channel mix either.
+        clean, quiet_from = gscm, "the sheet's own price"
     parts.update(clean_from=quiet_from, rrp=rrp)
 
     # Days become units first. A promotion is not worth its share of the
@@ -1025,14 +1006,16 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
                    f'{w * 100:.0f}% of the units at {c:.1f}x ({pull_from}): '
                    f'{promo:,.0f} of its own on one{mixed}, '
                    f'{clean:,.0f} off one'
-                   + (f' - {rrp:,.0f} list at {quiet_from}' if rrp
-                      else f' ({quiet_from})'))
+                   + (f' ({quiet_from})' if sheet_price or not rrp
+                      else f' - {rrp:,.0f} list at {quiet_from}'))
     elif clean is not None:
         asp = clean
         why.append(f'{on * 100:.0f}% of days on promotion and nothing of '
                    f'its own under one: '
-                   + (f'{rrp:,.0f} list at {quiet_from} = ' if rrp else '')
-                   + f'{clean:,.0f}')
+                   + ('' if sheet_price or not rrp
+                      else f'{rrp:,.0f} list at {quiet_from} = ')
+                   + f'{clean:,.0f}'
+                   + (f' ({quiet_from})' if sheet_price else ''))
     elif promo is not None and w >= 0.5:
         asp = promo
         why.append(f'{on * 100:.0f}% of days on promotion, and no list '
@@ -1237,9 +1220,11 @@ def why_one(codes, hist, out, levels, say):
                 say('                under a promotion            -'
                     '   nothing of its own')
             if cl is not None:
+                how = p.get('clean_from') or '-'
+                lead = ('' if 'sheet' in how or not p.get('rrp')
+                        else f"{p['rrp']:,.0f} list at ")
                 say(f"                without one       {cl:>12,.0f}"
-                    f"   {p.get('rrp') or 0:,.0f} list at "
-                    f"{p.get('clean_from') or '-'}")
+                    f"   {lead}{how}")
             say(f"                -> base {p['asp']:,.0f}")
         else:
             say(f"                neither side answers, so the blended "

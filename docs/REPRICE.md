@@ -106,30 +106,31 @@ and measured worse on the book, so it waits behind the flag.
 4  nudged by B2B, only where 1 and 2 could not carry it per product
 ```
 
-### `--quiet-list`, and why it is not the default
+### `--quiet-list` - the sheet's own price for the quiet days
 
-The unpromoted part of a month could be priced off **the month's list
-price** times the group's ordinary markdown, instead of off what the
-product itself fetched on quiet days. It sounds right - a Fold8 fetched
-about 2,100 on its quiet days because its quiet days were launch days too,
-where October's S.COM price for it is 3,271.82 - and it does not work,
-because there is no group whose markdown fits a product like that:
+With `--promo-first`, the unpromoted part of a month can be priced off
+**the sheet's own October price** instead of off what the product fetched
+on quiet days.
 
-```
-  read at its range  (Fold8 Online Exclusive)   45% B2B / 39% B2C off list
-  read at its division (Mobile)                 47% B2B / 44% B2C off list
-  what October actually took off it on B2C                      9%
-```
+It is there for the product too new to have a past worth averaging. A
+Fold8's quiet days were its launch days, so its quiet ASP is 2,114 where
+October's S.COM price for it is 3,271.82 and the sheet says 3,221.
 
-Its own range **is** its launch, so reading the markdown there reads the
-launch again. Widening to the division brings in every older and cheaper
-phone, which discounts harder than a flagship does. A group average
-markdown is not a premium product's markdown at any level, and the right
-tool for a launch is to leave the launch out of the window, which is what
-`SPECIAL` does.
+**No markdown is read off anybody.** An earlier version took the group's
+ordinary markdown off list, and that is wrong in a way worth writing down:
+a group's markdown comes from the products that have been selling longest,
+so dragging a new model down to it reads their age as its discount. Read
+at its own range it came to 45% B2B and 39% B2C off list, which is the
+Fold8's own pre-order again; widened to Mobile it came to 47% and 44%,
+which is every older and cheaper phone. October took 9% off it.
 
-So it stays behind `--quiet-list` to compare against. It reads no narrower
-than a division when it is used, for the reason above.
+The sheet needs none of that. It already carries one price per material
+across E-STORE and E-STORE_B2B, and over October it landed within 1.4% of
+what the portals actually realised - so no channel mix either.
+
+What it costs is the obvious thing: where the month plans no promotion, the
+price is the plan's, and the model has nothing to add. That is honest for a
+new product and wasteful for an old one, which is why it is a flag.
 
 ### What the quiet side is
 
