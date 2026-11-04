@@ -714,12 +714,20 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     product's own is always countable.
     """
     k = PM.code_norm(code)
+    lv = levels.get(k, {})
     asp = hist.asp(k)
     if not asp:
-        return gscm, 'kept', None, 0.0, ['no six-month ASP of its own']
-    lv = levels.get(k, {})
+        # Nothing of its own, and nothing borrowed: a neighbour's ASP is a
+        # guess dressed as a measurement, and the sheet's own price is the
+        # better answer where there is no record to beat it with.
+        return gscm, 'kept', None, 0.0, ['no ASP of its own']
     on = sum(1 for d in days if campaign_at(plan, canon, k, d)) / len(days)
 
+    # A product that sold enough either side of the line to measure its
+    # own ratio uses its own; the rest climb to their group, which moves
+    # every member alike and so adds no scatter. The thresholds inside each
+    # ratio are what decide that, which is why the ladder starts at the
+    # product and is not floored at the group.
     def group(fn):
         for sc in History.scopes(k, lv):
             got = fn(sc)
@@ -793,7 +801,7 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     price = max(price, asp * 0.5)
     parts.update(room=room, adj=adj, price=price)
     BREAKDOWN.append(parts)
-    return price, 'asp', None, on, why or ['six-month ASP, nothing to nudge']
+    return price, 'asp', None, on, why or ['its own ASP, nothing to nudge']
 
 
 def explain_terms(out, levels, say):
@@ -1121,8 +1129,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 code, plan, canon, hist, levels, days, it['aud'],
                 scope=scope, rrp_at=rrp_at, new_cap=new_cap,
                 flat_days=flat_days, by_units=by_units,
-                b2b=(None if no_mix else it.get('b2b')),
-                plan_mix=plan_mix)
+                b2b=(None if no_mix else it.get('b2b')))
         how[kind] += 1
         # The nearest SKU is named on the row, not only in the prose, so a
         # sheet can filter on it: a new product priced off a neighbour is a
