@@ -365,6 +365,41 @@ rises 2.8%. Most divisions collapse to about nought, which is the honest
 answer - the plan's B2B split carries no reliable per-division signal, only
 a within-group one, and that is now all it is asked for.
 
+### `--why` - one material, every step
+
+```
+py tools\reprice.py --why SM-F971BZGHATS
+py tools\reprice.py --why RF71DB9956QDSA LS49DG950SEXXY
+```
+
+A pivot says a product came out wrong. It cannot say which of four numbers
+did it, and the row's own `Why` text is a sentence rather than a sum. This
+prints the lot:
+
+```
+  SM-F971BZGHATS
+        month   units        ASP   vote
+       202607      13      2,149   yes
+       202608      13      2,204   yes
+       202609      13      2,783   yes
+                           2,379   <- the average of 3 month(s), one vote each
+    promotion   0% of the month's days = 0% of its units at 1.36x
+                against 22% over its past, at 4.5pp a campaign  ->  -0.99pp
+    deals       31% of units lately against 31%                 ->  +0.00pp
+    B2B         43% planned against 40% planned for its group   ->  +0.40pp
+                                                                 ---------
+                                                                   -0.59pp
+    price       2,379 x (1 - -0.59 / 66.1) = 2,400
+    the sheet says 3,221; 7 unit(s) planned
+```
+
+The months come first because that is usually where a bad price is made -
+a product with two voting months and a third that swung, or a month that
+missed its vote for want of units.
+
+**The sheet is one row per material per account**, so a pivot summing
+E-STORE and E-STORE_B2B shows twice the figures this prints.
+
 ### `--explain` - which term did it
 
 ```

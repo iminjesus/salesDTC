@@ -999,6 +999,68 @@ def campaign_report(hist, levels, say, level='div3'):
         'same.')
 
 
+def why_one(codes, hist, out, levels, say):
+    """Every step of one material's price, with the months it came from.
+
+    A pivot says a product came out wrong; it cannot say which of four
+    numbers did it. This prints the lot for one material - the months that
+    made its ASP, each nudge with what it was measured against, and the
+    arithmetic that turns points of discount into dollars.
+    """
+    parts = {p['code']: p for p in BREAKDOWN}
+    for raw in codes:
+        k = PM.code_norm(raw)
+        p, row = parts.get(k), None
+        for c, v in out.items():
+            if PM.code_norm(c) == k:
+                row = v
+                break
+        say(f'\n  {raw}')
+        if row is None:
+            say('    not in the month\u2019s plan')
+            continue
+        if p is None:
+            say(f"    {row['how']}: {'; '.join(row['why'] or ())}")
+            say(f"    GSCM {row['gscm']:,.0f} -> {row['price']:,.0f}")
+            continue
+
+        each = sorted((ym, t) for (c, ym), t in hist.smon.items() if c == k)
+        say(f"    {'month':>9}{'units':>8}{'ASP':>11}   vote")
+        for ym, t in each:
+            v = ('yes' if t[0] >= MIN_UNITS else f'no (under {MIN_UNITS})')
+            asp = t[1] / t[0] if t[0] else 0.0
+            say(f'    {ym:>9}{t[0]:8,.0f}{asp:11,.0f}   {v}')
+        votes = [t[1] / t[0] for _, t in each if t[0] >= MIN_UNITS and t[1] > 0]
+        if len(votes) >= MIN_MONTHS:
+            say(f"    {'':9}{'':8}{p['asp']:11,.0f}   <- the average of "
+                f'{len(votes)} month(s), one vote each')
+        else:
+            say(f"    {'':9}{'':8}{p['asp']:11,.0f}   <- under "
+                f'{MIN_MONTHS} month(s) with a vote, so pooled over units')
+
+        say(f"    promotion   {p['on'] * 100:.0f}% of the month\u2019s days"
+            f" = {p.get('on_units', p['on']) * 100:.0f}% of its units "
+            f"at {p.get('tilt', 1.0):.2f}x")
+        say(f"                against {p['was'] * 100:.0f}% over its past, "
+            f"at {p.get('gap', 0) * 100:.1f}pp a campaign"
+            f"  ->{p.get('campaign', 0) * 100:+7.2f}pp")
+        if 'deals_nudge' in p:
+            say(f"    deals       {p['deals'] * 100:.0f}% of units lately "
+                f"against {p['deals_was'] * 100:.0f}%"
+                f"            ->{p['deals_nudge'] * 100:+7.2f}pp")
+        if 'b2b_nudge' in p:
+            say(f"    B2B         {p['b2b'] * 100:.0f}% planned against "
+                f"{p['b2b_was'] * 100:.0f}% planned for its group"
+                f"  ->{p['b2b_nudge'] * 100:+7.2f}pp")
+        say(f"    {'':54}{'':4}{'-' * 9}")
+        say(f"    {'':54}{'':4}{p['adj'] * 100:+8.2f}pp")
+        say(f"    price       {p['asp']:,.0f} x (1 - "
+            f"{p['adj'] * 100:.2f} / {p['room'] * 100:.1f}) = "
+            f"{p['price']:,.0f}")
+        say(f"    the sheet says {row['gscm']:,.0f}; "
+            f"{row['qty']:,.0f} unit(s) planned")
+
+
 def explain_terms(out, levels, say):
     """Each nudge's own contribution, per division.
 
@@ -1188,7 +1250,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             no_mix: bool = False, flat_days: bool = False,
             by_units: bool = True, model: str = 'simple',
             explain: bool = False, pooled: bool = False,
-            campaigns: str = '', clearance: bool = True) -> dict:
+            campaigns: str = '', clearance: bool = True,
+            why=()) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1386,6 +1449,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             explain_terms(out, levels, say)
         if campaigns:
             campaign_report(hist, levels, say, level=campaigns)
+        if why:
+            why_one(why, hist, out, levels, say)
         return out
     say('  rrp  = list price x what this product came off it under the same')
     say('         promotion, and its own six-month discount on the rest')
@@ -1461,6 +1526,10 @@ def main() -> int:
                          'before - a product sells most when it is cheapest, '
                          'so this reads the window a couple of points too '
                          'cheap')
+    ap.add_argument('--why', nargs='+', default=(), metavar='CODE',
+                    help='every step of one material\u2019s price - the '
+                         'months that made its ASP and each nudge with '
+                         'what it was measured against')
     ap.add_argument('--keep-clearance', dest='clearance',
                     action='store_false',
                     help='leave a product\u2019s past clearances, secret '
@@ -1506,7 +1575,7 @@ def main() -> int:
 
     out = reprice(folder, full, args.back, args.plan, explain=args.explain,
                   pooled=args.pooled, campaigns=args.campaigns,
-                  clearance=args.clearance,
+                  clearance=args.clearance, why=args.why,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,
