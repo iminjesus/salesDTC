@@ -204,6 +204,33 @@ month's penetration against the window's, times what a deal costs. On
 October it is the largest term on MX - Mobile -1.4pp, Accessories -1.7pp,
 Tablet -2.4pp, each of them raising the price.
 
+### Why the campaign rate stays on the plan's terms
+
+The export carries `promotion_rule` - the rule that actually applied - and
+it is a far better classifier than the plan. The plan assigns a campaign to
+a product for whole stretches at a time, so a product rarely has both
+states inside a month and the rate can almost never be measured on the
+product itself. Measured within each product on October, the plan gives a
+comparison for **one** TV, **nought** washers and **one** fridge; the rule
+gives 45, 6 and 11. The plan's rate therefore always comes from a group,
+where it picks up the group's product mix: pooled, REF's plan rate reads
+24.4pp where the same products measured individually read 1.0pp.
+
+It is still not used, and not because of leakage - the rate would be read
+off the window, not off the month being priced. It is because **the
+coverage it multiplies comes from the plan**. A month that has not happened
+has only its plan, so October's coverage is the plan's days; pairing that
+with a rate defined by what rules actually fired pairs two different
+definitions, which is the same mistake as days against units, the sheet's
+B2B against the export's, or a unit against a month. Where the plan drives
+one side it has to define both.
+
+What that costs is known and small. TV's coverage runs 16 points above its
+history and the honest within-product rate is about 5.5pp, which is a 1.4%
+move where TV needs 5.9%. TV's gap is not a coverage story: October was its
+deepest month in seven - 44.1% against 39.4-41.3% for May to September -
+and nothing in the window foretells a Black Friday ramp.
+
 ### B2B is measured plan against plan
 
 What the B2B side costs comes from the history, which is the only place a
