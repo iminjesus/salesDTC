@@ -1052,6 +1052,19 @@ def why_one(codes, hist, out, levels, say):
             say(f"    B2B         {p['b2b'] * 100:.0f}% planned against "
                 f"{p['b2b_was'] * 100:.0f}% planned for its group"
                 f"  ->{p['b2b_nudge'] * 100:+7.2f}pp")
+            # What the nudge compares is plan against plan, which is
+            # group-relative on purpose - a sheet that allocates a division
+            # 41% B2B where it sells 29% is not forecasting a shift. But
+            # that leaves a product whose **own** channel mix moved with
+            # nothing to correct it, so what its window actually ran is
+            # printed beside it, and a wide gap is worth knowing about.
+            own = hist.mix(('sku', k))
+            if own:
+                say(f"                its own window ran "
+                    f"{own[0] * 100:.0f}% B2B at {own[1] * 100:+.1f}pp "
+                    f"on the discount"
+                    + ('   <-- mix moved'
+                       if abs(own[0] - p['b2b']) > 0.15 else ''))
         say(f"    {'':54}{'':4}{'-' * 9}")
         say(f"    {'':54}{'':4}{p['adj'] * 100:+8.2f}pp")
         say(f"    price       {p['asp']:,.0f} x (1 - "
