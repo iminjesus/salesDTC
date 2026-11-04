@@ -188,6 +188,11 @@ def main() -> int:
                     help='one month, 2610 or 202610 (default all of them)')
     ap.add_argument('--top', type=int, default=0, metavar='N',
                     help='also list the N biggest products')
+    ap.add_argument('--aging', nargs='?', const='cat', default=None,
+                    choices=('div', 'cat', 'range'), metavar='LEVEL',
+                    help='what a run-out costs: the last two months of a '
+                         'product that stopped selling, against its own '
+                         'months before')
     ap.add_argument('--deals', action='store_true',
                     help='what share of each month carried a trade-in or a '
                          'voucher, and what each cost - a mix that moves '
@@ -246,6 +251,82 @@ def main() -> int:
         print(f'  {MONTHS[(ym % 100) - 1] + " " + str(ym // 100):<10}'
               f'{q:>10,.0f}{a:>14,.0f}'
               f'{("-" if off is None else f"{off:.1f}%"):>10}')
+
+    if args.aging:
+        # Run-out, not the calendar. A clearance is a product reaching the
+        # end of its life and being emptied out before the next model
+        # lands, which has nothing to do with whatever campaign the week
+        # happened to be carrying - an EOFY sale is a date in the year, and
+        # every product alive that June is in it.
+        #
+        # What marks a run-out is that the product **stops**. So: take the
+        # products that sold through part of the window and then went
+        # quiet, and compare what they fetched in their last two live
+        # months against what the same product fetched before that. A
+        # product still selling in the newest month is not finished and is
+        # left out, because its last month is only where the file ends.
+        seen = sorted({r['ym'] for r in rows})
+        newest = seen[-1] if seen else None
+        per = collections.defaultdict(lambda: collections.defaultdict(
+            lambda: [0.0, 0.0, 0.0]))
+        where = {}
+        for r in rows:
+            if not r['rrp']:
+                continue
+            t = per[r['code']][r['ym']]
+            t[0] += r['amt']
+            t[1] += r['qty'] * r['rrp']
+            t[2] += r['qty']
+            where[r['code']] = r[args.aging] or '(blank)'
+
+        agg = collections.defaultdict(lambda: [[], 0.0, 0])
+        still = 0
+        for code, months in per.items():
+            live = sorted(m for m, t in months.items() if t[2] >= 3)
+            if len(live) < 4:
+                continue
+            if newest is not None and live[-1] == newest:
+                still += 1
+                continue
+            end, before = live[-2:], live[:-2]
+
+            def rate(ms):
+                a = sum(months[m][0] for m in ms)
+                b = sum(months[m][1] for m in ms)
+                return (1 - a / b) if b > 0 else None
+
+            x, y = rate(end), rate(before)
+            if x is None or y is None:
+                continue
+            a = agg[where[code]]
+            a[0].append(x - y)
+            a[1] += sum(months[m][2] for m in end)
+            a[2] += 1
+
+        print(f"\n  the last two months of a product\u2019s life, against "
+              f"its own months before  ({args.aging})\n")
+        print(f'  {"group":<16}{"products":>10}{"units":>10}'
+              f'{"deeper by":>12}{"median":>10}')
+        allg = []
+        for g, a in sorted(agg.items(), key=lambda kv: -kv[1][2]):
+            if a[2] < 3:
+                continue
+            allg += a[0]
+            m = sorted(a[0])[len(a[0]) // 2]
+            print(f'  {g[:16]:<16}{a[2]:>10,}{a[1]:>10,.0f}'
+                  f'{statistics.mean(a[0]) * 100:>11.1f}pp{m * 100:>9.1f}pp')
+        if allg:
+            m = sorted(allg)[len(allg) // 2]
+            print(f'  {"every group":<16}{len(allg):>10,}{"":>10}'
+                  f'{statistics.mean(allg) * 100:>11.1f}pp{m * 100:>9.1f}pp')
+        print(f'\n  {still:,} product(s) still selling in the newest month '
+              f'are left out - their')
+        print('  last month is where the file ends, not where the product '
+              'ended.')
+        print('  a product needs 3 units in a month for that month to '
+              'count, and four')
+        print('  such months in all, so a run-out has something to be '
+              'measured against.')
 
     if args.deals:
         # A trade-in and a voucher are both already inside the revenue, so

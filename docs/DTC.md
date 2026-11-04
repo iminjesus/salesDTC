@@ -157,6 +157,32 @@ where the error actually sits: the quartiles, how many products are out by
 more than ten points and how many units they carry, which divisions and
 which volumes they are, and the worst of them by name.
 
+## `--aging` - what a run-out costs
+
+```
+py tools\dtc.py --aging
+py tools\dtc.py --aging div
+```
+
+A clearance is a product **reaching the end of its life** and being emptied
+out before the next model lands. It is not a date in the calendar: an EOFY
+sale is a week of the year and every product alive that June is in it, so a
+campaign name cannot tell the two apart.
+
+What marks a run-out is that the product **stops**. So this takes the
+products that sold through part of the file and then went quiet, and
+compares what they fetched in their **last two live months** against what
+the same product fetched before that. Same product both sides, so nothing
+about the mix leaks in.
+
+A product still selling in the newest month is left out: its last month is
+where the file ends, not where the product ended. A month needs 3 units to
+count and a product needs four such months, so a run-out has something to
+be measured against.
+
+The answer is per product group, as a mean and a median, because one
+product cleared at eighty points off would carry a mean on its own.
+
 ## `--deals` - what else came off the price
 
 ```
