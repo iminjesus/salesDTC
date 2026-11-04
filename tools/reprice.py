@@ -135,9 +135,16 @@ def months_back(ym: int, n: int) -> list:
 # Samsung Week - and a window that averages one in carries it forward into
 # a month that is not running it.
 #
+# A launch belongs with them and for the same reason, which one product
+# showed plainly: a Fold8's whole window is its pre-order, its B2C side
+# sold at about 2,300 where October's S.COM price is 3,271.82, and the
+# promotion split could not reach it because the launch offers were on the
+# quiet days too. A launch happens once.
+#
 # Matched **by kind**, so a month running a Secret Sale keeps a product's
-# past Secret Sales and still drops its past EOFY. One list, one place.
-SPECIAL = ('clearance', 'secret', 'eofy')
+# past Secret Sales and still drops its past EOFY, and a product on Tab S12
+# Launch in October keeps its own launch months. One list, one place.
+SPECIAL = ('clearance', 'secret', 'eofy', 'launch', 'pre-order')
 
 
 def special_kinds(camp: str) -> frozenset:
@@ -1118,6 +1125,24 @@ def why_one(codes, hist, out, levels, say):
             b = f'{cl:,.0f}' if cl is not None else '-'
             say(f'                on a promotion {a:>9}'
                 f'   without one {b:>9}{chan}')
+            # The four cells the two sides were built from, so a side that
+            # came out surprising can be read rather than guessed at.
+            got = hist.sc.get(k) or {}
+            say(f"      {'':8}{'cell':>16}{'months':>8}{'units':>9}"
+                f"{'ASP':>10}")
+            for on in (True, False):
+                for ch in ('B2B', 'B2C', None):
+                    live = [(ym, t) for (ym, o, c), t in got.items()
+                            if o is on and (c == ch if ch else True)
+                            and t[0] > 0]
+                    if not live:
+                        continue
+                    vote = [t for _, t in live if t[0] >= MIN_UNITS]
+                    q = sum(t[0] for _, t in live)
+                    amt = sum(t[1] for _, t in live)
+                    name = ('on ' if on else 'off ') + (ch or 'both')
+                    say(f"      {'':8}{name:>16}{len(vote):>5}/{len(live):<2}"
+                        f"{q:>9,.0f}{(amt / q if q else 0):>10,.0f}")
             say(f"                -> base {p['asp']:,.0f}")
         else:
             say(f"                neither side is its own, so the blended "
