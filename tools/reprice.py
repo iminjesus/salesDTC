@@ -128,6 +128,19 @@ def months_back(ym: int, n: int) -> list:
     return list(reversed(out))
 
 
+# A campaign whose name says it is emptying a shelf rather than running a
+# sale. `--campaigns` on October's window says these are the deep ones -
+# Accessories' two Clearance lines at 56.9% and 50.6% against 33.3% for an
+# ordinary nationwide day - and an ASP that averages them in carries a
+# run-out forward into a month that is not running one.
+CLEARANCE = ('clearance', 'secret')
+
+
+def is_clearance(camp: str) -> bool:
+    low = (camp or '').lower()
+    return any(w in low for w in CLEARANCE)
+
+
 def campaign_at(plan, canon, code: str, day) -> str:
     """Which campaign covers this product on this day, spelled one way.
 
@@ -594,7 +607,7 @@ class History:
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  say=print, half: float = 0.0, source: str = 'auto',
                  want_days: bool = True, pooled: bool = False,
-                 by_units: bool = True) -> History:
+                 by_units: bool = True, skip=None) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -617,6 +630,7 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
         rows = DTC.read(folder, want, say=say) if DTC.files(folder) else []
         if rows:
             miss = 0
+            dropped = [0, 0.0]
             for r in rows:
                 code = PM.code_norm(r['code'])
                 # The export names the model family itself, which the
@@ -627,10 +641,14 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     levels.setdefault(code, {}).setdefault('range',
                                                            r['range'])
                 rrp = r['rrp'] or rrp_of(plan, r['code'])
+                camp = campaign_at(plan, canon, code, r['day'])
+                if skip is not None and skip(code, camp):
+                    dropped[0] += 1
+                    dropped[1] += r['qty']
+                    continue
                 if not rrp:
                     miss += 1
-                h.add(code, levels.get(code, {}),
-                      campaign_at(plan, canon, code, r['day']),
+                h.add(code, levels.get(code, {}), camp,
                       r['qty'], r['amt'], rrp, r['day'],
                       chan=(r['dist'] or '').upper() or None,
                       deal=bool(r.get('trade') or r.get('vouch')),
@@ -643,9 +661,19 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                 for code in list(h.skus):
                     lv = levels.get(code, {})
                     for d in span:
-                        h.saw(code, lv, campaign_at(plan, canon, code, d))
+                        camp = campaign_at(plan, canon, code, d)
+                        # A day whose sales were dropped is not a day the
+                        # product traded, or its coverage would count a
+                        # window the discount tally never saw.
+                        if skip is not None and skip(code, camp):
+                            continue
+                        h.saw(code, lv, camp)
             say(f'  {len(rows):,} DTC line(s); {len(h.skus):,} product(s) '
                 'with a realised price')
+            if dropped[0]:
+                say(f'  {dropped[0]:,} line(s), {dropped[1]:,.0f} unit(s) '
+                    'left out: a clearance the month being priced is not '
+                    'running')
             if miss:
                 say(f'  {miss:,} line(s) with no list price anywhere - they '
                     'count towards the ASP and not the discount')
@@ -1155,7 +1183,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             no_mix: bool = False, flat_days: bool = False,
             by_units: bool = True, model: str = 'simple',
             explain: bool = False, pooled: bool = False,
-            campaigns: str = '') -> dict:
+            campaigns: str = '', clearance: bool = True) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1190,13 +1218,33 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         levels = {PM.code_norm(k): v for k, v in raw.items()}
         say(f'  product master: {pp.name}, {len(levels):,} product(s)')
 
+    # A clearance is a shelf being emptied, not a sale being run, and a
+    # window that averages one in carries a run-out forward into a month
+    # that is not running one. So where the month being priced has no
+    # clearance for a product, that product's past clearances come out of
+    # the window entirely - the days as well as the sales, or its coverage
+    # would count a stretch the discount tally never saw.
+    skip = None
+    if clearance:
+        span = month_days(ym)
+        keep = {PM.code_norm(c) for c in planned['items']
+                if any(is_clearance(campaign_at(plan, canon,
+                                                PM.code_norm(c), d))
+                       for d in span)}
+        say(f'  {len(keep):,} of {len(planned["items"]):,} material(s) are '
+            f'on a clearance in the month being priced; for the rest, what '
+            f'they sold under one is left out of the window')
+
+        def skip(code, camp):
+            return is_clearance(camp) and code not in keep
+
     months = months_back(ym, back)
     say(f'\nreading what those products sold at over '
         f'{MONTHS[(months[0] % 100) - 1]} .. '
         f'{MONTHS[(months[-1] % 100) - 1]}:')
     hist = read_history(folder, plan, canon, months, levels, say=say,
                         half=decay, source=source, want_days=True,
-                        pooled=pooled, by_units=by_units)
+                        pooled=pooled, by_units=by_units, skip=skip)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -1403,6 +1451,11 @@ def main() -> int:
                          'before - a product sells most when it is cheapest, '
                          'so this reads the window a couple of points too '
                          'cheap')
+    ap.add_argument('--keep-clearance', dest='clearance',
+                    action='store_false',
+                    help='leave a product\u2019s past clearances in the '
+                         'window even where the month being priced is not '
+                         'running one - as it was before')
     ap.add_argument('--campaigns', nargs='?', const='div3', default='',
                     choices=('range', 'div3', 'div1'),
                     help='what each named campaign sold at, and how much of '
@@ -1443,6 +1496,7 @@ def main() -> int:
 
     out = reprice(folder, full, args.back, args.plan, explain=args.explain,
                   pooled=args.pooled, campaigns=args.campaigns,
+                  clearance=args.clearance,
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,

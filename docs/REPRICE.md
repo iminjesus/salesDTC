@@ -235,6 +235,29 @@ move where TV needs 5.9%. TV's gap is not a coverage story: October was its
 deepest month in seven - 44.1% against 39.4-41.3% for May to September -
 and nothing in the window foretells a Black Friday ramp.
 
+### A clearance comes out of the window
+
+A clearance is a shelf being emptied, not a sale being run. `--campaigns`
+on the real window says so plainly - Accessories' Clearance lines at 56.9%
+and 50.6% against 33.3% for an ordinary nationwide day, TV's at 51.0%
+against 40.6% - and a window that averages those in carries a run-out
+forward into a month that is not running one.
+
+So **where the month being priced has no clearance for a product, that
+product's past clearances come out of the window**, both from its ASP and
+from the campaign rate. October runs one for 19 of its 678 materials; the
+other 659 are priced off a window with their clearances removed.
+
+The days go with the sales. A day whose sales were dropped is not a day the
+product traded, or its coverage would count a stretch the discount tally
+never saw - the same pairing the rest of the model keeps.
+
+A campaign counts as a clearance when its name says so: **`clearance` or
+`secret`**. The second is a judgement rather than a certainty - a Secret
+Sale is not only old stock - but the discounts put it with the clearances
+and not with the trading weeks, and it is one list in one place to change.
+`--keep-clearance` leaves them in, as before.
+
 ### `--campaigns` - telling a clearance from a sale
 
 ```
