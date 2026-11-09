@@ -287,7 +287,8 @@ def main() -> int:
                          'much (default 0, every month alike)')
     # The re-price's own switches, so a column can be written from any run
     # the dashboard can draw. `reprice.py --help` explains each.
-    ap.add_argument('--promo-first', action='store_true')
+    ap.add_argument('--asp-first', dest='promo_first',
+                    action='store_false')
     ap.add_argument('--quiet-list', action='store_true')
     ap.add_argument('--pooled-asp', dest='pooled', action='store_true')
     ap.add_argument('--keep-clearance', dest='clearance',

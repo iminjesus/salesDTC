@@ -88,11 +88,30 @@ same way.
 
 ## The simple model (the default)
 
-**The ASP first, the promotion as a nudge on it.** One estimate per
-product, out of its own record. `--promo-first` prices the promoted part
-of the month off what the product fetched under a promotion and the rest
-off its quiet days instead; it is right about the product it was built for
-and measured worse on the book, so it waits behind the flag.
+**The promotion first, the quiet days second.** One estimate per product,
+out of its own record.
+
+```
+1  what it fetched UNDER a promotion   x  the share of the month's units
+                                          expected on one
+2  what it fetched WITHOUT one         x  the rest
+
+   each of the two already mixed to the plan's B2B share, B2B against B2C
+
+3  nudged by  (deals lately - deals over the window)  x  what an
+               unplanned deal costs its group
+4  nudged by B2B, only where 1 and 2 could not carry it per product
+```
+
+A month being priced is a calendar of promoted and unpromoted days, and
+the product's own record holds both. So each part is answered out of the
+part of its past that matches, rather than taking one blended ASP and
+nudging it towards the month.
+
+**It is the costlier of the two on October**: 191 against 177 for the
+blended ASP with a nudge, over the same rows. `--asp-first` is that older
+arrangement, kept to compare against. A product that cannot be split
+either way falls back to it regardless.
 
 ```
 1  what it fetched UNDER a promotion   x  the share of the month's units

@@ -877,7 +877,7 @@ def nearest(k, lv, rrp, hist, levels, rrp_at):
 
 def simple_price(code, plan, canon, hist, levels, days, gscm,
                  months, b2b=None, plan_mix=None, rrp_at=None,
-                 quiet_list=False, promo_first=False):
+                 quiet_list=False, promo_first=True):
     """One price per product: its own ASP, then promotion on top.
 
     **The ASP comes first and the promotion second.** The product's own
@@ -925,11 +925,15 @@ def simple_price(code, plan, canon, hist, levels, days, gscm,
     k = PM.code_norm(code)
     lv = levels.get(k, {})
     blended = hist.asp(k)
-    # Measured on October, pricing the promotion first and the quiet days
-    # second came to 191 against 177 for the ASP with the promotion as a
-    # nudge on top - the same book, the same rows. It is right about the
-    # product it was built for and wrong about the book, which is the
-    # trade it has to win and does not, so it waits behind --promo-first.
+    # The promotion is answered first and the quiet days second. A month
+    # being priced is a calendar of promoted and unpromoted days, and the
+    # product's own record holds both, so each part is answered out of the
+    # part of its past that matches - rather than taking one blended ASP
+    # and nudging it towards the month.
+    #
+    # It is the costlier of the two on October: 191 against 177 for the
+    # blended ASP with a nudge, over the same rows. `--asp-first` is that
+    # older arrangement, kept to compare against.
     promo, own_quiet, by_chan = (
         hist.sides(k, b2b) if promo_first else (None, None, False))
 
@@ -1460,7 +1464,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             explain: bool = False, pooled: bool = False,
             campaigns: str = '', clearance: bool = True,
             why=(), quiet_list: bool = False,
-            promo_first: bool = False) -> dict:
+            promo_first: bool = True) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1736,11 +1740,12 @@ def main() -> int:
                          'before - a product sells most when it is cheapest, '
                          'so this reads the window a couple of points too '
                          'cheap')
-    ap.add_argument('--promo-first', action='store_true',
-                    help='price the promoted part of a month off what the '
-                         'product fetched under a promotion and the rest '
-                         'off its quiet days, instead of taking its ASP '
-                         'and nudging that')
+    ap.add_argument('--asp-first', dest='promo_first',
+                    action='store_false',
+                    help='take the product\u2019s blended ASP and nudge it '
+                         'towards the month, instead of answering the '
+                         'promoted and the quiet days each out of the part '
+                         'of its past that matches')
     ap.add_argument('--quiet-list', action='store_true',
                     help='price the unpromoted part of a month off the '
                          'month\u2019s list price at its group\u2019s '
