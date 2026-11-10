@@ -249,6 +249,23 @@ That is a parameter, not a model. One month one vote needs no fitting and
 holds whichever month is being priced. `--pooled-asp` restores the old
 behaviour for comparison.
 
+**The bar interacts with the special-campaign filter, and `--min-months`
+is there to re-measure it.** Three was better than two when every month of
+a window was in it (MX's deviation 145 against 197). Leaving a product's
+clearances, EOFY and launches out takes months away, so a product that had
+four can be left with two and fall to the pooled figure - which weights
+its heaviest month hardest, and a heavy month is heavy because it was
+discounting. That is the bias the vote exists to remove. One product
+showed it plainly:
+
+```
+  202608   91 units   2,052   yes
+  202609   26 units   2,331   yes
+           2,091  <- under 3 months with a vote, so pooled over units
+```
+
+One month one vote would have said 2,192; October sold at 2,756.
+
 A month under `MIN_UNITS` gets no vote - averaging a month of three units
 beside a month of three hundred trades a bias for a variance - and a
 product without **three** such months keeps the pooled figure. Two numbers

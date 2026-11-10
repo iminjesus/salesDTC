@@ -112,6 +112,21 @@ def set_min_units(n: int) -> None:
     MIN_UNITS = max(1, int(n or 1))
 
 
+def set_min_months(n: int) -> None:
+    """How many months a product needs before one month one vote applies.
+
+    Three was measured better than two when every month of a window was in
+    it. Leaving a month's clearances, EOFY and launches out takes months
+    away, so a product that had four can be left with two and drop to the
+    pooled figure - which weights its heaviest month hardest, and a heavy
+    month is heavy because it was discounting. That is the bias the vote
+    exists to remove, so the bar is worth re-measuring now that the window
+    is cut: `--min-months 2`.
+    """
+    global MIN_MONTHS
+    MIN_MONTHS = max(1, int(n or 1))
+
+
 def month_days(ym: int) -> list:
     y, m = ym // 100, ym % 100
     return [date(y, m, d) for d in range(1, calendar.monthrange(y, m)[1] + 1)]
@@ -1722,6 +1737,11 @@ def main() -> int:
                          'of its own, give it the average of its products '
                          'rather than of its units. Measured, that is about '
                          'a point shallower, so it raises a price')
+    ap.add_argument('--min-months', type=int, default=MIN_MONTHS,
+                    metavar='N',
+                    help='how many months of its own a product needs before '
+                         'its ASP is read one month one vote rather than '
+                         'pooled over units (default 3)')
     ap.add_argument('--min-units', type=int, default=MIN_UNITS,
                     metavar='N',
                     help=f'units a product needs before its own discount is '
@@ -1777,6 +1797,7 @@ def main() -> int:
     args = ap.parse_args()
 
     set_min_units(args.min_units)
+    set_min_months(args.min_months)
     folder = Path(args.dir)
     if not folder.is_absolute():
         folder = ROOT / folder

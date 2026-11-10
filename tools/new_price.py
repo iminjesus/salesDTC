@@ -289,6 +289,7 @@ def main() -> int:
     # the dashboard can draw. `reprice.py --help` explains each.
     ap.add_argument('--asp-first', dest='promo_first',
                     action='store_false')
+    ap.add_argument('--min-months', type=int, default=None, metavar='N')
     ap.add_argument('--quiet-list', action='store_true')
     ap.add_argument('--pooled-asp', dest='pooled', action='store_true')
     ap.add_argument('--keep-clearance', dest='clearance',
@@ -345,6 +346,8 @@ def main() -> int:
     # same number. reprice walks real dates and wants the long month.
     print(f'{src.name}  ·  {mon} 20{ym // 100}\n')
     also = {} if args.planned_only else priced_but_unplanned(src, mon)
+    if args.min_months:
+        RP.set_min_months(args.min_months)
     priced = RP.reprice(folder, (2000 + ym // 100) * 100 + ym % 100,
                         args.back, args.plan,
                         scope=args.scope, decay=args.decay, also=also,
