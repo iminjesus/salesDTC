@@ -574,7 +574,7 @@ def day_watcher(basis: str = 'mixed', band_of=None, fold: dict | None = None,
 
 def day_payloads(tally: dict, basis: str, ym: int, source: str,
                  banded: bool = False, drops: dict | None = None,
-                 asof=None, say=print) -> list:
+                 asof=None, closed: bool = False, say=print) -> list:
     """One payload per day, in the shape a month payload has.
 
     The page unifies the two sets together and then splits them, so a day has
@@ -615,8 +615,12 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
               # Drawn apart and counted in nothing: it is next month's
               # revenue, and a KPI that added it would be claiming money the
               # month will not be paid.
-              {'key': 'rqty', 'label': 'Maybe rollover (qty)'},
-              {'key': 'rgross', 'label': 'Maybe rollover'}]
+              # "Rollover" and not "Maybe rollover": the maybe is about how
+              # well the month is known, not about what the figure is, and
+              # it is only a maybe in the open month. The page says which
+              # when it draws the band.
+              {'key': 'rqty', 'label': 'Rollover (qty)'},
+              {'key': 'rgross', 'label': 'Rollover'}]
     if basis == 'mixed':
         # The month as orders rather than as revenue. Not a total to add to
         # the others - a second reading of the same lines.
@@ -681,6 +685,11 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
             # Which day it is. The page says so under the chart, because the
             # answer decides whether the days add up to the month.
             'dayBasis': basis,
+            # Whether the month is shut. In an open one the rollover is part
+            # measurement and part prediction, so the band is a "maybe"; in a
+            # shut one every line either went or never did, and there is
+            # nothing to hedge. The page words the band from this.
+            'closed': closed,
             'levels': lv,
             'series': series,
             'combos': [{'k': [index[i][k[i]] for i in range(len(levels))],
@@ -888,7 +897,7 @@ def day_one(folder, args, cust: dict, prod: dict, months: dict, want: int,
     out = day_payloads(tally, args.day_basis, want,
                        ', '.join(f.name for f in use),
                        banded=bander is not None, drops=drop_rules(args),
-                       asof=got.asof, say=say)
+                       asof=got.asof, closed=closed, say=say)
     if bander is None:
         say('  no promotion plan, so the daily chart has no band on it')
     say(f'  {got.counted:,} of {got.lines:,} line(s) counted - the rest are '

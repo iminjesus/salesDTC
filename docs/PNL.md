@@ -1174,17 +1174,32 @@ read one way; it is three cases, because they are three different facts:
 | ordered this month, not despatched yet | the day it was ordered | **only if its division can get it out in time** |
 | ordered this month, leaving after it | the day it was ordered | no - drawn hatched |
 
-The last two are the **Maybe rollover** band: hatched rather than filled,
-because the bar under it is a measurement and this is a prediction. It is in
-no total on the card, in no Achievement figure and in no export of them - a
-KPI that added it would be claiming money the month will not be paid.
+The last two are the rollover band: hatched rather than filled, because it is
+no part of the month's own figure. It is in no total on the card, in no
+Achievement figure and in no export of them - a KPI that added it would be
+claiming money the month will not be paid.
 
-Which way a not-yet-despatched line goes is **measured, not assumed**: the
-build reads last month's orders and takes each Div 1's average days from order
-to despatch - the same reading `tools/lead_time.py` prints - and an order
-placed later than that many days before month end is a rollover. A division
-with nothing sold last month falls back to the figure over everything; with no
-previous month at all, nothing is called a rollover and the run says so.
+**It is a "Maybe rollover" only in the open month**, and the band is named
+accordingly. There, part of it is a prediction - an order placed near the end
+with no despatch date on it yet - so the word is the honest one. Step the
+card back to a month that is shut and the hedge comes off: every line either
+left after the month or never left at all, both of them facts, and a figure
+that is known does not want hedging. A hatched band called "maybe" on a month
+closed three months ago is the page doubting something it can see.
+
+Which way a not-yet-despatched line goes is **measured, not assumed**, and
+only in the open month: the build reads last month's orders and takes each
+Div 1's average days from order to despatch - the same reading
+`tools/lead_time.py` prints - and an order placed later than that many days
+before month end is a rollover. A division with nothing sold last month falls
+back to the figure over everything; with no previous month at all, nothing is
+called a rollover and the run says so.
+
+In a **shut** month there is nothing to predict, so no lead time is read at
+all. A line with no despatch date there is one that never shipped: not the
+month's revenue, drawn apart with the rest of the band - which is also where
+the monthly chart leaves it, since its three buckets have no place for an
+order that never went.
 
 ```
   lead time off 202609, days to despatch: VD 10.0, HA 7.0, DA 2.0; anything else 6.2
