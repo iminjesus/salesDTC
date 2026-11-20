@@ -700,10 +700,15 @@ own rather than a narrower setting of the one below - the monthly chart keeps
 the closed months and nothing about it changes.
 
 It opens on the **latest month the order exports carry**, which is normally
-the open one, and the **month picker** on the card steps back through the
-others - every month those exports cover is on it, so a folder of
-`orders_2601 .. orders_2610` offers Jan to Oct. One month and the picker is
-not shown, because a select with a single entry is furniture.
+the open one, and a **button per month** on the card steps back through the
+others - every month those exports cover has one, so a folder of
+`orders_2601 .. orders_2610` offers `Jan Feb Mar Apr May Jun Jul Aug Sep Oct`,
+left to right in time like the axis under them. One month and the row is not
+shown, because a single button that cannot be pressed off is furniture. The
+year is on the buttons only where the months span more than one of it.
+
+The row wraps rather than running off the card, so every month stays
+reachable on a narrow window.
 
 Stepping back keeps the narrowing. The months are unified into one payload
 before they are cut apart, so a member is the same number in all of them: pick

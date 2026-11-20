@@ -75,7 +75,10 @@ select:disabled { opacity: .5; }
 /* "All" is where a level starts, so it is marked as current without being
    marked as a choice - otherwise an untouched page reads as eight selections. */
 .btn.on { background: var(--grid); color: var(--ink-2); font-weight: 600; }
-.seg { display: inline-flex; }
+/* Wraps only when it is made to. A segmented row is a row until there is no
+   room for one, and then a second line beats a button off the edge of the
+   card - the phone rules below take the joined corners off once it does. */
+.seg { display: inline-flex; flex-wrap: wrap; }
 .seg .btn { border-radius: 0; margin-left: -1px; }
 .seg .btn:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
 .seg .btn:last-child { border-radius: 0 7px 7px 0; }
@@ -218,16 +221,17 @@ select:disabled { opacity: .5; }
 .btn.apart { margin-left: 10px; }
 .chartHead { display: flex; align-items: flex-start; justify-content: space-between;
   gap: 12px; }
-.chartHead .legend { flex: 1 1 auto; }
-.tools { flex: 0 0 auto; display: flex; gap: 4px; }
+.chartHead .legend { flex: 1 1 auto; min-width: 0; }
+/* Wraps rather than running off the card. A month a reader cannot reach is
+   worse than a tools row two lines deep, and with a button a month this row
+   is now as long as the order exports are. */
+.tools { flex: 0 1 auto; min-width: 0; display: flex; gap: 4px;
+  flex-wrap: wrap; justify-content: flex-end; }
 .ctl { font: inherit; font-size: 12px; line-height: 1; padding: 5px 8px;
   border: 1px solid var(--line); border-radius: 7px; background: var(--surface);
   color: var(--ink-2); cursor: pointer; }
 .ctl:hover:not(:disabled) { border-color: var(--ink-3); color: var(--ink); }
 .ctl:disabled { opacity: .35; cursor: default; }
-/* The month picker is a ctl like the buttons beside it, less the native
-   chrome that would make it the one tall control in the row. */
-select.ctl { padding-right: 6px; appearance: none; text-align: center; }
 /* Which one is on. The filter buttons had this and the chart controls did
    not, so Payment base and Order base looked the same whichever the table was
    actually on - a pair of buttons that will not say which of them you pressed. */
@@ -366,7 +370,8 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   .chainName { width: auto; flex: 1 1 100%; }
   /* Joined corners are not worth a sideways scrollbar on a phone. */
   .seg { flex-wrap: wrap; gap: 5px; }
-  .seg .btn, .seg .btn:first-child, .seg .btn:last-child {
+  .seg .btn, .seg .btn:first-child, .seg .btn:last-child,
+  .seg .ctl, .seg .ctl:first-child, .seg .ctl:last-child {
     border-radius: 7px; margin-left: 0; }
 }
 </style>
@@ -460,7 +465,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="chartHead">
       <div class="legend"><span class="t" id="dayTitle"></span></div>
       <div class="tools">
-        <select class="ctl" id="dayPick" title="which month the daily chart draws"></select>
+        <span class="seg" id="dayPick" title="which month the daily chart draws"></span>
         <button class="ctl" id="dayBack" title="Widen the deepest narrowing">&larr; Back</button>
         <button class="ctl" id="dayVals" title="the figure on every bar - they are here, not under the pointer">Values</button>
         <button class="ctl" id="dayZoom" title="Show only this chart, with every value labelled - the figures are here, not under the pointer">&#x2921; Expand</button>
@@ -2892,23 +2897,29 @@ function drawDayTrend() {
             || figs[0];
   const cumul = state.cumul;
   const pct = state.stkScale === 'pct' && !(state.pnl && has.profit !== undefined);
-  /* The month picker. Every month the order exports carry is an option, so
-     the build decides how far back the card can step and the page only says
-     which it is on. One month and the picker is not a choice, so it is not
-     shown - a select with a single entry is furniture. */
+  /* The month picker: one button a month, every month the order exports
+     carry, so the build decides how far back the card can step and the page
+     only says which it is on. One month and the picker is not a choice, so it
+     is not shown - a single button that cannot be pressed off is furniture. */
   const pick = document.getElementById('dayPick');
   const ys = dayYms(book(CUR).day);
   const here = D.months.length ? D.months[0].ym : null;
   pick.hidden = ys.length < 2;
   if (!pick.hidden) {
-    const want = ys.map(y => `${MON[y % 100]} ${Math.floor(y / 100)}`).join('|');
+    // Left to right in time, like the axis under them. The year is on the
+    // button only where the months span more than one of it - twelve buttons
+    // all reading 2026 is twelve copies of one fact.
+    const oneYear = new Set(ys.map(y => Math.floor(y / 100))).size === 1;
+    const want = ys.join(',') + (oneYear ? '' : '+y');
     if (pick.dataset.on !== want) {
       pick.dataset.on = want;
-      pick.innerHTML = ys.slice().reverse().map(y =>
-        `<option value="${y}">${MON[y % 100]} ${Math.floor(y / 100)}`
-        + '</option>').join('');
+      pick.innerHTML = ys.map(y =>
+        `<button class="ctl" data-ym="${y}">${MON[y % 100]}`
+        + (oneYear ? '' : ` ${String(y).slice(2, 4)}`) + '</button>').join('');
     }
-    pick.value = String(here);
+    for (const b of pick.children) {
+      b.classList.toggle('active', Number(b.dataset.ym) === here);
+    }
   }
 
   const dayVals = state.dayVals || state.zoom === 'day';
@@ -4451,8 +4462,10 @@ document.getElementById('dayZoom').onclick = () => setZoom('day');
 /* Which month the daily chart draws. The levels are the same in every month -
    they were unified together - so a narrowing survives the step and the
    comparison the step was asking for is the one that comes back. */
-document.getElementById('dayPick').onchange = e => {
-  DAY_YM = Number(e.target.value) || null;
+document.getElementById('dayPick').onclick = e => {
+  const b = e.target.closest('button[data-ym]');
+  if (!b) return;
+  DAY_YM = Number(b.dataset.ym) || null;
   const wasDay = DATA === VIEWS.day;
   VIEWS.day = dayCut(book(CUR));
   if (wasDay) { DATA = VIEWS.day; rebind(); }
