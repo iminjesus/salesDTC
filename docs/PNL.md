@@ -868,24 +868,29 @@ not move when Cumulative is pressed - and how many of the days have sold.
 
 #### The target line
 
-A dashed rule over the bars, and **flat either way**. What Cumulative changes
-is which target it is:
+A dashed rule over the bars. What Cumulative changes is which target it is:
 
 | Cumulative | the line | read against |
 |---|---|---|
-| off | **Daily target** - the month's Sokbo over its calendar days | one day's bar against the day it owed |
-| on | **Month target** - the Sokbo whole | the climbing total against the figure it is climbing to; what is left above the line is what is left to sell |
+| off | **Daily target** - the month's Sokbo over its calendar days, flat | one day's bar against the day it owed |
+| on | **Target to date** - a day's worth for every day of the month so far, a straight ramp | the climbing total against where it should have got to by that day; line above the bars is behind, below is ahead |
 
-It used to ramp when cumulative - a day's worth for every day so far - and a
-target that starts small and grows is a moving post. The question a running
-total is read for is how far off the month is, and that is **one number**, not
-one per day. The legend names which of the two is on screen, because they are
-a month apart in size.
+The legend names which of the two is on screen, because they are a month apart
+in size.
 
-The heading's `% of target to date` is the pace reading and is unchanged by
-the switch: the sum over a day's worth for every day up to the last the export
-covers. The line says where the month has to get to; the heading says whether
-it is getting there fast enough.
+**The ramp is straight because the axis is every calendar day.** It used to
+bend, and the bend was real: only the days that had an order were columns, so
+a quiet Sunday was simply not there and the two columns either side of it sat
+one apart on the axis while being two days apart in fact. The line's value is
+a day's worth per calendar day, so drawn over that axis it stepped up unevenly
+- most visibly early in the month, where a single quiet day is a large part of
+the ramp so far. Quiet days are columns now, which also puts the week shading
+on the right days and gives a campaign that opened on a quiet day a column to
+be pinned over.
+
+The month's end is **not** filled in. Past where the export reaches, a day
+with nothing on it is not a quiet day - it is a day not yet known - and a zero
+column there would say the month stopped selling.
 
 Money only. The target is an amount, so the line is absent on Qty and on
 **% of bar**, where a share has no target.

@@ -628,6 +628,27 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
                 f'day(s) after it are a despatch plan and are left off')
     if not by_day:
         return []
+    # Every calendar day from the first of the month to the last one the
+    # export reaches, whether or not it sold. Only the days that had an order
+    # used to be columns, and that closed the gaps silently: a week with two
+    # quiet days drew as five columns side by side, so the shading was a day
+    # or two out, a campaign that opened on a quiet day had no column to be
+    # pinned over, and the target line bent - it is a day's worth per calendar
+    # day, drawn against a row of columns that was not one day apart.
+    #
+    # The month's end is not filled in. Past where the export reaches, a day
+    # with nothing on it is not a quiet day, it is a day not yet known, and a
+    # zero column there would say the month stopped selling.
+    pre = f'{ym // 100:04d}-{ym % 100:02d}-'
+    mine = [d for d in by_day if d.startswith(pre)]
+    if mine:
+        quiet = 0
+        for dd in range(1, int(max(mine)[8:10]) + 1):
+            if by_day.setdefault(f'{pre}{dd:02d}', {}) == {}:
+                quiet += 1
+        if quiet:
+            say(f'  {quiet} day(s) of {ym} had no order and are drawn as '
+                'the quiet days they were, rather than left off the axis')
     out = []
     for day in sorted(by_day):
         y, m, d = int(day[:4]), int(day[5:7]), int(day[8:10])
@@ -663,6 +684,7 @@ def day_payloads(tally: dict, basis: str, ym: int, source: str,
                 basis, "last month's orders on the day they left, this "
                        "month's on the day they were placed")
     say(f'\n  by day, on {what}:\n    {len(out)} day(s), {lo} .. {hi}, '
+        f'{sum(1 for r in by_day.values() if r)} of them with an order, '
         f'{sum(len(r) for r in by_day.values()):,} combination(s)')
     roll = sum(v[3] for r in by_day.values() for v in r.values())
     kept = sum(v[1] for r in by_day.values() for v in r.values())
