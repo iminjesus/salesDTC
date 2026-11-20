@@ -2963,9 +2963,22 @@ function drawDayTrend() {
   const rollAt = D.series.findIndex(
     x => x.key === (f.key === 'qty' ? 'rqty' : 'rgross'));
   const rolls = xs.map(() => 0);
+  // On the same split as the bars under it. It used to be one figure a
+  // column, on the ground that it is "one thing drawn apart" - but what is
+  // drawn apart is the money, not the question: a chart cut into MX and CE
+  // that answers "and how much of next month is already booked" with a
+  // single grey block is answering about neither of them.
+  const rollOf = new Map();
   if (rollAt >= 0 && !pct) {
     for (const c of D.combos) {
-      if (inSlice(c)) rolls[c.m] += c.v[rollAt] || 0;
+      if (!inSlice(c)) continue;
+      const v = c.v[rollAt] || 0;
+      if (!v) continue;
+      rolls[c.m] += v;
+      const g = sl === null ? label(f.key) : D.levels[sl].values[c.k[sl]];
+      let a = rollOf.get(g);
+      if (!a) rollOf.set(g, a = xs.map(() => 0));
+      a[c.m] += v;
     }
   }
   const rollSum = rolls.reduce((a, v) => a + v, 0);
@@ -3000,10 +3013,11 @@ function drawDayTrend() {
     const base = cumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
     return d.map((v, i) => (base[i] ? v / base[i] * 100 : 0));
   };
+  const hue = (g, i) => (onBands && BAND_COLOUR[g] !== undefined
+                         ? C.stack[BAND_COLOUR[g]] : C.stack[i]);
   const skin = (g, i) => ({
-    label: g, stack: 'a', data: of(g),
-    backgroundColor: onBands && BAND_COLOUR[g] !== undefined
-                     ? C.stack[BAND_COLOUR[g]] : C.stack[i],
+    label: g, stack: 'a', data: of(g), member: g,
+    backgroundColor: hue(g, i),
     borderRadius: 3, borderSkipped: false,
     borderWidth: 1, borderColor: C.surface, maxBarThickness: 40,
   });
@@ -3016,27 +3030,54 @@ function drawDayTrend() {
     if (pct) d = d.map((v, i) => (base[i] ? v / base[i] * 100 : 0));
     datasets.push({ ...skin(`Other (${members.length - 8})`, 8), data: d });
   }
-  if (rollSum) {
-    // Hatched rather than filled: this is not part of the month's own figure
-    // and a reader should not have to look that up. In the open month it is
-    // also part prediction, which is the second thing the hatching says and
-    // the only one that lapses once the month is shut.
+  /* The member's own colour, hatched. Hatched rather than filled because
+     this is not part of the month's own figure and a reader should not have
+     to look that up - in the open month it is also part prediction, which is
+     the second thing the hatching says and the only one that lapses once the
+     month is shut. Its colour rather than a grey, because a reader who has
+     just been told the bars are MX and CE should not have to be told again
+     that the block on top of them is not. */
+  const hatch = (fill) => {
     const cv = document.createElement('canvas');
     cv.width = cv.height = 6;
     const g2 = cv.getContext('2d');
+    // Stood back from the bar it sits on, or the hatch is the only thing
+    // separating two blocks of one colour and the eye reads one tall bar.
+    g2.globalAlpha = 0.4;
+    g2.fillStyle = fill;
+    g2.fillRect(0, 0, 6, 6);
+    g2.globalAlpha = 0.7;
     g2.strokeStyle = C.ink3;
-    g2.globalAlpha = 0.6;
     g2.lineWidth = 1.6;
     [[0, 6, 6, 0], [-1, 1, 1, -1], [5, 7, 7, 5]].forEach(q => {
       g2.beginPath(); g2.moveTo(q[0], q[1]); g2.lineTo(q[2], q[3]); g2.stroke();
     });
-    datasets.push({
-      label: rollName, stack: 'a',
-      data: cumul ? run(rolls) : rolls,
-      backgroundColor: g2.createPattern(cv, 'repeat'),
+    return g2.createPattern(cv, 'repeat');
+  };
+  if (rollSum) {
+    // After every counted band and in the same member order, so the block
+    // stays where it has always been - on top of the bar, as one piece -
+    // and is now read down through the same colours as the bar under it.
+    const rollRow = (g, d, i) => datasets.push({
+      label: `${g} \u00b7 ${rollName.toLowerCase()}`, member: g, stack: 'a',
+      data: cumul ? run(d) : d,
+      backgroundColor: hatch(hue(g, i)),
       borderColor: C.ink3, borderWidth: 1, borderRadius: 3,
       borderSkipped: false, maxBarThickness: 40, roll: true,
     });
+    named.forEach((g, i) => {
+      const d = rollOf.get(g);
+      if (d && d.some(v => v)) rollRow(g, d, i);
+    });
+    // Whatever rolled over under a member the bars folded away, or under one
+    // that sold nothing at all this month and so was never named: it is
+    // still next month's and it still belongs on the chart.
+    const seen = new Set(named);
+    const rest = xs.map((_, j) => [...rollOf.entries()]
+      .reduce((a, [g, d]) => a + (seen.has(g) ? 0 : d[j]), 0));
+    if (rest.some(v => v)) {
+      rollRow(folded ? `Other (${members.length - 8})` : 'Other', rest, 8);
+    }
   }
   const totals = cumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
   const num = v => (f.key === 'qty' ? fmt(v) : fmt(v));
@@ -3295,7 +3336,9 @@ function drawDayTrend() {
           e, 'nearest', { intersect: true }, true)[0] || els[0];
         const d = hit && this.data.datasets[hit.datasetIndex];
         if (!d || !d.label || d.type === 'line') return;
-        const j = D.levels[sl].values.indexOf(d.label);
+        // A rollover band is its member's, so clicking one drills the same
+        // way clicking the bar under it does.
+        const j = D.levels[sl].values.indexOf(d.member || d.label);
         if (j < 0) return;                     // the folded Other, not a member
         defer(() => setFilter(sl, j));
       },
@@ -3328,7 +3371,30 @@ function drawDayTrend() {
         legend: { display: datasets.length > 1, position: 'bottom',
                   labels: { color: C.ink2, boxWidth: 10, boxHeight: 10,
                             usePointStyle: true, pointStyle: 'rect',
-                            font: { size: 11 } } },
+                            font: { size: 11 },
+                            // Split by member, every band now has a rollover
+                            // of its own and listing both would be the same
+                            // legend twice. The hatch says which is which,
+                            // and the hint under the chart says what it is.
+                            // Unsplit there is one of each, and then the two
+                            // entries are the whole legend and worth having.
+                            filter: (it, d) => sl === null
+                                               || !d.datasets[it.datasetIndex].roll },
+                  // A member and its rollover go together: hiding MX that
+                  // leaves MX's rollover standing on an empty column is a
+                  // legend that does not do what it says.
+                  onClick(e, it, legend) {
+                    const ch = legend.chart;
+                    const d0 = ch.data.datasets[it.datasetIndex];
+                    const name = d0.member || d0.label;
+                    const on = ch.isDatasetVisible(it.datasetIndex);
+                    ch.data.datasets.forEach((d, i) => {
+                      if ((d.member || d.label) === name) {
+                        ch.setDatasetVisibility(i, !on);
+                      }
+                    });
+                    ch.update();
+                  } },
         // Nothing on hover while the chart sits on the page: a figure that
         // appears under the pointer is read by whoever is moving the mouse
         // and by nobody else. Expand is the deliberate step, so the tooltip

@@ -1179,6 +1179,23 @@ no part of the month's own figure. It is in no total on the card, in no
 Achievement figure and in no export of them - a KPI that added it would be
 claiming money the month will not be paid.
 
+**It is split the way the bars are.** Cut the chart into MX and CE and the
+block on top is MX's rollover over CE's, each in **its own member's colour,
+hatched** - the same colour as the bar it sits on, stood back and struck
+through. It used to be one grey block a column, on the ground that it is one
+thing drawn apart; but what is drawn apart is the money, not the question,
+and a chart cut into MX and CE that answers *how much of next month is
+already booked* with a single grey block is answering about neither of them.
+
+Its **position does not move**: still one piece, still on top of the counted
+bands, in the same member order as them. Clicking a rollover band drills to
+its member, exactly as clicking the bar under it does, and hiding a member in
+the legend takes its rollover with it. The legend lists the members once -
+the hatch says which block is which, so listing them twice would be the same
+legend twice. A member folded into **Other**, or one that rolled something
+over without selling anything inside the month, lands in an `Other` rollover
+rather than being dropped.
+
 **It is a "Maybe rollover" only in the open month**, and the band is named
 accordingly. There, part of it is a prediction - an order placed near the end
 with no despatch date on it yet - so the word is the honest one. Step the
