@@ -2934,19 +2934,33 @@ function drawDayTrend() {
   const totals = cumul ? run(xs.map(x => x.total)) : xs.map(x => x.total);
   const num = v => (f.key === 'qty' ? fmt(v) : fmt(v));
 
-  // The target, as a line over the bars: the month's target over its calendar
-  // days, or with Cumulative on, the target to date - a day's worth for every
-  // day of the month so far, so the line and the bars meet where the month is
-  // on plan. Money only: the target is an amount, and a share has no target.
+  // The target, as a line over the bars, and flat either way - what changes
+  // with Cumulative is which target it is:
+  //
+  //   off   the month's target over its calendar days, so a day's bar beside
+  //         it is that day against the day it owed
+  //   on    the month's target whole, so the climbing bars are read against
+  //         the figure they are climbing to and the gap left is the gap
+  //
+  // It used to ramp when cumulative - a day's worth for every day so far -
+  // and a target that starts small and grows is a moving post: the question
+  // a running total is read for is how far off the month is, and that is one
+  // number, not one per day. Money only: the target is an amount, and a
+  // share has no target.
   const tg = (f.key === 'qty' || pct) ? null : dayTarget(D);
   const dayNo = D.months.map(m => (m.d ? m.d % 100 : 0));
   const onMonth = D.months.map(m => tg && m.ym === tg.ym);
   if (tg && !tg.off) {
     datasets.unshift({
-      type: 'line', label: `Target ${tg.version} (${tg.currency})`,
+      // Named for which target it is, because the two are a month apart in
+      // size and a legend reading only "Target" would leave a reader working
+      // out which from the height of the line.
+      type: 'line',
+      label: `${cumul ? 'Month' : 'Daily'} target ${tg.version}`
+             + ` (${tg.currency})`,
       stack: 'target', order: -1,
-      data: dayNo.map((n, i) => (!onMonth[i] ? null
-                                 : cumul ? tg.day * n : tg.day)),
+      data: dayNo.map((_, i) => (!onMonth[i] ? null
+                                 : cumul ? tg.month : tg.day)),
       borderColor: C.ink, backgroundColor: C.ink, borderWidth: 2,
       borderDash: [6, 4], pointRadius: 0, tension: 0, spanGaps: true,
     });

@@ -788,7 +788,6 @@ Sokbo covers marketplace sales, the denominator includes Amazon while the
 numerator no longer does, and every achievement is understated by that much.
 
 #### Weeks on the daily chart
-#### Weeks on the daily chart
 
 A month of bars is a month of bars: which of them are one week and which are
 the next is not visible at all unless the chart says so, and *is this week
@@ -866,6 +865,30 @@ so a daily chart cannot come from one. This comes from the order export
 
 The heading carries the month to date - the sum, not the last bar, so it does
 not move when Cumulative is pressed - and how many of the days have sold.
+
+#### The target line
+
+A dashed rule over the bars, and **flat either way**. What Cumulative changes
+is which target it is:
+
+| Cumulative | the line | read against |
+|---|---|---|
+| off | **Daily target** - the month's Sokbo over its calendar days | one day's bar against the day it owed |
+| on | **Month target** - the Sokbo whole | the climbing total against the figure it is climbing to; what is left above the line is what is left to sell |
+
+It used to ramp when cumulative - a day's worth for every day so far - and a
+target that starts small and grows is a moving post. The question a running
+total is read for is how far off the month is, and that is **one number**, not
+one per day. The legend names which of the two is on screen, because they are
+a month apart in size.
+
+The heading's `% of target to date` is the pace reading and is unchanged by
+the switch: the sum over a day's worth for every day up to the last the export
+covers. The line says where the month has to get to; the heading says whether
+it is getting there fast enough.
+
+Money only. The target is an amount, so the line is absent on Qty and on
+**% of bar**, where a share has no target.
 
 #### Promotion, measured rather than allocated
 
