@@ -701,10 +701,15 @@ below - the monthly chart keeps the closed months and nothing about it changes.
 
 **The menu above drives both.** The narrowing, the split (Stack by), the
 Figure, Cumulative and Scale all apply to the daily chart as well, so there is
-one set of controls on the page and not two. The card's only button of its own
-is **Values**, which puts the figure on every bar - the monthly chart reveals
-its figures by expanding and this one has no expand. Nothing appears on hover,
-here as everywhere else on the page.
+one set of controls on the page and not two. The card's own buttons are
+**Values**, which puts the figure on every bar, and **⤡ Expand**, which hands
+this chart the window exactly as the monthly one's does. Expanding turns the
+figures on regardless - that is what the room is for - and parks the Values
+switch while it is open. Values exists beside it because a month of days is
+thirty-one narrow bars, and whether the figures fit over them on the page is a
+judgement for the reader rather than one the window size makes for them.
+Nothing appears on hover until the chart is expanded, here as everywhere else
+on the page.
 
 **Clicking a band drills**, exactly as it does below: it narrows the page to
 that member and steps the split down a level, so the monthly chart follows the
@@ -1274,6 +1279,12 @@ the top of the chart happened to be:
 |---|---|
 | **← Back** | the same step as the menu's. By the time you have drilled three levels the menu is a long way from the bar you just clicked, and the step back belongs next to the step in |
 | **⤡ Expand** | that chart takes the window and everything else stands down |
+
+Both charts have it, and they share one state: expanding the daily chart closes
+the monthly one rather than stacking two cards on one window. Narrow until the
+daily chart has nothing left in it and it steps back out by itself - expanded,
+every other card is hidden, so handing the window to a card that is itself
+hidden would leave the page blank.
 
 Expanding is also what turns **the number inside every bar** on. Off by default,
 because three charts' worth of numbers on one page is clutter; on when a chart

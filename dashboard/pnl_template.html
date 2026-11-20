@@ -459,6 +459,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
       <div class="tools">
         <button class="ctl" id="dayBack" title="Widen the deepest narrowing">&larr; Back</button>
         <button class="ctl" id="dayVals" title="the figure on every bar - they are here, not under the pointer">Values</button>
+        <button class="ctl" id="dayZoom" title="Show only this chart, with every value labelled - the figures are here, not under the pointer">&#x2921; Expand</button>
       </div>
     </div>
     <div class="chart" id="dayPlot"><canvas id="dayTrendBars"></canvas></div>
@@ -1067,8 +1068,12 @@ const state = {
   filters: true,
   // The daily chart above follows the menu - the split, the narrowing, the
   // figure, the running total, the scale - so there is one set of controls on
-  // the page and not two. Values is its own because the monthly chart reveals
-  // its figures by expanding and this one has no expand.
+  // the page and not two. Values is its own because this chart is read on the
+  // page as often as expanded: a month of days is thirty-one narrow bars and
+  // whether the figures fit over them is a judgement the reader makes, not
+  // one the window size makes for them. Expanding turns them on regardless -
+  // that is what the room is for - and this switch is what adds them without
+  // giving up the page.
   dayVals: false,
   // The achievement table under the daily chart. Off by default, like the
   // other tables: the page is the charts.
@@ -1739,7 +1744,7 @@ function render() {
     ? 'pick one campaign and this shows its own days'
     : `${DATA.levels[dayAt].values[state.filter[dayAt]]}, day by day`;
   const zb = document.getElementById('stkZoom');
-  zb.innerHTML = state.zoom ? '&#x2715; Close' : '&#x2921; Expand';
+  zb.innerHTML = state.zoom === 'stk' ? '&#x2715; Close' : '&#x2921; Expand';
   // Only expanded does the chart have room for them, so the switch is only
   // live there - a dead button is less confusing than one that does nothing.
   const lv = document.getElementById('stkLineVals');
@@ -1747,9 +1752,22 @@ function render() {
     lv.classList.toggle('active', state.zoom === 'stk' && state.lineVals);
     lv.disabled = state.zoom !== 'stk';
   }
-  zb.title = state.zoom ? 'Back to the whole page'
-                        : 'Show only this chart, with every value labelled - '
-                          + 'the figures are here, not under the pointer';
+  zb.title = state.zoom === 'stk'
+    ? 'Back to the whole page'
+    : 'Show only this chart, with every value labelled - '
+      + 'the figures are here, not under the pointer';
+  // The same button on the daily chart. Both cards are under one zoom state,
+  // so expanding either closes the other rather than stacking two fixed
+  // cards on one window.
+  const dz = document.getElementById('dayZoom');
+  if (dz) {
+    dz.innerHTML = state.zoom === 'day' ? '&#x2715; Close' : '&#x2921; Expand';
+    dz.classList.toggle('active', state.zoom === 'day');
+    dz.title = state.zoom === 'day'
+      ? 'Back to the whole page'
+      : 'Show only this chart, with every value labelled - '
+        + 'the figures are here, not under the pointer';
+  }
 
   document.getElementById('numCard').hidden = !state.numbers;
   document.getElementById('numbersBtn').classList.toggle('active', state.numbers);
@@ -2789,6 +2807,14 @@ function drawDayTrend() {
     document.getElementById('achCard').hidden = true;
     document.getElementById('gapCard').hidden = true;
     document.getElementById('gapTops').hidden = true;
+    // Expanded, everything but this card is hidden - so a narrowing that
+    // leaves the day chart with nothing would hand the window to a card that
+    // is itself hidden, and the page would go blank. It comes back instead.
+    if (state.zoom === 'day') {
+      state.zoom = null;
+      document.body.classList.remove('zoomed');
+      card.classList.remove('zoom');
+    }
     return;
   }
   card.hidden = false;
@@ -2802,7 +2828,13 @@ function drawDayTrend() {
             || figs[0];
   const cumul = state.cumul;
   const pct = state.stkScale === 'pct' && !(state.pnl && has.profit !== undefined);
-  document.getElementById('dayVals').classList.toggle('active', state.dayVals);
+  const dayVals = state.dayVals || state.zoom === 'day';
+  const vb = document.getElementById('dayVals');
+  vb.classList.toggle('active', dayVals);
+  // Expanded, the figures are on every bar whatever this says, so the switch
+  // has nothing left to do - and a dead button is less confusing than one
+  // that does nothing.
+  vb.disabled = state.zoom === 'day';
 
   // The same level the chart below is cut by, so the two read together. The
   // levels are shared, so a narrowing set on one applies to both unchanged.
@@ -2951,7 +2983,9 @@ function drawDayTrend() {
   // the pair reads as one page however many columns the months come to.
   const mine = document.getElementById('dayPlot');
   const his = document.getElementById('stkPlot');
-  mine.style.height = his.style.height || '';
+  // Expanded, the stylesheet hands the plot the window and the inline height
+  // set for the pair would fight it, so it comes off.
+  mine.style.height = state.zoom === 'day' ? '' : (his.style.height || '');
 
   /* The promotions that began inside this month, pinned above the day they
      began on. A campaign is a band inside the bars when Stack by Promo is on,
@@ -3091,7 +3125,7 @@ function drawDayTrend() {
       // whoever is moving the mouse and by nobody else.
       id: 'dayTotals',
       afterDatasetsDraw(ch) {
-        if (!state.dayVals) return;
+        if (!dayVals) return;
         const g = ch.ctx;
         // The counted bars: not the target line, and not the rollover
         // band, which is next month's and is not in the figure printed.
@@ -3174,7 +3208,18 @@ function drawDayTrend() {
                   labels: { color: C.ink2, boxWidth: 10, boxHeight: 10,
                             usePointStyle: true, pointStyle: 'rect',
                             font: { size: 11 } } },
-        tooltip: { enabled: false },
+        // Nothing on hover while the chart sits on the page: a figure that
+        // appears under the pointer is read by whoever is moving the mouse
+        // and by nobody else. Expand is the deliberate step, so the tooltip
+        // belongs to it - the same rule the chart below runs on.
+        tooltip: { enabled: state.zoom === 'day', mode: 'index',
+          backgroundColor: C.surface, titleColor: C.ink,
+          bodyColor: C.ink2, borderColor: C.grid, borderWidth: 1, padding: 10,
+          filter: c => c.parsed.y !== 0 && c.parsed.y !== null,
+          callbacks: {
+            label: c => `${c.dataset.label}: ${num(c.parsed.y)}`
+                        + (c.dataset.roll ? '  (leaves after the month)' : ''),
+          } },
       },
     },
   });
@@ -4301,9 +4346,11 @@ function setZoom(which) {
   state.zoom = state.zoom === which ? null : which;
   document.body.classList.toggle('zoomed', state.zoom !== null);
   document.getElementById('stkCard').classList.toggle('zoom', state.zoom === 'stk');
+  document.getElementById('dayCard').classList.toggle('zoom', state.zoom === 'day');
   requestAnimationFrame(render);
 }
 document.getElementById('stkZoom').onclick = () => setZoom('stk');
+document.getElementById('dayZoom').onclick = () => setZoom('day');
 document.getElementById('stkBack').onclick = () =>
   document.getElementById('backBtn').click();
 document.getElementById('dayBack').onclick = () =>
