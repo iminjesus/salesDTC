@@ -692,18 +692,39 @@ cost bars**: costs share no scale with a count of units, and the same goes for a
 bar normalised to 100%. Controls that do not apply disappear rather than greying
 out, since a dead button still costs a row of a menu that is already tall.
 
-### The open month, day by day
+### A month, day by day
 
-Above the monthly chart, its own card, **the same height**: one bar a day for
-the month the order export covers. October's orders exist while October's P&L
-does not, so it is a chart of its own rather than a narrower setting of the one
-below - the monthly chart keeps the closed months and nothing about it changes.
+Above the monthly chart, its own card, **the same height**: one bar a day.
+October's orders exist while October's P&L does not, so it is a chart of its
+own rather than a narrower setting of the one below - the monthly chart keeps
+the closed months and nothing about it changes.
 
-**The menu above drives both.** The narrowing, the split (Stack by), the
-Figure, Cumulative and Scale all apply to the daily chart as well, so there is
-one set of controls on the page and not two. The card's own buttons are
-**Values**, which puts the figure on every bar, and **⤡ Expand**, which hands
-this chart the window exactly as the monthly one's does. Expanding turns the
+It opens on the **latest month the order exports carry**, which is normally
+the open one, and the **month picker** on the card steps back through the
+others - every month those exports cover is on it, so a folder of
+`orders_2601 .. orders_2610` offers Jan to Oct. One month and the picker is
+not shown, because a select with a single entry is furniture.
+
+Stepping back keeps the narrowing. The months are unified into one payload
+before they are cut apart, so a member is the same number in all of them: pick
+MX on October, step to August, and it is the same MX - which is the comparison
+the step was asking for.
+
+Three things are **one month's and stand down on any other**, rather than
+being measured against the wrong month:
+
+| | why |
+|---|---|
+| the target line | the Blue File's Sokbo is for the open month |
+| the **Achievement** table | same target. A May read against October's Sokbo is not a conservative reading, it is a wrong one |
+| the **planned price** table and its tiles | the plan is the open month's too |
+
+**The menu above drives both charts.** The narrowing, the split (Stack by),
+the Figure, Cumulative and Scale all apply to the daily chart as well, so
+there is one set of controls on the page and not two. The card's own controls
+are the month picker, **Values**, which puts the figure on every bar, and
+**⤡ Expand**, which hands this chart the window exactly as the monthly one's
+does. Expanding turns the
 figures on regardless - that is what the room is for - and parks the Values
 switch while it is open. Values exists beside it because a month of days is
 thirty-one narrow bars, and whether the figures fit over them on the page is a
@@ -1174,9 +1195,33 @@ prediction is only ever applied to lines with no despatch date on them.
 two dates, with no carry-in and no rollover - kept for a straight count of
 order intake or of despatch.
 
-`--day-month YYMM` picks the month; the default is the latest month the order
-export carries, which is normally the open one. `--no-days` leaves the card
-out, and it is absent anyway when the build had no order source.
+`--day-month YYMM` builds **that month only**. The default is every month the
+order exports carry, with the picker on the card choosing which is drawn.
+
+Building all of them is not free: **a month of days is many times the size of
+a month of months**, because a combination that appears once in a month
+appears on each of the days it sold. The run prints the bill, and narrowing is
+one flag:
+
+```
+  10 month(s) of days on the page: 287 column(s), 196,402 combination(s). The
+  card draws one month at a time and
+  picks which; --day-month YYMM builds only that one, which is how to keep the
+  page small
+```
+
+An unshipped order is read differently in a **closed** month: there, a line
+with no goods-issue date is not one waiting to ship, it is one that never did,
+so it is drawn apart rather than put through the lead-time prediction - which
+is for an open month and nothing else. That also saves a lead-time read per
+closed month.
+
+`--no-days` leaves the card out, and it is absent anyway when the build had no
+order source.
+
+> `--day-month` took YYMM as documented and resolved it wrongly - `2605`
+> became `204605`, which matched nothing, so the flag silently produced an
+> empty chart for every YYMM it was given. Fixed; both YYMM and YYYYMM work.
 
 #### Where the carried-in lines come from
 

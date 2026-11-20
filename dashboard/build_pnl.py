@@ -478,7 +478,8 @@ def campaign_watcher(plan, canon):
 
 
 def day_watcher(basis: str = 'mixed', band_of=None, fold: dict | None = None,
-                lead: dict | None = None, month_end=None, at: int = 0):
+                lead: dict | None = None, month_end=None, at: int = 0,
+                closed: bool = False):
     """A per-line hook that totals the order export by day on the chart's key.
 
     What the month will be paid for is not one thing measured one way:
@@ -532,13 +533,21 @@ def day_watcher(basis: str = 'mixed', band_of=None, fold: dict | None = None,
             day, roll = made, True              # certain: it leaves after
         elif which == SAP.OPEN:
             day = made
-            # Not shipped yet, so its division's average decides. A division
-            # with no average - nothing of it sold last month - falls back to
-            # the figure over everything, and then to not guessing at all.
-            div = (key[at] or '').strip()
-            days = lead.get(div, lead.get(ALL_DIVS))
-            roll = (days is not None and month_end is not None and made
-                    and made + timedelta(days=round(days)) > month_end)
+            if closed:
+                # A shut month, so this is not a line waiting to ship - it is
+                # one that never did, and it is certainly not the month's
+                # revenue. Drawn apart, where the monthly chart also leaves
+                # it: OPEN is in none of its three buckets either.
+                roll = True
+            else:
+                # Not shipped yet, so its division's average decides. A
+                # division with no average - nothing of it sold last month -
+                # falls back to the figure over everything, and then to not
+                # guessing at all.
+                div = (key[at] or '').strip()
+                days = lead.get(div, lead.get(ALL_DIVS))
+                roll = (days is not None and month_end is not None and made
+                        and made + timedelta(days=round(days)) > month_end)
         else:                                   # BOOKED: ordered and shipped
             day = made
         if day is None:
@@ -741,8 +750,15 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
 
     Not a finer cut of a month the profit exports closed: the orders run ahead
     of them - October's orders are there while October's P&L is not - so the
-    day chart is built for the month the order export covers and stands beside
-    the monthly chart rather than inside it.
+    day chart is built from the order exports and stands beside the monthly
+    chart rather than inside it.
+
+    Every month those exports carry is built, and the card picks which one is
+    on screen. A day chart of one month answers "how is this month going"; a
+    day chart you can step back through answers "was it going like this last
+    time", which is the question the first one raises. The cost is the page's
+    size - a month of days is many times a month of months - so `--day-month`
+    narrows it to one where that matters.
     """
     if args.no_days or args.no_sap:
         return []
@@ -757,19 +773,44 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         m = month_of([], [], f.stem, say=lambda *a: None)
         if m:
             months.setdefault(m, []).append(f)
-    if args.day_month:
-        want = int(args.day_month)
-        want = want if want > 9999 else 202000 + want % 10000
-        want = (want // 100) * 100 + want % 100
+    if not months:
+        say('\nno month could be read off the order export, so no daily chart')
+        return []
+    pick = (args.day_month or '').strip().lower()
+    if pick and pick != 'all':
+        # YYMM or YYYYMM. `202000 + want % 10000` was here and read 2605 as
+        # 204605, so every YYMM this flag was given missed and the chart came
+        # out empty - the spelling the flag documents was the one that did
+        # not work.
+        want = int(pick)
+        want = want if want > 9999 else 200000 + want
         if want not in months:
             say(f'\n--day-month {args.day_month} is not in the order export - '
                 f'it carries ' + ', '.join(str(m) for m in sorted(months)))
             return []
-    elif months:
-        want = max(months)                      # the latest month it carries
+        wants = [want]
     else:
-        say('\nno month could be read off the order export, so no daily chart')
-        return []
+        wants = sorted(months)
+    # Only the newest month is open, and the lead-time prediction is only for
+    # an open month: in a closed one every order either shipped or never did,
+    # and neither is a guess.
+    newest = max(months)
+    out: list = []
+    for want in wants:
+        out += day_one(folder, args, cust, prod, months, want,
+                       closed=want != newest, say=say)
+    if len(wants) > 1:
+        n = sum(len(d['combos']) for d in out)
+        say(f'\n  {len(wants)} month(s) of days on the page: {len(out)} '
+            f'column(s), {n:,} combination(s). The card draws one month at a '
+            'time and\n  picks which; --day-month YYMM builds only that one, '
+            'which is how to keep the page small')
+    return out
+
+
+def day_one(folder, args, cust: dict, prod: dict, months: dict, want: int,
+            closed: bool = False, say=print) -> list:
+    """One month of days, off its own export and the one before it."""
     # The month's own export, plus the ones before it. An order placed in
     # September and despatched in October is October's revenue - SAP says so,
     # by its Goods Issue Date - but it sits on the September export, so a
@@ -782,8 +823,8 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         at = month_before(at)
         back.append(at)
         use += months.get(at, [])
-    say(f'\nthe daily chart, off {", ".join(f.name for f in use)} '
-        f'({want}):')
+    say(f'\nthe daily chart of {want}, off '
+        + ', '.join(f.name for f in use) + ':')
     missing = [m for m in back if not months.get(m)]
     if missing:
         say('  no ' + ', '.join(str(m) for m in missing) + ' export, so what '
@@ -796,7 +837,7 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     # placed near this month's end will leave inside it. Measured, not
     # assumed: tools/lead_time.py is the same reading, printed.
     lead = {}
-    if args.day_basis == 'mixed':
+    if args.day_basis == 'mixed' and not closed:
         lead = LT.average_days(folder, month_before(want), cust, prod,
                                by='div1', sap=args.sap,
                                say=lambda *a: None)
@@ -822,7 +863,7 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     daily, tally = day_watcher(
         args.day_basis, bander,
         {} if args.promo_bands == 'all' else PROMO_FOLD,
-        lead=lead, month_end=month_window(want)[1],
+        lead=lead, month_end=month_window(want)[1], closed=closed,
         at=len(CUST.LEVELS) + [n for n, _, _ in PRODUCT_LEVELS].index('Div 1'))
     got = SAP.load(
         use, month=want, cust_levels=CUST.LEVELS,
@@ -1378,9 +1419,13 @@ def main() -> int:
                          'order export, so a build with no order source has '
                          'none anyway')
     ap.add_argument('--day-month', default=None, metavar='YYMM',
-                    help='which month the daily chart covers (default: the '
-                         'latest month the order export carries, which is '
-                         'usually the open one the P&L has not closed)')
+                    help='build the daily chart for this month only. The '
+                         'default is every month the order exports carry, '
+                         'with the card on the page picking which one is '
+                         'drawn - it opens on the latest, which is usually '
+                         'the open one the P&L has not closed. A month of '
+                         'days is many times the size of a month of months, '
+                         'so narrow it here where the page has to stay small')
     ap.add_argument('--day-carry', type=int, default=1, metavar='N',
                     help='how many months of earlier order exports to read '
                          'alongside the charted one, so that an order placed '
