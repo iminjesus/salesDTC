@@ -45,6 +45,15 @@ S_MADE = ('Created On', 'Creation Date', 'Entered On')
 S_DSTAT = ('Overall Delivery Status Item Description',
            'Overall Delivery Status (All Items)')
 S_REJECT = ('Reason for Rejection', 'Rejection Reason')
+# What names one line, for the one case where the same line is on two exports.
+# An order created in September and despatched in October is September's by
+# `Created On` and October's by `Goods Issue Date`, so an export cut either way
+# can hold it - and a caller reading both files to find what carried in would
+# otherwise count it twice. The schedule line, not the item, is the unit here:
+# SAP splits one item across several despatches, and keying on the item alone
+# would fold a part despatch into the whole.
+S_DOC = ('Sales Document', 'Sales Order', 'Document Number', 'Order Number')
+S_ITEM = ('Sales Document Item', 'Item (Sales Order)', 'Item', 'Line Item')
 
 STAMPED = re.compile(r'^([A-Z]{2})(\d{6})-(\d+)$')
 DELIVERED = ('COMPLETED', 'DELIVERED', 'FULLY DELIVERED')
@@ -76,6 +85,14 @@ class Months:
     def __init__(self):
         self.by_key: dict[tuple, list] = {}
         self.lines = self.counted = self.outside = self.rejected = 0
+        # Lines a later export repeated, dropped rather than added twice. See
+        # S_DOC above: this is only ever non-nil when more than one export is
+        # being read, which is what reading the month before amounts to.
+        self.duplicate = 0
+        # Per export: lines counted, and of those the ones that carried in.
+        # The day chart reads the month before to find what it carried into
+        # this one, and "it found some" is the thing worth saying.
+        self.from_file: dict[str, list] = {}
         self.no_customer = self.no_product = 0
         self.scheduled = 0.0        # units counted off a date that has not come
         self.measured = 0.0
@@ -153,6 +170,11 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
     that month, or when it was ordered in that month and leaves after it.
     """
     out = Months()
+    # Keys seen on an earlier export. A row repeated inside one file is that
+    # file's own business - SAP splits an item across despatches and the parts
+    # are all real - but the same row turning up on a second file is the
+    # overlap described at S_DOC, and the second one is dropped.
+    seen_prior: set = set()
     for path in paths:
         rows, info = read_any(path)
         if not rows:
@@ -163,7 +185,7 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
         col = {k: find(head, *v) for k, v in
                {'ref': S_REF, 'payer': S_PAYER, 'sku': S_SKU, 'qty': S_QTY,
                 'gi': S_GI, 'made': S_MADE, 'dstat': S_DSTAT,
-                'reject': S_REJECT}.items()}
+                'reject': S_REJECT, 'doc': S_DOC, 'item': S_ITEM}.items()}
         col['amt'] = amt_i
         say(f'  {path.name}: {info["format"]}, {len(body):,} rows')
         missing = [k for k in ('ref', 'payer', 'sku', 'qty', 'gi', 'made')
@@ -181,6 +203,8 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
                 + '; --currency picks)')
         out.files.append(path.name)
         out.amount_col = head[amt_i] if amt_i is not None else out.amount_col
+        mine = out.from_file.setdefault(path.name, [0, 0.0])
+        here: set = set()
 
         def cell(r, i):
             return (r[i].strip() if i is not None and i < len(r) else '')
@@ -195,6 +219,16 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
         for r in body:
             out.lines += 1
             ref = cell(r, col['ref']).upper()
+            # The despatch and the quantity are in the key on purpose: one
+            # item part-shipped twice is two rows that differ in nothing else.
+            line_id = (cell(r, col['doc']), cell(r, col['item']), ref,
+                       cell(r, col['sku']), cell(r, col['made']),
+                       cell(r, col['gi']), cell(r, col['qty']),
+                       cell(r, col['amt']))
+            if line_id in seen_prior:
+                out.duplicate += 1
+                continue
+            here.add(line_id)
             if not STAMPED.match(ref):
                 # A marketplace, not the store. Counted all the same - a
                 # customer on the monthly chart has to be on the daily one,
@@ -301,6 +335,11 @@ def load(paths, *, month: int, cust_levels, prod_levels, customers: dict,
             # - and that is not this module's decision to make.
             if daily is not None:
                 daily(tuple(key), gi, made, which, qty, amt, sku)
+            if which != OPEN:
+                mine[0] += 1
+                if which == CARRIED_IN:
+                    mine[1] += qty
+        seen_prior |= here
     return out if out.files else None
 
 
@@ -341,6 +380,9 @@ def report(m: Months, month: int, say=print) -> None:
     say(f'\nthe month off SAP, {", ".join(m.files)}')
     say(f'  {m.counted:,} of {m.lines:,} line(s) belong to {month} - the rest '
         'are another month, a marketplace,\n  or an order that was rejected')
+    if m.duplicate:
+        say(f'  {m.duplicate:,} line(s) were already on an earlier export and '
+            'were dropped rather than counted twice')
     say(f'  {"booked - left in the month, ordered in it":<44} {bq:>10,.0f} units '
         f'{ba:>14,.0f}')
     say(f'  {"carried in - left in it, ordered before":<44} {iq:>10,.0f} units '

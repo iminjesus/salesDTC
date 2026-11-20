@@ -739,7 +739,7 @@ The build names the one it used, so this never has to be worked out from the
 code again:
 
 ```
-the daily chart, off orders_2610.csv (202610):
+the daily chart, off orders_2610.csv, orders_2609.csv (202610):
   the money is Net Value (Item); --currency picks another
 ```
 
@@ -1144,6 +1144,48 @@ order intake or of despatch.
 `--day-month YYMM` picks the month; the default is the latest month the order
 export carries, which is normally the open one. `--no-days` leaves the card
 out, and it is absent anyway when the build had no order source.
+
+#### Where the carried-in lines come from
+
+The first row of that table - ordered last month, despatched this one - is on
+**last month's export**, not this one's. An order placed on 28 September and
+despatched on 2 October is October's revenue by its Goods Issue Date, but the
+file it sits on is `orders_2609`. So the daily chart reads the charted month's
+export **and the month before it**, and keeps every line whose despatch date
+falls inside the charted month:
+
+```
+the daily chart, off orders_2610.csv, orders_2609.csv (202610):
+    orders_2610.csv: 18,204 line(s) of 202610, 1,160 unit(s) of them carried in
+    orders_2609.csv: 2,431 line(s) of 202610, 9,780 unit(s) of them carried in
+```
+
+Read October's file alone and those 2,431 lines are simply absent, which shows
+up as the **first days of the month reading low** - they are the days a
+September order is most likely to have landed on.
+
+`--day-carry N` is how many months back to read; the default is 1. `0` is the
+old behaviour, the charted month's export on its own. A larger number is only
+worth it where despatch runs more than a month behind the order, which
+`tools/order_lag.py` will say.
+
+The same line can be on **both** exports, because an export cut by `Created
+On` and one cut by `Goods Issue Date` both claim it. It is counted once: the
+second copy is matched on document, item, both dates and the quantity, and
+dropped. A part despatch is not a duplicate - two despatches of one item
+differ in their dates - so it survives.
+
+```
+  31 line(s) were on two of those exports and were counted once
+```
+
+Where the month before has no export at all, the run says so rather than
+charting a zero:
+
+```
+  no 202609 export, so what that month carried into 202610 is not nil - it is
+  unknown, and the early days of the chart read low by however much it was
+```
 
 #### The two sets share one index
 

@@ -748,8 +748,26 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
     else:
         say('\nno month could be read off the order export, so no daily chart')
         return []
-    say(f'\nthe daily chart, off {", ".join(f.name for f in months[want])} '
+    # The month's own export, plus the ones before it. An order placed in
+    # September and despatched in October is October's revenue - SAP says so,
+    # by its Goods Issue Date - but it sits on the September export, so a
+    # chart built from October's file alone is missing it. Those lines are
+    # exactly what `carried in` means, and the loader already puts them on the
+    # day they left; what it could not do was see them.
+    use = list(months[want])
+    back, at = [], want
+    for _ in range(max(0, args.day_carry)):
+        at = month_before(at)
+        back.append(at)
+        use += months.get(at, [])
+    say(f'\nthe daily chart, off {", ".join(f.name for f in use)} '
         f'({want}):')
+    missing = [m for m in back if not months.get(m)]
+    if missing:
+        say('  no ' + ', '.join(str(m) for m in missing) + ' export, so what '
+            f'{"those months" if len(missing) > 1 else "that month"} carried '
+            f'into {want} is not nil - it is unknown, and the early days of '
+            'the\n  chart read low by however much it was')
     bander = (None if args.no_promo
               else promo_bander(folder, args.plan, say=lambda *a: None))
     # Last month's lead time per Div 1, which is what says whether an order
@@ -785,7 +803,7 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
         lead=lead, month_end=month_window(want)[1],
         at=len(CUST.LEVELS) + [n for n, _, _ in PRODUCT_LEVELS].index('Div 1'))
     got = SAP.load(
-        months[want], month=want, cust_levels=CUST.LEVELS,
+        use, month=want, cust_levels=CUST.LEVELS,
         prod_levels=PRODUCT_LEVELS, customers=cust, products=prod,
         currency=args.currency,
         skip_sku=tuple(t.strip().upper()
@@ -805,13 +823,20 @@ def day_chart(folder, args, cust: dict, prod: dict, say=print) -> list:
            ', so every amount here is zero')
         + (f'; --currency picks another' if got.amount_col else ''))
     out = day_payloads(tally, args.day_basis, want,
-                       ', '.join(f.name for f in months[want]),
+                       ', '.join(f.name for f in use),
                        banded=bander is not None, drops=drop_rules(args),
                        asof=got.asof, say=say)
     if bander is None:
         say('  no promotion plan, so the daily chart has no band on it')
     say(f'  {got.counted:,} of {got.lines:,} line(s) counted - the rest are '
         'another month, a marketplace, or rejected')
+    if got.duplicate:
+        say(f'  {got.duplicate:,} line(s) were on two of those exports and '
+            'were counted once')
+    for name, (n, carried) in got.from_file.items():
+        say(f'    {name}: {n:,} line(s) of {want}'
+            + (f', {carried:,.0f} unit(s) of them carried in' if carried
+               else ''))
     # On the first day only: the page gathers campaigns across every payload,
     # and the same dictionary on all thirty-one would count every campaign day
     # thirty-one times over.
@@ -1334,6 +1359,13 @@ def main() -> int:
                     help='which month the daily chart covers (default: the '
                          'latest month the order export carries, which is '
                          'usually the open one the P&L has not closed)')
+    ap.add_argument('--day-carry', type=int, default=1, metavar='N',
+                    help='how many months of earlier order exports to read '
+                         'alongside the charted one, so that an order placed '
+                         'before it but despatched inside it lands on the day '
+                         'it left (default: 1, the month before). 0 reads the '
+                         'charted month alone, which undercounts the early '
+                         'days of it')
     ap.add_argument('--day-basis', choices=('mixed', 'made', 'gi'),
                     default='mixed', metavar='WHICH',
                     help="which day an order line counts on: mixed, last "
