@@ -1621,7 +1621,7 @@ slice's:
 | Tile | |
 |---|---|
 | **RRP** | what the promotion plan says the slice was meant to sell for, weighted by the units that sold under it |
-| **ASP** | what it actually sold for: net sales over net quantity |
+| **ASP** | what it actually sold for: the money over the units |
 | **Average discount %** | `1 - ASP / RRP`, the discount the slice really ran at |
 
 Above the chart rather than inside **Numbers**, because this is the pair of
@@ -1629,21 +1629,38 @@ figures the page is read for after the profit itself - and because the chart
 cannot draw them: a price is not an amount, and it would be a flat line along
 the bottom of a bar chart in millions.
 
-**Which export** is a switch on the card, and the card says which it is on:
+**Which month** is a row of buttons on the card, and **which reading** is the
+same Payment base / Order base pair the achievement table offers. Both run on
+the **order export**, so the ASP under a 93% and the 93% itself are the same
+lines counted the same way.
 
-- **Orders** (the default where there is an open month) - the order export's
-  own money, `Order Value`, over its own units, for the month the daily chart
-  draws. The same file the achievement table and the planned-price card are
-  read from, so an ASP here and an ASP there are the same kind of number.
-- **P&L** - the profit export's `Net Sales` over its units, for the closed
-  months. The one that ties to the statement above, and the one to use when
-  the question is about margin rather than about price.
+| | the money over the units |
+|---|---|
+| **Payment base** (default) | carried in from last month on the day it left, plus this month's orders that leave inside it - the lines the month will be paid for |
+| **Order base** | every order placed in the month, on the day it was placed |
 
-They are not interchangeable: `Net Sales` has had the sales deduction taken
-out of it and `Order Value` has not, so the same model reads perhaps fifteen
-per cent higher on Orders. The card used to be on P&L with nothing saying so,
-sitting between a card headed *Oct 2026* and one headed *1 Oct - 28 Oct*, and
-the difference read as a price that had jumped.
+The month buttons are **the same ones as on the daily chart, and the same
+state**: move either row and both cards step together. They are one month and
+it is the same month, so two month pickers that could disagree would be a
+page contradicting itself.
+
+> There used to be a **P&L** basis here instead - the profit export's
+> `Net Sales` over its units. It went, because the two things it was switching
+> between were not comparable: `Net Sales` has had the sales deduction taken
+> out of it and `Order Value` has not, so the same model read perhaps fifteen
+> per cent higher on Orders, and worse, the two bases were different *months* -
+> the profit exports stop where the open month begins. One button changed the
+> column, the file and the period at once, and the result read as a price that
+> had jumped. The months are all on the order export now and the picker
+> chooses between them, so the basis is free to mean one thing.
+>
+> What went with it is the ASP that ties to the statement above. For margin
+> rather than price, the monthly chart and **Numbers** are where net sales
+> live.
+
+Where a build has no order export at all, the card falls back to the profit
+export across its months, as it always did, and the basis buttons are not
+shown - there is nothing to switch to.
 
 The weighting is by **units**: `RRP = sum(list price x units) / sum(units)`
 over the slice's combinations, so a price that changed during the year
@@ -1652,15 +1669,16 @@ absolute: returns are in these figures by default, and a combination that came
 out net negative was adding its units to the weight while subtracting its
 money from the price.
 
-**Returns are in**, which the card says. A credit takes its units and its
-money back out of both sides of the division, so the ASP is net of what came
-back; `--no-returns` takes them out and the card says that instead.
+**Nothing has come out of it.** The order export carries no deduction and has
+seen no return, so this is what was ordered at - and the card says so. On the
+profit-export fallback a credit takes its units and its money back out of both
+sides of the division, so that ASP is net of what came back; `--no-returns`
+takes them out and the card says that instead.
 
-**It is not the ASP on the card below.** That one is the order export's own
-money - `Order Value` - over the order export's units, and this one is the
-profit export's `Net Sales`. Different columns from different files, over
-different months, so the same model reads at two prices and neither is wrong.
-The card below names its own column in the header and says so in the hint.
+**It is the same column as the card below** now: both are `Order Value` (or
+`Ordered` on the order base) over the order export's units, for the same
+month. They used to be different columns from different files over different
+months, so the same model read at two prices on one page.
 
 **The discount is read over the units that have a list price**, which is not
 always all of them: the plan does not price everything. Each tile says what it

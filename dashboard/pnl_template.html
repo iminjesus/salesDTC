@@ -452,10 +452,13 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
   <div class="card" id="priceCard" hidden>
     <div class="chartHead" id="priceHead" hidden>
       <div class="legend"><span class="t" id="priceTitle"></span></div>
-      <div class="tools"><span class="seg" id="priceBase">
-        <button class="ctl" id="priceOrd" title="the order export's own money over its own units - the same file the open month's chart, achievement and planned-price card are all read from">Orders</button
-        ><button class="ctl" id="pricePnl" title="the profit export's net sales over its units, for the closed months - the figure that ties to the statement above">P&amp;L</button>
-      </span></div>
+      <div class="tools">
+        <span class="seg" id="pricePick" title="which month these prices are for"></span>
+        <span class="seg" id="priceBase">
+          <button class="ctl" id="pricePay" title="what the month will be paid for: carried in from last month, plus this month's orders that leave inside it">Payment base</button
+          ><button class="ctl" id="priceOrd" title="what the month took in: every order placed in it, on the day it was placed">Order base</button>
+        </span>
+      </div>
     </div>
     <div class="kpis" id="priceKpis"></div>
     <div class="hint" id="priceHint"></div>
@@ -930,6 +933,37 @@ function monthOf(view, ym) {
            rows: keep.reduce((a, m) => a + (m.rows || 0), 0) };
 }
 
+/* The month buttons, on whichever card asks for them: one button a month,
+   every month the order exports carry, so the build decides how far back the
+   page can step and the page only says which it is on. One month and the row
+   is not a choice, so it is not shown - a single button that cannot be
+   pressed off is furniture.
+
+   The daily chart and the price tiles are about one month and it is the same
+   month, so there is one state behind both rows and either one moves both. */
+function monthRow(el) {
+  if (!el) return;
+  const ys = dayYms(book(CUR).day);
+  el.hidden = ys.length < 2;
+  if (el.hidden) return;
+  // Left to right in time, like the axis under them. The year is on the
+  // button only where the months span more than one of it - twelve buttons
+  // all reading 2026 is twelve copies of one fact.
+  const oneYear = new Set(ys.map(y => Math.floor(y / 100))).size === 1;
+  const want = ys.join(',') + (oneYear ? '' : '+y');
+  if (el.dataset.on !== want) {
+    el.dataset.on = want;
+    el.innerHTML = ys.map(y =>
+      `<button class="ctl" data-ym="${y}">${MON[y % 100]}`
+      + (oneYear ? '' : ` ${String(y).slice(2, 4)}`) + '</button>').join('');
+  }
+  const here = VIEWS.day && VIEWS.day.months.length
+    ? VIEWS.day.months[0].ym : null;
+  for (const b of el.children) {
+    b.classList.toggle('active', Number(b.dataset.ym) === here);
+  }
+}
+
 // Cut once per month per book and kept on the book, so stepping back and
 // forth through the months is not a re-filter of every combination each time.
 function dayCut(b) {
@@ -1155,12 +1189,16 @@ const state = {
   // Which cost the P&L is drilled into, as a figure key. Null is the three
   // totals, which is where it opens.
   costAt: null,
-  /* Which export the price tiles run on. Orders by default, where there is
-     an order month: everything else about the open month is read off that
-     file, and an ASP from the profit export sat above an ASP from the orders
-     and read as the same model's price having jumped. P&L is a click away
-     and is the one that ties to the statement. */
-  priceBase: 'orders',
+  /* Which reading of the month the price tiles run on - the same two the
+     achievement table offers, off the same order export, so the ASP under
+     a 93% and the 93% are the same lines counted the same way.
+
+     It used to switch between the order export and the profit export
+     instead, which put two different months' ASPs under one button: the
+     profit exports stop where the open month begins. The months are all on
+     the order export now and the picker beside this chooses which, so the
+     basis is free to mean what it means on the card below. */
+  priceBase: 'payment',
   // The planned-price tables: the same tree idea, its own fold state, and
   // which way the Top 30 is ordered.
   gapFlip: new Set(),
@@ -2930,30 +2968,7 @@ function drawDayTrend() {
             || figs[0];
   const cumul = state.cumul;
   const pct = state.stkScale === 'pct' && !(state.pnl && has.profit !== undefined);
-  /* The month picker: one button a month, every month the order exports
-     carry, so the build decides how far back the card can step and the page
-     only says which it is on. One month and the picker is not a choice, so it
-     is not shown - a single button that cannot be pressed off is furniture. */
-  const pick = document.getElementById('dayPick');
-  const ys = dayYms(book(CUR).day);
-  const here = D.months.length ? D.months[0].ym : null;
-  pick.hidden = ys.length < 2;
-  if (!pick.hidden) {
-    // Left to right in time, like the axis under them. The year is on the
-    // button only where the months span more than one of it - twelve buttons
-    // all reading 2026 is twelve copies of one fact.
-    const oneYear = new Set(ys.map(y => Math.floor(y / 100))).size === 1;
-    const want = ys.join(',') + (oneYear ? '' : '+y');
-    if (pick.dataset.on !== want) {
-      pick.dataset.on = want;
-      pick.innerHTML = ys.map(y =>
-        `<button class="ctl" data-ym="${y}">${MON[y % 100]}`
-        + (oneYear ? '' : ` ${String(y).slice(2, 4)}`) + '</button>').join('');
-    }
-    for (const b of pick.children) {
-      b.classList.toggle('active', Number(b.dataset.ym) === here);
-    }
-  }
+  monthRow(document.getElementById('dayPick'));
 
   const dayVals = state.dayVals || state.zoom === 'day';
   const vb = document.getElementById('dayVals');
@@ -4578,7 +4593,7 @@ document.getElementById('dayZoom').onclick = () => setZoom('day');
 /* Which month the daily chart draws. The levels are the same in every month -
    they were unified together - so a narrowing survives the step and the
    comparison the step was asking for is the one that comes back. */
-document.getElementById('dayPick').onclick = e => {
+const pickMonth = e => {
   const b = e.target.closest('button[data-ym]');
   if (!b) return;
   DAY_YM = Number(b.dataset.ym) || null;
@@ -4587,6 +4602,8 @@ document.getElementById('dayPick').onclick = e => {
   if (wasDay) { DATA = VIEWS.day; rebind(); }
   render();
 };
+document.getElementById('dayPick').onclick = pickMonth;
+document.getElementById('pricePick').onclick = pickMonth;
 document.getElementById('stkBack').onclick = () =>
   document.getElementById('backBtn').click();
 document.getElementById('dayBack').onclick = () =>
@@ -4648,7 +4665,7 @@ document.getElementById('achAll').onclick = () => {
 // page comes to leak a listener a second.
 document.getElementById('gapAll').onclick = () => {
   state.gapAll = !state.gapAll; state.gapFlip.clear(); render(); };
-[['priceOrd', 'orders'], ['pricePnl', 'pnl']].forEach(([id, v]) => {
+[['pricePay', 'payment'], ['priceOrd', 'order']].forEach(([id, v]) => {
   document.getElementById(id).onclick = () => { state.priceBase = v; render(); };
 });
 document.getElementById('gapNeg').onclick = () => {
@@ -5056,11 +5073,14 @@ function detailSheets() {
    the second has had no sales deduction taken out of it. So this takes the
    view and reads it on that view's own series, rather than borrowing the
    page's indices and quietly pricing one file's money by another's units. */
-function priceOn(V) {
+function priceOn(V, base) {
   if (!V) return null;
   const at = k => V.series.findIndex(x => x.key === k);
-  const mi = at('net') >= 0 ? at('net') : at('gross');
-  const qi = at('qty');
+  // The order reading where it is asked for and there is one; otherwise what
+  // the month will be paid for, which on the profit export is net sales.
+  const ord = base === 'order' && at('ogross') >= 0 && at('oqty') >= 0;
+  const mi = ord ? at('ogross') : at('net') >= 0 ? at('net') : at('gross');
+  const qi = ord ? at('oqty') : at('qty');
   if (mi < 0 || qi < 0) return null;
   // One list-price map for the view. The months carry their own, because a
   // list price changes; the days are one month and carry it once.
@@ -5086,15 +5106,22 @@ function priceOn(V) {
 
 function priceTiles() {
   const card = document.getElementById('priceCard');
-  const V = (state.priceBase === 'orders' && VIEWS.day) || VIEWS.month;
-  const got = priceOn(V);
+  // The order export, and the month the picker is on. Without one there is
+  // no order export on this build, and the profit export is all there is.
+  const V = VIEWS.day || VIEWS.month;
+  const canOrd = !!V && V.series.some(x => x.key === 'ogross')
+                 && V.series.some(x => x.key === 'oqty');
+  const base = canOrd && state.priceBase === 'order' ? 'order' : 'payment';
+  const got = priceOn(V, base);
   const on = !!got && got.asp !== null;
   card.hidden = !on;
-  document.getElementById('priceHead').hidden = !VIEWS.day || !VIEWS.month;
+  document.getElementById('priceHead').hidden = !V;
+  document.getElementById('priceBase').hidden = !canOrd;
+  document.getElementById('pricePay').classList.toggle(
+    'active', base === 'payment');
   document.getElementById('priceOrd').classList.toggle(
-    'active', V === VIEWS.day);
-  document.getElementById('pricePnl').classList.toggle(
-    'active', V !== VIEWS.day);
+    'active', base === 'order');
+  monthRow(document.getElementById('pricePick'));
   if (!on) return;
   const all = { asp: got.asp, qty: got.qty };
   const r = got.rrp === null ? null
@@ -5146,17 +5173,21 @@ function priceTiles() {
     + `${got.money} over units, weighted; RRP is the promotion plan's list `
     + 'price over the same units; the discount is the two divided, over the '
     + 'units that have a list price. '
-    // Returns are in by default and the export's own total carries them, so
-    // the ASP is net of what came back on both sides of the division - which
-    // is the question nobody thinks to ask until the number looks odd. It is
-    // a fact about the profit export, so it is only said on that basis.
-    + (V === VIEWS.day
-       ? 'Orders, so this is what was ordered at, before any deduction and '
-         + 'before anything came back.'
-       : DATA.returns === false
-       ? 'Returns are out of these figures (--no-returns).'
-       : 'Returns are in: a credit takes its units and its money back out of '
-         + 'both sides, so this is net of what came back.');
+    + (V !== VIEWS.day
+       ? (DATA.returns === false
+          ? 'Returns are out of these figures (--no-returns).'
+          : 'Returns are in: a credit takes its units and its money back out '
+            + 'of both sides, so this is net of what came back.')
+       // Both readings are the order export, so neither has a deduction in
+       // it and neither has seen a return. Which lines they count is the
+       // whole of the difference, and that is what the basis button says.
+       : base === 'order'
+       ? 'Order base: every order placed this month, on the day it was '
+         + 'placed. What was ordered at, before any deduction and before '
+         + 'anything came back.'
+       : 'Payment base: carried in from last month plus this month\u2019s '
+         + 'orders that leave inside it - the lines the month will be paid '
+         + 'for. Before any deduction and before anything came back.');
 }
 
 /* The plan's list price for one combination in one month, or null.
