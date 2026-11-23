@@ -940,12 +940,12 @@ Where no plan covers those days there is no band to split by, so the bars are
 drawn whole and the hint says why rather than showing one column labelled
 `(blank)`.
 
-#### Achievement, by product group
+#### Achievement, by product or by channel
 
 The **Achievement** button in the menu puts a table under the daily chart: the
-same month against the same target, by product rather than by day. The chart
-says whether the month is on plan; the table says which products are carrying
-it and which are behind.
+same month against the same target, by product or by customer rather than by
+day. The chart says whether the month is on plan; the table says which part of
+the business is carrying it and which is behind.
 
 | column | |
 |---|---|
@@ -966,10 +966,34 @@ A month can take good orders and be paid for few of them, which is the thing
 worth seeing; an average of the two would hide it. The card's heading says
 `payable` or `ordered` so a screenshot carries which one it is.
 
-**The rows are the product tree the page drills** - Biz, then Div 1, Div 2,
-Div 3 - each parent carrying its children's total, so a division is its groups
-added up and the total is the tree rather than the column. The target is set
-at Div 3, which is where the tree ends.
+**By product or By channel.** The same table down either chain, because the
+target rows carry both: `tools/target.py` splits one product group's Sokbo
+across the customers that sold it, so every row is keyed `Channel -> Type ->
+Portal Group -> Type2 -> Biz -> Div 1 -> Div 2 -> Div 3`. Reading it only down
+the products answered *which products are behind* and left *which customers
+are* to be worked out by narrowing to each of them in turn.
+
+| | the rows |
+|---|---|
+| **By product** (default) | Biz, then Div 1, Div 2, Div 3 - the chain the page drills. The target is set at Div 3, which is where the tree ends |
+| **By channel** | Type, then Portal Group, Type2 |
+
+**The two reconcile exactly**: same target, same actual, same achievement at
+the foot. They are one month cut two ways, not two readings of it.
+
+Channel is not a level on the customer tree. The target is the online business
+and nothing else - `target.py` drops every off-line row before it takes a mix
+- so a Channel level would be one node with the whole table under it.
+
+Each parent carries its children's total, so a division is its groups added up
+and the total is the tree rather than the column. Switching chains starts the
+folds again, because an open row is held by the names down the tree and a key
+from one chain means nothing on the other.
+
+Target the mix could not place shows as **`(not matched)`**: on the customer
+tree that is a Sokbo row with no customer against it - a group with no sales
+in the six mix months - and on the product tree the same money sits under its
+own Div 3. It is in the total either way, which is why the two agree.
 
 A level that repeats the one above it gets no row of its own. Div 1 `DA` under
 Biz `CE` is a step; Div 2 `REF` under Div 1 `REF` is the same thing said twice,

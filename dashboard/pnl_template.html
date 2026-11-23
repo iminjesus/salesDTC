@@ -411,7 +411,7 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
         <button class="btn" id="stkAmt">Amount</button
         ><button class="btn" id="stkPct">% of bar</button></span></label>
       <button class="btn" id="numbersBtn" title="the totals behind the chart, and the profit split by where the order came from">Numbers</button>
-      <button class="btn" id="achBtn" title="the month to date against the target, by product group">Achievement</button>
+      <button class="btn" id="achBtn" title="the month to date against the target, by product group or by customer">Achievement</button>
       <button class="btn" id="tableBtn">Table</button>
       <button class="btn" id="xlsBtn" title="the figures behind this view as a workbook - the chart, the table, and the narrowing in force">Excel</button>
       <button class="btn" id="resetBtn">Reset</button>
@@ -427,11 +427,15 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line); border-bottom: 0
     <div class="chartHead">
       <div class="legend"><span class="t" id="achTitle"></span></div>
       <div class="tools">
+        <span class="seg" id="achBy">
+          <button class="ctl" id="achByProd" title="down the product chain: Biz, Div 1, Div 2, Div 3">By product</button
+          ><button class="ctl" id="achByChan" title="down the customer chain: Type, Portal Group, Type2">By channel</button>
+        </span>
         <span class="seg" id="achBase">
           <button class="ctl" id="achPay" title="what the month will be paid for: carried in from last month, plus this month's orders that leave inside it">Payment base</button
           ><button class="ctl" id="achOrd" title="what the month took in: every order placed in it, on the day it was placed">Order base</button>
         </span>
-        <button class="ctl" id="achAll" title="every level at once, down to the product group the target is set at">Expand all</button>
+        <button class="ctl" id="achAll" title="every level at once, down to the level the target is set at">Expand all</button>
       </div>
     </div>
     <div id="achBox"></div>
@@ -1145,6 +1149,9 @@ const state = {
   // open ones survive a narrowing and a redraw.
   achFlip: new Set(),
   achAll: false,
+  // Which chain the achievement tree runs down: the products, or the
+  // customers the target was split across to begin with.
+  achBy: 'product',
   // Which cost the P&L is drilled into, as a figure key. Null is the three
   // totals, which is where it opens.
   costAt: null,
@@ -2168,7 +2175,23 @@ document.title = (() => {
   return [DATA.title, asof, built].filter(Boolean).join(' - ');
 })();
 
-const ACH_TREE = ['Biz', 'Div 1', 'Div 2', 'Div 3'];
+/* The achievement tree, down either chain.
+
+   The target rows carry both: `tools/target.py` splits one product group's
+   Sokbo across the customers that sold it, so every row is keyed Channel ->
+   Type -> Portal Group -> Type2 -> Biz -> Div 1 -> Div 2 -> Div 3. The table
+   was only ever read down the product side, which answers "which products
+   are behind" and leaves "which customers are" to be worked out by narrowing
+   to each of them in turn.
+
+   Channel is left off the customer tree: the target is the online business
+   and nothing else - target.py drops every off-line row before it takes a
+   mix - so a Channel level would be one node with everything under it. */
+const ACH_TREES = {
+  product: ['Biz', 'Div 1', 'Div 2', 'Div 3'],
+  channel: ['Type', 'Portal Group', 'Type2'],
+};
+const ACH_HEAD = { product: 'Product', channel: 'Channel' };
 
 function drawAch(D, lastDay) {
   const card = document.getElementById('achCard');
@@ -2195,8 +2218,15 @@ function drawAch(D, lastDay) {
                                                      base === 'payment');
   document.getElementById('achOrd').classList.toggle('active',
                                                      base === 'order');
-  const li = ACH_TREE.map(n => D.levels.findIndex(lv => lv.name === n));
-  const tj = ACH_TREE.map(n => T.levels.indexOf(n));
+  // Which chain the tree runs down. Both sides of the ratio are read off the
+  // same names, so the rest of this function does not know which it is on.
+  const by = ACH_TREES[state.achBy] ? state.achBy : 'product';
+  const tree = ACH_TREES[by];
+  for (const [id, v] of [['achByProd', 'product'], ['achByChan', 'channel']]) {
+    document.getElementById(id).classList.toggle('active', by === v);
+  }
+  const li = tree.map(n => D.levels.findIndex(lv => lv.name === n));
+  const tj = tree.map(n => T.levels.indexOf(n));
   const at = T.levels.map(n => D.levels.findIndex(lv => lv.name === n));
   const mine = new Set(at.filter(i => i >= 0));
   // A narrowing on something the target has no key for - a Range, a model, a
@@ -2309,7 +2339,7 @@ function drawAch(D, lastDay) {
     `<td class="ach"><span class="achWrap">${bar(r.ach)}<span class="achNum" `
     + `style="color:${hue(r.ach)}">${pc(r.ach)}</span></span></td>`,
   ].join('');
-  const head = ['Product', 'Target (month)',
+  const head = [ACH_HEAD[by], 'Target (month)',
                 `Target to ${lastDay} ${MON[T.ym % 100]}`, 'Actual to date',
                 'Achievement'];
   document.getElementById('achTitle').textContent =
@@ -4598,6 +4628,16 @@ document.getElementById('filterBtn').onclick = () => {
   state.filters = !state.filters; render(); };
 document.getElementById('achAll').onclick = () => {
   state.achAll = !state.achAll; state.achFlip.clear(); render(); };
+// The open rows are held by a key built from the names down the tree, so a
+// key from one chain means nothing on the other: the folds start again.
+[['achByProd', 'product'], ['achByChan', 'channel']].forEach(([id, v]) => {
+  document.getElementById(id).onclick = () => {
+    if (state.achBy === v) return;
+    state.achBy = v;
+    state.achFlip.clear();
+    render();
+  };
+});
 [['achPay', 'payment'], ['achOrd', 'order']].forEach(([id, v]) => {
   document.getElementById(id).onclick = () => {
     state.achBase = v; render();
