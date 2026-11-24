@@ -886,16 +886,23 @@ sold at**, so the pivot can be built without joining two files by hand.
 | --- | --- |
 | `Planned qty`, `GSCM price`, `Re-priced`, `Change %` | the forecast and the sheet it replaces |
 | `RRP`, `Promo days`, `From`, `Nearest SKU` | how it was reached, and off which rung |
-| `Sold qty`, `Actual price` | what the month did, **to date** |
+| `Actual qty`, `Actual amount`, `Actual price` | what the month did, **to date** |
 | `Actual - Re-priced`, `Diff %` | the miss the pivot is built on |
 | `Actual - GSCM` | the same miss against the sheet, to read the two side by side |
+| `Impact` | the miss times the units it was made on |
 
 ```
-Material  ...  GSCM price  Re-priced  ...  Sold qty  Actual price  Actual - Re-priced  Diff %  Actual - GSCM
-SM-A      ...     1999.00    1750.00  ...       430       1812.44             +62.44    +3.6        -186.56
-SM-B      ...     3499.00    3120.00  ...
-SM-C      ...      899.00     899.00  ...        11        845.00             -54.00    -6.0         -54.00
+Material  GSCM price  Re-priced   Actual qty  Actual amount  Actual price  Actual-Re-priced  Diff %  Actual-GSCM   Impact
+SM-A         1999.00    1750.00          430         779349       1812.44            +62.44    +3.6     -186.56  +26,849
+SM-B         3499.00    3120.00
+SM-C          899.00     899.00           11           9295        845.00            -54.00    -6.0      -54.00     -594
 ```
+
+The amount is the export's own money and the price is that over the units,
+so a pivot can weight by either without re-deriving one from the other and
+rounding twice. **`Impact` is the figure a pivot sums**: a 62 miss on four
+hundred units and on four is not the same money, and a column of per-unit
+misses added up says nothing about either.
 
 **A material the month never sold has those columns empty, not nought.**
 `SM-B` above was planned and not sold, and a nought in `Actual - Re-priced`

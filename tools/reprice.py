@@ -1768,6 +1768,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             got = sold.get(PM.code_norm(code))
             if got and got[0] > 0:
                 v['sold'] = got[0]
+                v['amt'] = got[1]
                 v['asp'] = got[1] / got[0]
                 hit += 1
         say(f'  {hit:,} of {len(out):,} re-priced material(s) sold in '
@@ -1826,18 +1827,27 @@ def write_csv(path, out) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f)
-        # `Sold qty` and `Actual price` are the month **to date** - the
-        # order export stops where it stops - so a material that is still
-        # selling is a part month read against a whole month's forecast.
-        # `Actual - Re-priced` is the miss the pivot is built on, and it is
-        # blank rather than nought where nothing sold: a material the month
-        # never sold has no price to miss by, and nought in that column is
-        # the single thing that wrecks a deviation.
+        # The three `Actual` columns are the month **to date** - the order
+        # export stops where it stops - so a material that is still selling
+        # is a part month read against a whole month's forecast. The amount
+        # is the export's own money and the price is that over the units,
+        # so a pivot can weight by either without re-deriving one from the
+        # other and rounding twice.
+        #
+        # `Actual - Re-priced` is the miss, and `Impact` is that miss times
+        # the units it was made on - the figure a pivot actually sums,
+        # because a 60 miss on four hundred units and on four is not the
+        # same money.
+        #
+        # All of them are blank rather than nought where nothing sold: a
+        # material the month never sold has no price to miss by, and nought
+        # in that column is the single thing that wrecks a deviation.
         w.writerow(['Material', 'Biz', 'Div 1', 'Div 2', 'Div 3',
                     'Planned qty', 'GSCM price', 'Re-priced', 'Change %',
                     'RRP', 'Promo days', 'From', 'Nearest SKU',
-                    'Sold qty', 'Actual price', 'Actual - Re-priced',
-                    'Diff %', 'Actual - GSCM', 'Why'])
+                    'Actual qty', 'Actual amount', 'Actual price',
+                    'Actual - Re-priced', 'Diff %', 'Actual - GSCM',
+                    'Impact', 'Why'])
         for code, v in sorted(out.items(),
                               key=lambda kv: -abs((kv[1]['price']
                                                    - kv[1]['gscm'])
@@ -1854,10 +1864,12 @@ def write_csv(path, out) -> None:
                         f"{v['promo_days'] * 100:.0f}%", v['how'],
                         v.get('near', ''),
                         '' if not v.get('sold') else f"{v['sold']:.0f}",
+                        '' if v.get('amt') is None else f"{v['amt']:.0f}",
                         '' if asp is None else f'{asp:.2f}',
                         '' if dr is None else f'{dr:+.2f}',
                         '' if drp is None else f'{drp:+.1f}',
                         '' if dg is None else f'{dg:+.2f}',
+                        '' if dr is None else f"{dr * v['sold']:+.0f}",
                         v['why']])
 
 
