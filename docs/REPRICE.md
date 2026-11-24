@@ -873,6 +873,49 @@ Capping the ladder does not invent a replacement. Past the cap a product falls
 to its own six-month ASP, and failing that keeps the price the sheet already
 had. Both say less than a borrowed discount, and neither makes anything up.
 
+### The CSV, and what the month actually did
+
+```
+py tools\reprice.py --month 2610 --out docs\reprice_2610.csv
+```
+
+One row a material: the forecast, how it was reached, and **what the month
+sold at**, so the pivot can be built without joining two files by hand.
+
+| column | |
+| --- | --- |
+| `Planned qty`, `GSCM price`, `Re-priced`, `Change %` | the forecast and the sheet it replaces |
+| `RRP`, `Promo days`, `From`, `Nearest SKU` | how it was reached, and off which rung |
+| `Sold qty`, `Actual price` | what the month did, **to date** |
+| `Actual - Re-priced`, `Diff %` | the miss the pivot is built on |
+| `Actual - GSCM` | the same miss against the sheet, to read the two side by side |
+
+```
+Material  ...  GSCM price  Re-priced  ...  Sold qty  Actual price  Actual - Re-priced  Diff %  Actual - GSCM
+SM-A      ...     1999.00    1750.00  ...       430       1812.44             +62.44    +3.6        -186.56
+SM-B      ...     3499.00    3120.00  ...
+SM-C      ...      899.00     899.00  ...        11        845.00             -54.00    -6.0         -54.00
+```
+
+**A material the month never sold has those columns empty, not nought.**
+`SM-B` above was planned and not sold, and a nought in `Actual - Re-priced`
+for it is `-3,120` - one row carrying the whole of a forecast as if it were
+an error. Thirty of those dominate a deviation, which is the single thing
+that wrecks a pivot before the model is in question.
+
+The realised price is the month **to date**: the order export stops where it
+stops, so a material still selling is a part month read against a whole
+month's forecast. It comes from the DTC export where the folder has one and
+the order export otherwise - `--source` picks - and the run says which
+answered and how many materials carried a price.
+
+`--no-actual` leaves it out. It is another read of the order export, which
+is the slow part of a run that only wants the forecast; `dashboard/build_pnl.py`
+does not ask for it, so the page build is unchanged.
+
+The file is gitignored (`/docs/reprice_*.csv`) and now carries realised
+prices as well, so it stays that way.
+
 ### `--new-cap PCT` - what a launch may inherit
 
 **Default 0, no cap.** The product a new SKU most resembles is usually the

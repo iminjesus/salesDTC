@@ -1553,7 +1553,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             explain: bool = False, pooled: bool = False,
             campaigns: str = '', clearance: bool = True,
             why=(), quiet_list: bool = False,
-            promo_first: bool = True) -> dict:
+            promo_first: bool = True, actual: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1750,6 +1750,30 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             'near': near, 'why': '; '.join(where),
             'chain': it['chain'],
         }
+    # What the month actually went out at, where the month has happened
+    # enough to say. Off by default: it is another read of the order export
+    # and the page's own build already has one, so only a caller that wants
+    # the comparison pays for it.
+    #
+    # It is the realised price **to date**, not for the whole month - the
+    # export stops where it stops - so a part-month reads against a full
+    # month's forecast and the gap is partly calendar. The CSV says so in
+    # its header.
+    if actual:
+        import price_spread as PS
+        say('')
+        sold = PS.read_month(folder, ym, say=say, source=source)
+        hit = 0
+        for code, v in out.items():
+            got = sold.get(PM.code_norm(code))
+            if got and got[0] > 0:
+                v['sold'] = got[0]
+                v['asp'] = got[1] / got[0]
+                hit += 1
+        say(f'  {hit:,} of {len(out):,} re-priced material(s) sold in '
+            f'{ym} and carry a realised price; the rest were planned and '
+            'not sold')
+
     say(f'\nre-priced {len(out):,} material(s): '
         + ', '.join(f'{n:,} {k}' for k, n in how.most_common()))
     if model == 'simple':
@@ -1795,6 +1819,46 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     say(f'\n  at the planned quantities: {was:,.0f} -> {now:,.0f} AUD '
         f'({(now / was - 1) * 100:+.1f}%)')
     return out
+
+
+def write_csv(path, out) -> None:
+    """The per-material rows: the forecast, and what the month did."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('w', newline='', encoding='utf-8-sig') as f:
+        w = csv.writer(f)
+        # `Sold qty` and `Actual price` are the month **to date** - the
+        # order export stops where it stops - so a material that is still
+        # selling is a part month read against a whole month's forecast.
+        # `Actual - Re-priced` is the miss the pivot is built on, and it is
+        # blank rather than nought where nothing sold: a material the month
+        # never sold has no price to miss by, and nought in that column is
+        # the single thing that wrecks a deviation.
+        w.writerow(['Material', 'Biz', 'Div 1', 'Div 2', 'Div 3',
+                    'Planned qty', 'GSCM price', 'Re-priced', 'Change %',
+                    'RRP', 'Promo days', 'From', 'Nearest SKU',
+                    'Sold qty', 'Actual price', 'Actual - Re-priced',
+                    'Diff %', 'Actual - GSCM', 'Why'])
+        for code, v in sorted(out.items(),
+                              key=lambda kv: -abs((kv[1]['price']
+                                                   - kv[1]['gscm'])
+                                                  * kv[1]['qty'])):
+            ch = (v['price'] / v['gscm'] - 1) * 100 if v['gscm'] else None
+            asp = v.get('asp')
+            dr = (asp - v['price']) if asp else None
+            drp = (asp / v['price'] - 1) * 100 if asp and v['price'] else None
+            dg = (asp - v['gscm']) if asp and v['gscm'] else None
+            w.writerow([code, *(v['chain'] + [''] * 4)[:4], v['qty'],
+                        f"{v['gscm']:.2f}", f"{v['price']:.2f}",
+                        '' if ch is None else f'{ch:+.1f}',
+                        '' if v['rrp'] is None else f"{v['rrp']:.2f}",
+                        f"{v['promo_days'] * 100:.0f}%", v['how'],
+                        v.get('near', ''),
+                        '' if not v.get('sold') else f"{v['sold']:.0f}",
+                        '' if asp is None else f'{asp:.2f}',
+                        '' if dr is None else f'{dr:+.2f}',
+                        '' if drp is None else f'{drp:+.1f}',
+                        '' if dg is None else f'{dg:+.2f}',
+                        v['why']])
 
 
 def main() -> int:
@@ -1847,6 +1911,10 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--no-actual', action='store_true',
+                    help='leave the realised price out of the CSV. It is '
+                         'another read of the order export, which is the '
+                         'slow part of a run that only wants the forecast')
     ap.add_argument('--new-cap', type=float, default=0.0, metavar='PCT',
                     help='the deepest discount a new SKU may inherit from '
                          'the product it is priced off, e.g. 25 for a '
@@ -1927,26 +1995,10 @@ def main() -> int:
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,
-                  model=args.model)
+                  model=args.model, actual=not args.no_actual)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('w', newline='', encoding='utf-8-sig') as f:
-        w = csv.writer(f)
-        w.writerow(['Material', 'Biz', 'Div 1', 'Div 2', 'Div 3',
-                    'Planned qty', 'GSCM price', 'Re-priced', 'Change %',
-                    'RRP', 'Promo days', 'From', 'Nearest SKU', 'Why'])
-        for code, v in sorted(out.items(),
-                              key=lambda kv: -abs((kv[1]['price']
-                                                   - kv[1]['gscm'])
-                                                  * kv[1]['qty'])):
-            ch = (v['price'] / v['gscm'] - 1) * 100 if v['gscm'] else None
-            w.writerow([code, *(v['chain'] + [''] * 4)[:4], v['qty'],
-                        f"{v['gscm']:.2f}", f"{v['price']:.2f}",
-                        '' if ch is None else f'{ch:+.1f}',
-                        '' if v['rrp'] is None else f"{v['rrp']:.2f}",
-                        f"{v['promo_days'] * 100:.0f}%", v['how'],
-                        v.get('near', ''), v['why']])
+    write_csv(path, out)
     print(f'\n-> {path}  ({len(out):,} material(s))')
     return 0
 
