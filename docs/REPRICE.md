@@ -667,7 +667,7 @@ this order:
 | 2 | never run it: the **same promotion** at its model family, then Div 3, then Div 1 (`--scope`) | list less that | `rrp` |
 | 3 | no group answer either: this SKU's **own six-month ASP** | **at the ASP** | `rrp` |
 | 4 | nothing of its own: **the plan's own quoted price for that day** | at that quote | `plan` |
-| 5 | the plan quotes no store price either: the **nearest similar product's ASP** | at that ASP | `new` |
+| 5 | the plan quotes no store price either: the **nearest similar product**, at its rate off the sheet | my sheet price x its ASP / its sheet price | `new` |
 | 6 | not even a neighbour, on a quiet day: its group's **ordinary markdown off list** | list less that | `rrp` |
 | 7 | no list price in the plan at all | the six-month ASP, whole | `asp` |
 | 8 | nothing anywhere | the GSCM price, unchanged | `kept` |
@@ -737,17 +737,19 @@ a stacked offer moves the two apart - which is why it sits below every rung
 that has a realised price and above the two that borrow from another
 product. A product with a record of its own never reaches it.
 
-**Why the two rungs below it are both wrong on a launch.** The product a
-launch most resembles is the model it replaces, and that model is at the end
-of its life and at its deepest discount:
+### Rung 5: the neighbour's rate off the sheet, not its price
+
+Two ways of leaning on a neighbour were tried and **both came out low**. The
+product a launch most resembles is the model it replaces, and that model is
+at the end of its life and at its deepest discount:
 
 | | and so |
 | --- | --- |
 | inheriting its **discount** | the deeper the predecessor was cut, the cheaper the launch |
 | inheriting its **ASP** | the predecessor lists lower, so the launch comes out cheap by that gap |
 
-Both err the same way, and scaling the ASP by the list ratio is not a third
-option - it is algebraically the first one:
+Scaling the ASP by the list ratio is not a third option - it is
+algebraically the first one:
 
 ```
 neighbour ASP x (my list / its list)
@@ -755,8 +757,25 @@ neighbour ASP x (my list / its list)
   = my list x (1 - d)                         the discount form exactly
 ```
 
-So on a launch there were only two answers and both were low. Rung 4 is the
-one that is neither, because it is not about the neighbour at all.
+The **sheet** price is a different number, and it is always there: on a
+product the promotion plan has no line for as much as on one it does, which
+is the case rungs 1 to 4 cannot reach at all. What it gives is the
+neighbour's **realisation** - what it fetched against what the sheet planned
+it at - applied to this product's own planned price:
+
+```
+predecessor: sheet 1,600, ASP 1,400  = 87.5% of its plan
+this product: sheet 2,100
+
+flat ASP                     1,400.00
+at its rate off the sheet    1,837.50     2,100 x 87.5%
+```
+
+*That one sold at 87.5% of its plan, so will this one* says nothing about
+either product's age, which is the slope that was doing the damage, and
+nothing about either one's list price, which is the gap the flat ASP carried.
+Where the sheet has no price for the neighbour the flat ASP stands, and the
+row says which of the two it was.
 
 A month that leans on a neighbour for any of its days is written `new`,
 whatever the promotion rungs covered - a launch hidden inside `rrp` is the

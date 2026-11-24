@@ -1356,7 +1356,7 @@ def explain_terms(out, levels, say):
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
               scope: str = 'range', rrp_at=None, new_cap: float = 0.0,
               b2b: float = None, flat_days: bool = False,
-              by_units: bool = True, plan_mix=None):
+              by_units: bool = True, plan_mix=None, gscm_at=None):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -1416,10 +1416,38 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
     lean = {}
 
     def near_asp():
+        """The nearest product's price, brought to this product's level.
+
+        A neighbour's ASP taken flat carries the neighbour's price level
+        with it, and the neighbour is nearly always the model being
+        replaced - which lists lower. A launch handed its predecessor's
+        ASP comes out cheap by that whole gap.
+
+        Scaling by the **list** price is not a correction, it is the old
+        rule written differently:
+
+            its ASP x (my list / its list)
+              = its list x (1 - d) x my list / its list
+              = my list x (1 - d)
+
+        The **sheet** price is a different number and always there, on a
+        product the promotion plan has no line for as much as on one it
+        does. What it gives is the neighbour's realisation - what it
+        fetched against what the sheet planned it at - applied to this
+        product's own planned price. "That one sold at 92% of its plan, so
+        will this one" says nothing about either product's age, which is
+        the slope that was doing the damage.
+        """
         if 'who' not in lean:
             who = nearest(k, lv, rrp, hist, levels, rrp_at or (lambda c: None))
-            lean['who'] = who
-            lean['asp'] = hist.asp(who) if who else None
+            a = hist.asp(who) if who else None
+            how = 'ASP of nearest'
+            if a and gscm_at and gscm:
+                theirs = gscm_at(who)
+                if theirs and theirs > 0:
+                    a *= gscm / theirs
+                    how = 'nearest, at its rate off the sheet,'
+            lean['who'], lean['asp'], lean['how'] = who, a, how
         return lean['who'], lean['asp']
 
     def quoted(day):
@@ -1510,7 +1538,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         # the cheaper the launch comes out. Its ASP carries no such slope.
         who, a = near_asp()
         if a:
-            return 'at', a, f'ASP of nearest {who}'
+            return 'at', a, f'{lean["how"]} {who}'
         if not camp:
             for sc in History.scopes(k, lv):
                 q = hist.quiet(sc)
@@ -1570,7 +1598,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             # the row says so: `price_spread --by how` breaks the error out
             # by rung, and a launch hidden inside `rrp` is the one row it
             # most needs to see on its own.
-            leaned = any(f.startswith('ASP of nearest') for _, f in used)
+            leaned = any('nearest' in f for _, f in used)
             # `plan` where the plan's own quote carried a day and no
             # neighbour was needed: it is neither a realised price nor
             # somebody else's, and a rung that cannot be told apart cannot
@@ -1592,7 +1620,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         # above: a neighbour's discount is its own position in its own life
         # and a launch inheriting one is priced as a run-out.
         if a:
-            note = f'new SKU; ASP of nearest {near}'
+            note = f'new SKU; {lean["how"]} {near}'
             if abs(shift) >= 0.001:
                 note += (f'; {shift * 100:+.1f}pp for a '
                          f'{b2b * 100:.0f}% B2B plan')
@@ -1812,6 +1840,9 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 scope=scope, rrp_at=rrp_at, new_cap=new_cap,
                 flat_days=flat_days, by_units=by_units,
                 plan_mix=plan_mix,
+                gscm_at=lambda c: (planned['items'].get(c)
+                                   or planned['items'].get(PM.code_norm(c))
+                                   or {}).get('aud'),
                 b2b=(None if no_mix else it.get('b2b')))
         how[kind] += 1
         # The nearest SKU is named on the row, not only in the prose, so a
