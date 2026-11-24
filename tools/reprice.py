@@ -1356,7 +1356,8 @@ def explain_terms(out, levels, say):
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
               scope: str = 'range', rrp_at=None, new_cap: float = 0.0,
               b2b: float = None, flat_days: bool = False,
-              by_units: bool = True, plan_mix=None, gscm_at=None):
+              by_units: bool = True, plan_mix=None, gscm_at=None,
+              new_from: str = 'sheet'):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -1418,36 +1419,51 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
     def near_asp():
         """The nearest product's price, brought to this product's level.
 
-        A neighbour's ASP taken flat carries the neighbour's price level
-        with it, and the neighbour is nearly always the model being
-        replaced - which lists lower. A launch handed its predecessor's
-        ASP comes out cheap by that whole gap.
+        **Off by default, because every form of it was measured and lost.**
+        On October's 22 such materials the sheet's own price came in at a
+        deviation of 244 and the three ways of leaning on a neighbour at
+        293 (its ASP flat), 543 (its ASP at its rate off the sheet) and
+        worse again (its discount off list). A product with no record and
+        no quote is one somebody priced deliberately, and nothing here
+        beats that.
 
-        Scaling by the **list** price is not a correction, it is the old
-        rule written differently:
+        Why each form fails, since the reasoning looks sound until it is
+        measured. The neighbour is nearly always the model being replaced:
+
+            its discount    the deeper that model was cut on its way out,
+                            the cheaper the launch
+            its ASP flat    that model lists lower, so the launch comes out
+                            cheap by the whole gap
+            its rate off
+            the sheet       the numerator is a six-month ASP and the
+                            denominator is an October sheet price, and for
+                            a model being run out those are two different
+                            periods of its life. The ratio runs over 1 and
+                            prices a launch above its own sheet
+
+        Scaling by the **list** price is not a fourth option, it is the
+        first one written differently:
 
             its ASP x (my list / its list)
               = its list x (1 - d) x my list / its list
               = my list x (1 - d)
 
-        The **sheet** price is a different number and always there, on a
-        product the promotion plan has no line for as much as on one it
-        does. What it gives is the neighbour's realisation - what it
-        fetched against what the sheet planned it at - applied to this
-        product's own planned price. "That one sold at 92% of its plan, so
-        will this one" says nothing about either product's age, which is
-        the slope that was doing the damage.
+        `--new-from asp` and `--new-from rate` turn the other two back on
+        to be measured again.
         """
         if 'who' not in lean:
-            who = nearest(k, lv, rrp, hist, levels, rrp_at or (lambda c: None))
-            a = hist.asp(who) if who else None
-            how = 'ASP of nearest'
-            if a and gscm_at and gscm:
-                theirs = gscm_at(who)
-                if theirs and theirs > 0:
-                    a *= gscm / theirs
-                    how = 'nearest, at its rate off the sheet,'
-            lean['who'], lean['asp'], lean['how'] = who, a, how
+            lean['who'] = lean['asp'] = None
+            lean['how'] = 'ASP of nearest'
+            if new_from != 'sheet':
+                who = nearest(k, lv, rrp, hist, levels,
+                              rrp_at or (lambda c: None))
+                a = hist.asp(who) if who else None
+                if a and new_from == 'rate' and gscm_at and gscm:
+                    theirs = gscm_at(who)
+                    if theirs and theirs > 0:
+                        a *= gscm / theirs
+                        lean['how'] = 'nearest, at its rate off the sheet,'
+                lean['who'], lean['asp'] = who, a
         return lean['who'], lean['asp']
 
     def quoted(day):
@@ -1657,7 +1673,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             explain: bool = False, pooled: bool = False,
             campaigns: str = '', clearance: bool = True,
             why=(), quiet_list: bool = False,
-            promo_first: bool = True, actual: bool = False) -> dict:
+            promo_first: bool = True, actual: bool = False,
+            new_from: str = 'sheet') -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1840,6 +1857,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 scope=scope, rrp_at=rrp_at, new_cap=new_cap,
                 flat_days=flat_days, by_units=by_units,
                 plan_mix=plan_mix,
+                new_from=new_from,
                 gscm_at=lambda c: (planned['items'].get(c)
                                    or planned['items'].get(PM.code_norm(c))
                                    or {}).get('aud'),
@@ -1923,7 +1941,10 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     say('         is the whole of it')
     say('  new  = nothing of its own and no group answer either - priced')
     say('         off the nearest product, which is named on the row')
-    say('  kept = not even that, so the GSCM price is unchanged')
+    say('         (--new-from asp or rate; off by default, both measured')
+    say('         worse than leaving the sheet alone)')
+    say('  kept = no record, no quote and no group - the GSCM price is')
+    say('         unchanged, which on October beat every way of guessing')
     fresh = [(c, v) for c, v in out.items() if v['how'] == 'new']
     if fresh:
         say(f'\n  {len(fresh):,} new SKU(s), '
@@ -2040,6 +2061,15 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--new-from', default='sheet',
+                    choices=('sheet', 'asp', 'rate'),
+                    help='what prices a product with no record of its own '
+                         'and no quote in the plan. sheet (default): the '
+                         'GSCM price it already has, left alone - measured '
+                         'best on October by some way. asp: the nearest '
+                         'product\u2019s ASP. rate: that ASP at its own rate '
+                         'off the sheet. The last two were 293 and 543 '
+                         'against the sheet\u2019s 244')
     ap.add_argument('--no-actual', action='store_true',
                     help='leave the realised price out of the CSV. It is '
                          'another read of the order export, which is the '
@@ -2124,7 +2154,8 @@ def main() -> int:
                   scope=args.scope, decay=args.decay, source=args.source,
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,
-                  model=args.model, actual=not args.no_actual)
+                  model=args.model, actual=not args.no_actual,
+                  new_from=args.new_from)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)

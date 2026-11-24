@@ -667,10 +667,12 @@ this order:
 | 2 | never run it: the **same promotion** at its model family, then Div 3, then Div 1 (`--scope`) | list less that | `rrp` |
 | 3 | no group answer either: this SKU's **own six-month ASP** | **at the ASP** | `rrp` |
 | 4 | nothing of its own: **the plan's own quoted price for that day** | at that quote | `plan` |
-| 5 | the plan quotes no store price either: the **nearest similar product**, at its rate off the sheet | my sheet price x its ASP / its sheet price | `new` |
-| 6 | not even a neighbour, on a quiet day: its group's **ordinary markdown off list** | list less that | `rrp` |
-| 7 | no list price in the plan at all | the six-month ASP, whole | `asp` |
-| 8 | nothing anywhere | the GSCM price, unchanged | `kept` |
+| 5 | a quiet day and no record at all: its group's **ordinary markdown off list** | list less that | `rrp` |
+| 6 | no list price in the plan at all | the six-month ASP, whole | `asp` |
+| 7 | **no record, no quote, no group** | the GSCM price, left alone | `kept` |
+
+(`--new-from asp` or `rate` puts a nearest-neighbour rung between 4 and 5,
+written `new`. Both are off by default; see below.)
 
 **Rung 3 is a price, not a discount**, and that is the difference between it
 and what used to be there. The old rung took the product's own six-month
@@ -737,18 +739,43 @@ a stacked offer moves the two apart - which is why it sits below every rung
 that has a realised price and above the two that borrow from another
 product. A product with a record of its own never reaches it.
 
-### Rung 5: the neighbour's rate off the sheet, not its price
+### Rung 7: a product with nothing keeps the sheet's price
 
-Two ways of leaning on a neighbour were tried and **both came out low**. The
-product a launch most resembles is the model it replaces, and that model is
-at the end of its life and at its deepest discount:
+**Three ways of leaning on a neighbour were tried and all three lost to
+leaving the price alone.** On October's 22 such materials:
+
+| what priced them | sd of the gap |
+| --- | --- |
+| **the GSCM sheet, untouched** | **244** |
+| the neighbour's ASP, flat | 293 |
+| the neighbour's ASP at its rate off the sheet | 543 |
+| the neighbour's discount off list | worse again |
+
+So the default is `kept`: a product with no record, no quote and no group
+answer is one somebody priced deliberately for its launch, and nothing the
+history can be made to say beats that. `--new-from asp` and `--new-from
+rate` turn the other two back on to be measured again.
+
+Each of them looks sound until it is measured, and the reason each fails is
+worth keeping, because the neighbour is nearly always the model being
+replaced:
 
 | | and so |
 | --- | --- |
-| inheriting its **discount** | the deeper the predecessor was cut, the cheaper the launch |
-| inheriting its **ASP** | the predecessor lists lower, so the launch comes out cheap by that gap |
+| its **discount** | the deeper that model was cut on its way out, the cheaper the launch |
+| its **ASP** flat | that model lists lower, so the launch comes out cheap by the whole gap |
+| its **rate off the sheet** | the numerator is a six-month ASP and the denominator is an October sheet price. For a model being run out those are two different periods of its life, the ratio runs over 1, and the launch is priced **above** its own sheet |
 
-Scaling the ASP by the list ratio is not a third option - it is
+```
+predecessor: six-month ASP 1,400, but October's sheet prices it at 900
+this product: sheet 2,100
+
+--new-from sheet    2,100.00   kept
+--new-from asp      1,400.00   the whole list-price gap, inherited
+--new-from rate     3,266.67   1,400 / 900 = 156%, which is the run-out
+```
+
+Scaling the ASP by the **list** price is not a fourth option - it is
 algebraically the first one:
 
 ```
@@ -757,25 +784,9 @@ neighbour ASP x (my list / its list)
   = my list x (1 - d)                         the discount form exactly
 ```
 
-The **sheet** price is a different number, and it is always there: on a
-product the promotion plan has no line for as much as on one it does, which
-is the case rungs 1 to 4 cannot reach at all. What it gives is the
-neighbour's **realisation** - what it fetched against what the sheet planned
-it at - applied to this product's own planned price:
-
-```
-predecessor: sheet 1,600, ASP 1,400  = 87.5% of its plan
-this product: sheet 2,100
-
-flat ASP                     1,400.00
-at its rate off the sheet    1,837.50     2,100 x 87.5%
-```
-
-*That one sold at 87.5% of its plan, so will this one* says nothing about
-either product's age, which is the slope that was doing the damage, and
-nothing about either one's list price, which is the gap the flat ASP carried.
-Where the sheet has no price for the neighbour the flat ASP stands, and the
-row says which of the two it was.
+A period-matched version of the rate - the neighbour's ASP over what the
+**window's** sheets planned it at - would avoid the trap, and cannot be
+built: the folder keeps one GSCM sheet, for the month being priced.
 
 A month that leans on a neighbour for any of its days is written `new`,
 whatever the promotion rungs covered - a launch hidden inside `rrp` is the
