@@ -404,6 +404,10 @@ def main() -> int:
     ap.add_argument('--scope', default=None, metavar='LEVEL',
                     help='passed to the re-price: how far a promotion\u2019s '
                          'discount may be borrowed from')
+    ap.add_argument('--drop-launch-months', dest='drop_launch',
+                    action='store_true',
+                    help='passed to the re-price: drop a window month that '
+                         'carried a launch or a pre-order for the product')
     ap.add_argument('--keep', nargs='+', default=(), metavar='NAME',
                     help='passed to the re-price: leave these groups at the '
                          'GSCM price')
@@ -429,7 +433,8 @@ def main() -> int:
         print(f'no gscm_* sheet in {folder} prices that month')
         return 1
 
-    shared = {'by_units': args.by_units, 'keep': args.keep}
+    shared = {'by_units': args.by_units, 'keep': args.keep,
+              'drop_launch': args.drop_launch}
     if args.scope:
         shared['scope'] = args.scope
 

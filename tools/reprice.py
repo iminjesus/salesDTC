@@ -773,7 +773,7 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                                                            r['range'])
                 rrp = r['rrp'] or rrp_of(plan, r['code'])
                 camp = campaign_at(plan, canon, code, r['day'])
-                if skip is not None and skip(code, camp):
+                if skip is not None and skip(code, camp, r.get('ym')):
                     dropped[0] += 1
                     dropped[1] += r['qty']
                     continue
@@ -788,15 +788,15 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             # so a campaign's days are counted whether or not it sold on
             # them - a promotion that sold nothing is still a day it was on.
             if want_days:
-                span = [d for m in months for d in month_days(m)]
+                span = [(m, d) for m in months for d in month_days(m)]
                 for code in list(h.skus):
                     lv = levels.get(code, {})
-                    for d in span:
+                    for m, d in span:
                         camp = campaign_at(plan, canon, code, d)
                         # A day whose sales were dropped is not a day the
                         # product traded, or its coverage would count a
                         # window the discount tally never saw.
-                        if skip is not None and skip(code, camp):
+                        if skip is not None and skip(code, camp, m):
                             continue
                         h.saw(code, lv, camp)
             say(f'  {len(rows):,} DTC line(s); {len(h.skus):,} product(s) '
@@ -1777,7 +1777,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             campaigns: str = '', clearance: bool = True,
             why=(), quiet_list: bool = False,
             promo_first: bool = True, actual: bool = False,
-            new_from: str = 'sheet', keep=()) -> dict:
+            new_from: str = 'sheet', keep=(),
+            drop_launch: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1835,11 +1836,49 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             f'month being priced; for the rest, what they sold under one '
             f'is left out of the window')
 
-        def skip(code, camp):
+        def skip(code, camp, at=None):
             got = special_kinds(camp)
             return bool(got) and not (got & keep.get(code, frozenset()))
 
     months = months_back(ym, back)
+    # A launch does not end where the plan stops naming it. A product in
+    # its pre-order sells at the pre-order price on the days the plan calls
+    # quiet as well, because the offer covered them - the campaign column
+    # says what was *named*, and the launch price was simply the price.
+    #
+    # `skip` above drops the days the plan names, which leaves the quiet
+    # ones behind as though they were the product trading normally. On a
+    # product whose whole window is its launch that is the only history
+    # there is, and it becomes the ordinary price: SM-F971BZWGATS came out
+    # at 45% off a 2,999 list in a November running nothing.
+    #
+    # So where a month carried a launch for a product at all, the whole of
+    # that month goes - unless the month being priced is running one too,
+    # in which case the launch is the thing being forecast.
+    launch_out: dict = {}
+    if clearance and drop_launch:
+        base = skip
+        hot = {'launch', 'pre-order'}
+        for c in planned['items']:
+            k = PM.code_norm(c)
+            if keep.get(k, frozenset()) & hot:
+                continue              # the priced month is a launch as well
+            for m in months:
+                for d in month_days(m):
+                    if special_kinds(campaign_at(plan, canon, k, d)) & hot:
+                        launch_out.setdefault(k, set()).add(m)
+                        break
+        if launch_out:
+            say(f'  {len(launch_out):,} material(s) had a launch or a '
+                'pre-order inside the window and are not launching this '
+                f'month - the\n  {sum(len(v) for v in launch_out.values()):,} '
+                'month(s) that carried one come out whole, quiet days and '
+                'all (--drop-launch-months)')
+
+        def skip(code, camp, at=None):              # noqa: F811
+            if at is not None and at in launch_out.get(code, ()):
+                return True
+            return base(code, camp)
     say(f'\nreading what those products sold at over '
         f'{MONTHS[(months[0] % 100) - 1]} .. '
         f'{MONTHS[(months[-1] % 100) - 1]}:')
@@ -2208,6 +2247,14 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--drop-launch-months', dest='drop_launch',
+                    action='store_true',
+                    help='where a month in the window carried a launch or a '
+                         'pre-order for a product, drop that whole month of '
+                         'it - the quiet days as well, because a launch '
+                         'price applies on the days the plan does not name '
+                         'it. Off by default: measure it with price_spread '
+                         'before turning it on')
     ap.add_argument('--keep', nargs='+', default=(), metavar='NAME',
                     help='leave these groups at the GSCM price, by any of '
                          'Biz, Div 1, Div 2, Div 3 or Range - e.g. --keep MX. '
@@ -2302,7 +2349,8 @@ def main() -> int:
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,
                   model=args.model, actual=not args.no_actual,
-                  new_from=args.new_from, keep=args.keep)
+                  new_from=args.new_from, keep=args.keep,
+                  drop_launch=args.drop_launch)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)

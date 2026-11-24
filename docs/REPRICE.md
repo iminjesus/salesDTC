@@ -797,6 +797,50 @@ campaign was named or not. 45% off is what it has always sold at, because
 it has only ever sold at launch. A product whose whole history is its launch
 has no ordinary price to find, on any rung.
 
+### `--drop-launch-months` - a launch does not end where the plan stops naming it
+
+A product in its pre-order sells at the pre-order price on the days the plan
+calls quiet as well, because the offer covered them. The campaign column says
+what was **named**; the launch price was simply the price.
+
+The window already drops a clearance, a secret sale, an EOFY or a launch the
+priced month is not running - but only on the days the plan names one, which
+leaves the quiet days behind as though the product were trading normally. On
+a product whose whole window is its launch, those quiet days are the only
+history there is, and they become its ordinary price:
+
+```
+SM-F971BZWGATS, November, nothing on, list 2,999
+
+    what was on     days  priced off                     the day
+    nothing on        30  this product, days like these  1,650.00   (45.0% off)
+```
+
+With the flag, a window month that carried a launch or a pre-order for that
+product comes out **whole** - quiet days and all - unless the month being
+priced is launching it too, in which case the launch is the thing being
+forecast. A product that launched five months ago and has traded normally
+since keeps its ordinary months and loses only the launch ones. A product
+whose window is nothing but its launch has nothing left, and comes back
+`kept` - which is the honest answer, because it has never sold at an
+ordinary price.
+
+**Off by default.** Measure it before turning it on:
+
+```
+py tools\price_spread.py --month 2611 --by div1 --compare rrp
+py tools\price_spread.py --month 2611 --by div1 --compare rrp --drop-launch-months
+```
+
+> Two routes to this through the export's own `promotion_rule` were tried
+> and both failed, which is why the fix is on the plan side. See
+> `docs/DTC.md`: the rule names are identifiers, not a vocabulary - a new
+> one is minted per window **and per product code** - so neither the months
+> a name appears in nor the window it declares separates a standing offer
+> from a campaign. The depths say what the names cannot: EPP's standing
+> pricing came back as 54.3, 55.1, 55.2, 55.3, 55.6, 55.8, 56.5 and 57.0
+> per cent off across hundreds of separate names.
+
 ### `--keep NAME` - where the sheet already wins
 
 **The model earns its place where the sheet is stale, and not everywhere.**
