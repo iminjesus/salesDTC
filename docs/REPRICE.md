@@ -742,6 +742,48 @@ October runs Black Friday, which nobody has run
   rung 4   the nearest product's ASP                  =  1,300   how=new
 ```
 
+### `--model quote` - when the plan knows more than the history
+
+The two rungs below the realised ones answer the same day two ways, and
+**which should go first is a real question that October and November answer
+differently**:
+
+| | |
+| --- | --- |
+| rung 3, the product's **own six-month ASP** | realised, but from ordinary months |
+| rung 4, the **plan's own quote** for that campaign | that campaign exactly, but quoted rather than collected |
+
+`--model rrp` puts the ASP first, on the ground that a realised price beats
+a quoted one. `--model quote` puts the quote first. Everything else is the
+same model.
+
+**November is why.** Black Friday is the deepest discounting month of the
+year. The cumulative plan names it from 2025, so the chart knows the
+campaign is on - but a six-month window holds no sales under it and the
+folder has no `25 DTC Nov` to put there, so rungs 1 and 2 are silent and
+the day falls to an **ordinary month's ASP**. The year's cheapest month gets
+priced as an average one.
+
+```
+the product: ASP 1,800 over six ordinary months, list 2,000
+November: Black Friday, quoted at 1,400, no sales history under it
+
+--model rrp     1,800.00   this product, six-month ASP
+--model quote   1,400.00   the plan's own price for the day
+```
+
+The symptom to look for is a **sign that flips between months**, which is
+not a level error and cannot be calibrated away:
+
+```
+October   model < actual < sheet      the model came out cheap
+November  sheet < actual < model      the model came out dear
+```
+
+The actual sits between the two either way. A model built on the six months
+before a month is one step behind: it prices a dear month cheap and a cheap
+month dear, and the flip is the tell.
+
 ### Rung 4: a launch campaign has no past, so the plan answers
 
 **A launch campaign has never run before.** Tab S12 Launch, Galaxy Watch9

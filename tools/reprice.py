@@ -1357,7 +1357,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
               scope: str = 'range', rrp_at=None, new_cap: float = 0.0,
               b2b: float = None, flat_days: bool = False,
               by_units: bool = True, plan_mix=None, gscm_at=None,
-              new_from: str = 'sheet'):
+              new_from: str = 'sheet', quote_first: bool = False):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -1534,9 +1534,26 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             d = hist.lent(sc, camp, by_units)
             if d is not None:
                 return 'off', d, f'{name}, same promotion'
+        # Below the realised rungs, two answers for a day whose campaign
+        # nobody has a record of: what this product fetches in an ordinary
+        # month, and what the plan quotes for that campaign.
+        #
+        # Which of them goes first is a real question and the two months
+        # disagree, so it is a switch. The ASP is realised and the quote is
+        # not, which is the case for the ASP. Against it: a campaign with
+        # no record anywhere is usually one that has not run inside the
+        # window, and the clearest example is **Black Friday** - the
+        # deepest discounting month of the year, named in the cumulative
+        # plan from 2025 but with no sales in a six-month window and no
+        # `25 DTC Nov` in the folder to put there. Pricing it at an
+        # ordinary month's ASP prices the year's cheapest month as an
+        # average one, and November came out dear by about as much as
+        # October came out cheap.
+        q = quoted(day) if day is not None else None
+        if quote_first and q:
+            return 'at', q, "the plan's own price for the day"
         if own_asp:
             return 'at', own_asp, 'this product, six-month ASP'
-        q = quoted(day) if day is not None else None
         if q:
             return 'at', q, "the plan's own price for the day"
         # Nothing of its own: a new product. The promotion rungs above have
@@ -1859,7 +1876,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 scope=scope, rrp_at=rrp_at, new_cap=new_cap,
                 flat_days=flat_days, by_units=by_units,
                 plan_mix=plan_mix,
-                new_from=new_from,
+                new_from=new_from, quote_first=model == 'quote',
                 gscm_at=lambda c: (planned['items'].get(c)
                                    or planned['items'].get(PM.code_norm(c))
                                    or {}).get('aud'),
@@ -2026,13 +2043,17 @@ def main() -> int:
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
     ap.add_argument('--model', default='rrp',
-                    choices=('rrp', 'campaign', 'simple'),
+                    choices=('rrp', 'quote', 'campaign', 'simple'),
                     help='rrp (default): the list price the promotion table '
                          'quotes, less what the same promotion has been '
                          'running at - this product\u2019s own record of it '
-                         'first, then its group\u2019s. simple: each '
-                         'product\u2019s own six-month ASP, nudged by three '
-                         'group ratios. campaign is the old name for rrp')
+                         'first, then its group\u2019s. quote: the same, but '
+                         'a day whose campaign nobody has a record of takes '
+                         'the plan\u2019s own quote for it ahead of the '
+                         'product\u2019s ordinary-month ASP - which is the '
+                         'Black Friday case. simple: each product\u2019s own '
+                         'six-month ASP, nudged by three group ratios. '
+                         'campaign is the old name for rrp')
     ap.add_argument('--scope', default='div1', choices=SCOPES,
                     help='how far a promotion\u2019s discount may be '
                          'borrowed from when the product has never run it '
