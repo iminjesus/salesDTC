@@ -1242,6 +1242,41 @@ def why_one(codes, hist, out, levels, say):
             continue
 
         each = sorted((ym, t) for (c, ym), t in hist.smon.items() if c == k)
+        if p.get('model') == 'rrp':
+            say(f"    list price {p['rrp']:,.2f}, over the window\u2019s plan "
+                f"lines")
+            say(f"    {p['on'] * 100:.0f}% of the month\u2019s days carry a "
+                'campaign')
+            say(f"\n    {'what is on':<34}{'days':>5}{'pull':>6}  "
+                f"{'rung':<32}{'the day':>11}")
+            for camp, from_, n, kind, d, pull in p['rows']:
+                if kind == 'at':
+                    at, shown = d, f'{d:,.2f}'
+                else:
+                    at = p['rrp'] * (1 - min(0.95, max(0.0, d + p['shift'])))
+                    shown = f'{d * 100:.1f}% off'
+                say(f'    {camp[:33]:<34}{n:>5}{pull:>6.2f}'
+                    f'  {from_[:31]:<32}{at:>11,.2f}'
+                    + ('' if kind == 'at' else f'   ({shown})'))
+            if abs(p['shift']) >= 0.001:
+                say(f"\n    B2B {p['b2b'] * 100:.0f}% planned moves every "
+                    f"discount day by {p['shift'] * 100:+.1f}pp")
+            say(f"\n    the month is those days averaged by pull "
+                f"-> {p['price']:,.2f}")
+            say(f"    GSCM {row['gscm']:,.2f} -> {row['price']:,.2f}"
+                f"  ({(row['price'] / row['gscm'] - 1) * 100:+.1f}%)")
+            if any(k2 == 'at' for _, _, _, k2, _, _ in p['rows']):
+                say(f"\n    a rung reading `at` is a **price**, not a "
+                    'discount, so the list price does not enter it. Where '
+                    'that\n    price is the six-month ASP, the months '
+                    'behind it are:')
+                say(f"    {'month':>9}{'units':>8}{'ASP':>11}   vote")
+                for ym, t in each:
+                    v = ('yes' if t[0] >= MIN_UNITS
+                         else f'no (under {MIN_UNITS})')
+                    asp = t[1] / t[0] if t[0] else 0.0
+                    say(f'    {ym:>9}{t[0]:8,.0f}{asp:11,.0f}   {v}')
+            continue
         say(f"    {'month':>9}{'units':>8}{'ASP':>11}   vote")
         for ym, t in each:
             v = ('yes' if t[0] >= MIN_UNITS else f'no (under {MIN_UNITS})')
@@ -1620,6 +1655,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 or hist.discount(('sku', k), ANY) is not None or deep):
         total, wsum, on = 0.0, 0.0, 0
         used = collections.Counter()
+        gave: dict = {}
         for day in days:
             camp = campaign_at(plan, canon, k, day)
             if camp:
@@ -1629,6 +1665,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 total = None
                 break
             used[(camp or '(no campaign)', from_)] += 1
+            gave[(camp or '(no campaign)', from_)] = (kind, d)
             w = pull_for(camp)
             wsum += w
             if kind == 'at':
@@ -1658,6 +1695,14 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             # somebody else's, and a rung that cannot be told apart cannot
             # be measured. `price_spread --by how` is where it shows.
             told = any(f.startswith("the plan's") for _, f in used)
+            BREAKDOWN.append({
+                'code': k, 'model': 'rrp', 'rrp': rrp, 'shift': shift,
+                'b2b': b2b, 'price': price, 'on': on / len(days),
+                'tilt': not flat_days, 'days': len(days),
+                'rows': [(c, f, n, *gave[(c, f)], pull_for(
+                    '' if c == '(no campaign)' else c))
+                         for (c, f), n in used.most_common()],
+            })
             return (price, 'new' if leaned else 'plan' if told else 'rrp',
                     rrp, on / len(days), where)
     # Its own ASP, where it has one and no list price to discount.
@@ -1987,12 +2032,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             say(f'\n  {len(fresh):,} material(s) with no record to price '
                 f'from, {sum(v["qty"] for _, v in fresh):,.0f} planned '
                 'unit(s)')
-        if explain:
-            explain_terms(out, levels, say)
-        if campaigns:
-            campaign_report(hist, levels, say, level=campaigns)
-        if why:
-            why_one(why, hist, out, levels, say)
+        report(out, levels, hist, explain, campaigns, why, say)
         return out
     say('  rrp  = the promotion table\u2019s list price, day by day, less')
     say('         what the same promotion has been running at: this')
@@ -2024,7 +2064,23 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     now = sum(v['price'] * v['qty'] for v in out.values())
     say(f'\n  at the planned quantities: {was:,.0f} -> {now:,.0f} AUD '
         f'({(now / was - 1) * 100:+.1f}%)')
+    report(out, levels, hist, explain, campaigns, why, say)
     return out
+
+
+def report(out, levels, hist, explain, campaigns, why, say) -> None:
+    """The three asked-for readings, whichever model was run.
+
+    They used to hang off the `simple` branch, so `--why`, `--explain` and
+    `--campaigns` quietly did nothing on the model that is now the default -
+    the one question they exist to answer was the one they would not take.
+    """
+    if explain:
+        explain_terms(out, levels, say)
+    if campaigns:
+        campaign_report(hist, levels, say, level=campaigns)
+    if why:
+        why_one(why, hist, out, levels, say)
 
 
 def write_csv(path, out) -> None:

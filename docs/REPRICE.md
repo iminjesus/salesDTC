@@ -742,6 +742,42 @@ October runs Black Friday, which nobody has run
   rung 4   the nearest product's ASP                  =  1,300   how=new
 ```
 
+### `--why CODE` on the rrp model
+
+```
+py tools\reprice.py --month 2611 --why SM-F971BZWGATS
+```
+
+```
+  SM-F971BZWGATS
+    list price 2,999.00, over the window's plan lines
+    0% of the month's days carry a campaign
+
+    what is on                 days  pull  rung                          the day
+    (no campaign)                30  1.00  this product, same promotion  1,650.00   (45.0% off)
+
+    the month is those days averaged by pull -> 1,650.00
+    GSCM 1,734.00 -> 1,650.00  (-4.8%)
+```
+
+A day at a time: what the plan has on, how many days of it, how hard those
+days sell, **which rung answered and what it gave**. A rung that gives a
+discount shows the day's price and the discount in brackets; one that gives
+a price shows the price alone, and the months behind it are printed under
+the table.
+
+> `--why`, `--explain` and `--campaigns` hung off the `simple` branch, so
+> they quietly did nothing on the model that is now the default. All three
+> run on whichever model was asked for now.
+
+**The reading above is the launch trap, and it is not the rungs' fault.**
+November puts no campaign on this Fold8, so rung 1 answers with the
+product's own **no-campaign** discount - and every no-campaign day in its
+window was a day inside its launch, when the launch price applied whether a
+campaign was named or not. 45% off is what it has always sold at, because
+it has only ever sold at launch. A product whose whole history is its launch
+has no ordinary price to find, on any rung.
+
 ### `--keep NAME` - where the sheet already wins
 
 **The model earns its place where the sheet is stale, and not everywhere.**
