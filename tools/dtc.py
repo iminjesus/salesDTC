@@ -36,6 +36,8 @@ from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import re                                                     # noqa: E402
+
 from rawdata import MONTHS, find, parse_number, read_any     # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -179,70 +181,146 @@ def read(folder: Path, months=None, say=print, keep=None) -> list:
     return out
 
 
-def rule_report(rows: list, say=print, top: int = 40) -> None:
-    """Every `promotion_rule` in the window: how deep, and how often.
+RULE_WINDOW = re.compile(r'(\d{2})([A-Z]{3})(\d{2})_(\d{2})([A-Z]{3})(\d{2})')
+MON3 = {m.upper()[:3]: i + 1 for i, m in enumerate(MONTHS)}
+# A rule that runs this long is not a promotion, it is how the channel is
+# priced. Half a year is well clear of the longest campaign in the file -
+# the seasonal ones run two to six weeks - and well under the year the
+# standing rules declare.
+STANDING_DAYS = 180
+
+
+def rule_window(rule: str):
+    """(start, end) the rule declares in its own name, or None.
+
+    The rules are not a vocabulary - there are eighteen thousand of them -
+    because each one is an identifier with its channel, division, **dates**
+    and mechanic baked in:
+
+        AU_EPP_CRP_MX_01JAN26_31DEC26_DISCOUNT_CRX     a year
+        AU_EPP_WEB_MX_26FEB26_24MAR26_PROMOTEXT_50P    four weeks
+
+    So counting how many months a rule appears in says nothing: a new name
+    is minted for every window, and 38% of the file came back as "one month
+    only" on that test. What the name does carry is the window itself.
+    """
+    m = RULE_WINDOW.search(rule.upper())
+    if not m:
+        return None
+    try:
+        a = date(2000 + int(m.group(3)), MON3[m.group(2)], int(m.group(1)))
+        b = date(2000 + int(m.group(6)), MON3[m.group(5)], int(m.group(4)))
+    except (KeyError, ValueError):
+        return None
+    return (a, b) if b >= a else (b, a)
+
+
+def rule_kind(rule: str) -> str:
+    """'standing' or 'campaign', off the window the rule declares.
+
+    No dates at all is standing: a welcome voucher, a BIN offer, a CRP rule
+    - they are how a channel is priced and they do not end. A declared
+    window of half a year or more is the same thing written out. Anything
+    shorter is a promotion with a start and a finish, and carrying what it
+    did into a month that is not running it is the error this exists to
+    find.
+    """
+    got = rule_window(rule)
+    if got is None:
+        return 'standing'
+    return 'standing' if (got[1] - got[0]).days >= STANDING_DAYS else 'campaign'
+
+
+def rule_parts(rule: str) -> tuple:
+    """(channel, mechanic) as the name spells them, best effort."""
+    bits = [b for b in re.split(r'[_\s]+', rule.strip()) if b]
+    chan = next((b for b in bits
+                 if b.upper() in ('EPP', 'B2C', 'B2B', 'SME', 'SP', 'WR',
+                                  'CRP', 'EDU')), '(none)')
+    tail = RULE_WINDOW.split(rule.upper())
+    mech = '(none)'
+    if len(tail) > 1:
+        rest = [b for b in re.split(r'[_\s-]+', tail[-1]) if b]
+        mech = rest[0] if rest else '(none)'
+    elif bits:
+        mech = bits[-1]
+    return chan, mech[:18]
+
+
+def rule_report(rows: list, say=print, top: int = 25) -> None:
+    """How much of the window is standing pricing and how much is a campaign.
 
     The re-price keys its history on the **plan's** campaign for a date,
     because the month being priced has not happened and has only a plan to
     be described by. The export knows better: it carries the rule that
-    actually applied to each line. The two disagree in the case that
-    matters most.
+    actually applied to each line, and that rule declares its own window.
 
     A Fold8 whose plan says "no campaign" on half its days still sold those
-    days at its pre-order price, because the pre-order offer covered them.
-    Carried forward, that becomes the product's ordinary price and the next
-    month is priced at a launch discount it is not running.
-
-    What separates a standing rule from a campaign one is **how many months
-    it runs in**. EPP tiers, staff pricing and the like are live every
-    month and belong in a window; a pre-order, a launch bonus or a Black
-    Friday rule is live in one or two and does not. That is measured here
-    rather than kept as a list someone has to maintain.
+    days under its pre-order rule, because the rule covered them. Carried
+    forward, that becomes the product's ordinary price and the next month is
+    priced at a launch discount it is not running.
     """
     live = [r for r in rows if (r.get('rule') or '').strip()
             and r['qty'] > 0 and r['rrp']]
     if not live:
         say('\nno line carries a promotion_rule, so there is nothing to '
-            'separate standing offers from campaign ones')
+            'separate standing pricing from a campaign')
         return
     months = sorted({r['ym'] for r in live})
-    by: dict = {}
-    for r in live:
-        t = by.setdefault(r['rule'].strip(), {'q': 0.0, 'a': 0.0, 'l': 0.0,
-                                              'm': set()})
-        t['q'] += r['qty']
-        t['a'] += r['amt']
-        t['l'] += r['qty'] * r['rrp']
-        t['m'].add(r['ym'])
-    whole = sum(t['q'] for t in by.values())
-    say(f'\nthe rules the export says actually applied, over '
-        f'{len(months)} month(s): {len(by):,} of them, '
+
+    def tally(key):
+        out: dict = {}
+        for r in live:
+            t = out.setdefault(key(r), [0.0, 0.0, 0.0, set()])
+            t[0] += r['qty']
+            t[1] += r['amt']
+            t[2] += r['qty'] * r['rrp']
+            t[3].add(r['rule'])
+        return out
+
+    whole = sum(r['qty'] for r in live)
+    say(f'\nthe rules the export says applied, over {len(months)} month(s), '
         f'{whole:,.0f} unit(s)')
-    say('  a rule in every month is a standing offer - EPP, staff, an '
-        'ordinary tier - and belongs\n  in a window. One in a month or two '
-        'is a campaign, and carrying it forward prices the\n  next month '
-        'at an offer it is not running')
-    say(f"\n  {'rule':<44}{'months':>7}{'units':>10}{'share':>7}"
-        f"{'off list':>10}   reads as")
-    rank = sorted(by.items(), key=lambda kv: -kv[1]['q'])
-    for name, t in rank[:top]:
-        off = (1 - t['a'] / t['l']) * 100 if t['l'] > 0 else 0.0
-        n = len(t['m'])
-        kind = ('standing' if n >= len(months)
-                else 'most months' if n >= len(months) - 1
-                else 'campaign' if n > 1 else 'one month only')
-        say(f'  {name[:43]:<44}{n:>7}{t["q"]:>10,.0f}'
-            f'{t["q"] / whole * 100:>6.1f}%{off:>9.1f}%   {kind}')
-    if len(rank) > top:
-        rest = sum(t['q'] for _, t in rank[top:])
-        say(f'  ... and {len(rank) - top:,} more, {rest:,.0f} unit(s)')
-    once = [(n, t) for n, t in by.items() if len(t['m']) <= 1]
-    if once:
-        q = sum(t['q'] for _, t in once)
-        say(f'\n  {len(once):,} rule(s) ran in one month only, '
-            f'{q:,.0f} unit(s) - {q / whole * 100:.1f}% of the window. '
-            'Those are the\n  ones a window carries forward as though they '
-            'were the ordinary price')
+    say('  a rule names its own window - 01JAN26_31DEC26 is how a channel '
+        'is priced,\n  26FEB26_24MAR26 is a promotion. '
+        f'{STANDING_DAYS} days or more, or no dates at all, reads as '
+        'standing')
+
+    def block(title, got, width=30):
+        say(f"\n  {title:<{width}}{'rules':>8}{'units':>10}{'share':>7}"
+            f"{'off list':>10}")
+        for k, t in sorted(got.items(), key=lambda kv: -kv[1][0]):
+            off = (1 - t[1] / t[2]) * 100 if t[2] > 0 else 0.0
+            say(f'  {str(k)[:width - 1]:<{width}}{len(t[3]):>8,}'
+                f'{t[0]:>10,.0f}{t[0] / whole * 100:>6.1f}%{off:>9.1f}%')
+
+    block('what kind of rule', tally(lambda r: rule_kind(r['rule'])))
+    block('by channel', tally(lambda r: rule_parts(r['rule'])[0]))
+    mech = tally(lambda r: (rule_parts(r['rule'])[1]
+                            if rule_kind(r['rule']) == 'campaign' else None))
+    mech.pop(None, None)
+    block('campaign rules, by mechanic', mech)
+
+    camp = [r for r in live if rule_kind(r['rule']) == 'campaign']
+    cq = sum(r['qty'] for r in camp)
+    say(f'\n  {cq:,.0f} unit(s), {cq / whole * 100:.1f}% of the window, '
+        'sold under a rule with a window of its own.')
+    say('  Those are the lines a six-month average carries forward as '
+        'though they were\n  the ordinary price, on a month that is '
+        'running none of them.')
+    say(f"\n  the widest campaign rules {' ' * 4}{'units':>10}"
+        f"{'days':>7}{'off list':>10}")
+    wide: dict = {}
+    for r in camp:
+        got = rule_window(r['rule'])
+        t = wide.setdefault(r['rule'], [0.0, 0.0, 0.0,
+                                        (got[1] - got[0]).days if got else 0])
+        t[0] += r['qty']
+        t[1] += r['amt']
+        t[2] += r['qty'] * r['rrp']
+    for name, t in sorted(wide.items(), key=lambda kv: -kv[1][0])[:top]:
+        off = (1 - t[1] / t[2]) * 100 if t[2] > 0 else 0.0
+        say(f'  {name[:28]:<28}{t[0]:>10,.0f}{t[3]:>7}{off:>10.1f}%')
 
 
 def main() -> int:
