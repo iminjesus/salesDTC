@@ -165,14 +165,26 @@ def find_plan(folder: Path, stem: str = 'gscm'):
 
 
 def months_in(path: Path) -> list:
-    """Every month this sheet carries an AUD price column for, newest last."""
+    """Every month this sheet can be read for, oldest first.
+
+    The same test `read_plan` makes: a price column **or** an amount column.
+    A sheet that names its November `NOV(AUD)` and nothing else has no price
+    list, but it has an amount and a quantity, and the price comes out of
+    those - `read_plan` says so when it does it. Asking only for the price
+    column here would have hidden such a month from the picker while the
+    reader was perfectly able to read it.
+    """
     try:
         body, _ = read_any(path)
     except (ValueError, OSError):
         return []
     head = [h.strip() for h in (body[0] if body else [])]
-    return [2600 + i for i in range(1, 13)
-            if columns(head, 2600 + i)['aud'] is not None]
+    out = []
+    for i in range(1, 13):
+        at = columns(head, 2600 + i)
+        if at['aud'] is not None or at['amt_aud'] is not None:
+            out.append(2600 + i)
+    return out
 
 
 def pick_month(folder: Path, stem: str = 'gscm', ym: int | None = None,
