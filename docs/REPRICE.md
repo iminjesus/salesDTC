@@ -753,18 +753,37 @@ py tools\reprice.py --month 2611 --why SM-F971BZWGATS
     list price 2,999.00, over the window's plan lines
     0% of the month's days carry a campaign
 
-    what is on                 days  pull  rung                          the day
-    (no campaign)                30  1.00  this product, same promotion  1,650.00   (45.0% off)
+    the month a day at a time. Every day of it is priced on its own and the
+    month is their average, weighted by how hard each sells:
+      what was on   what the plan had live that day
+      days          how many days of the month that was
+      pull          how hard such a day sells against an ordinary one
+      priced off    which rung answered. "days like these" means days with the
+                    same campaign on, or with nothing on
+
+    what was on              days  pull  priced off                     the day
+    nothing on                 30  1.00  this product, days like these  1,650.00   (45.0% off)
 
     the month is those days averaged by pull -> 1,650.00
     GSCM 1,734.00 -> 1,650.00  (-4.8%)
 ```
 
-A day at a time: what the plan has on, how many days of it, how hard those
-days sell, **which rung answered and what it gave**. A rung that gives a
-discount shows the day's price and the discount in brackets; one that gives
-a price shows the price alone, and the months behind it are printed under
-the table.
+A rung that gives a discount shows the day's price and the discount in
+brackets; one that gives a price shows the price alone, and the months
+behind it are printed under the table.
+
+The same sentences go in the CSV's `Why`, one per group of days:
+
+```
+25 day(s) under Early Black Friday, priced off this product, days like these
+5 day(s) with nothing on, priced off this product, days like these
+```
+
+> It used to read `Early Black Friday x26 (this product, same promotion)`,
+> which needed three things explaining: that `x26` was days, that the
+> bracket was where the number came from, and what "same promotion" meant
+> on a day with no promotion on it. It meant *days like these*, which is
+> what it says now.
 
 > `--why`, `--explain` and `--campaigns` hung off the `simple` branch, so
 > they quietly did nothing on the model that is now the default. All three

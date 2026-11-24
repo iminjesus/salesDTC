@@ -1247,15 +1247,26 @@ def why_one(codes, hist, out, levels, say):
                 f"lines")
             say(f"    {p['on'] * 100:.0f}% of the month\u2019s days carry a "
                 'campaign')
-            say(f"\n    {'what is on':<34}{'days':>5}{'pull':>6}  "
-                f"{'rung':<32}{'the day':>11}")
+            say('\n    the month a day at a time. Every day of it is '
+                'priced on its own and the\n    month is their average, '
+                'weighted by how hard each sells:')
+            say('      what was on   what the plan had live that day')
+            say('      days          how many days of the month that was')
+            say('      pull          how hard such a day sells against an '
+                'ordinary one')
+            say('      priced off    which rung answered. "days like these" '
+                'means days with the\n                    same campaign on, '
+                'or with nothing on')
+            say(f"\n    {'what was on':<30}{'days':>5}{'pull':>6}  "
+                f"{'priced off':<32}{'the day':>11}")
             for camp, from_, n, kind, d, pull in p['rows']:
+                camp = 'nothing on' if camp == '(no campaign)' else camp
                 if kind == 'at':
                     at, shown = d, f'{d:,.2f}'
                 else:
                     at = p['rrp'] * (1 - min(0.95, max(0.0, d + p['shift'])))
                     shown = f'{d * 100:.1f}% off'
-                say(f'    {camp[:33]:<34}{n:>5}{pull:>6.2f}'
+                say(f'    {camp[:29]:<30}{n:>5}{pull:>6.2f}'
                     f'  {from_[:31]:<32}{at:>11,.2f}'
                     + ('' if kind == 'at' else f'   ({shown})'))
             if abs(p['shift']) >= 0.001:
@@ -1509,7 +1520,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         """
         if 'who' not in lean:
             lean['who'] = lean['asp'] = None
-            lean['how'] = 'ASP of nearest'
+            lean['how'] = 'nearest'
             if new_from != 'sheet':
                 who = nearest(k, lv, rrp, hist, levels,
                               rrp_at or (lambda c: None))
@@ -1518,7 +1529,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                     theirs = gscm_at(who)
                     if theirs and theirs > 0:
                         a *= gscm / theirs
-                        lean['how'] = 'nearest, at its rate off the sheet,'
+                        lean['how'] = 'at its sheet rate, nearest'
                 lean['who'], lean['asp'] = who, a
         return lean['who'], lean['asp']
 
@@ -1579,7 +1590,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         """
         d = hist.discount(('sku', k), camp)
         if d is not None:
-            return 'off', d, 'this product, same promotion'
+            return 'off', d, 'this product, days like these'
         ladder = ((('range', lv.get('range')), lv.get('range')),
                   (('div3', lv.get('div3')), lv.get('div3')),
                   (('div1', lv.get('div1')), lv.get('div1')),
@@ -1589,7 +1600,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 continue
             d = hist.lent(sc, camp, by_units)
             if d is not None:
-                return 'off', d, f'{name}, same promotion'
+                return 'off', d, f'{name}, days like these'
         # Below the realised rungs, two answers for a day whose campaign
         # nobody has a record of: what this product fetches in an ordinary
         # month, and what the plan quotes for that campaign.
@@ -1607,11 +1618,11 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         # October came out cheap.
         q = quoted(day) if day is not None else None
         if quote_first and q:
-            return 'at', q, "the plan's own price for the day"
+            return 'at', q, "the plan’s quoted price"
         if own_asp:
-            return 'at', own_asp, 'this product, six-month ASP'
+            return 'at', own_asp, "this product’s six-month ASP"
         if q:
-            return 'at', q, "the plan's own price for the day"
+            return 'at', q, "the plan’s quoted price"
         # Nothing of its own: a new product. The promotion rungs above have
         # already had their turn - they are tried first for a new product
         # exactly as for an old one, and a launch is usually on a campaign
@@ -1632,7 +1643,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             for sc in History.scopes(k, lv):
                 q = hist.quiet(sc)
                 if q is not None:
-                    return 'off', q, f'{sc[1] or "the whole book"}, nothing running'
+                    return 'off', q, (f'{sc[1] or "the whole book"}, '
+                                      'its ordinary markdown')
         return None, None, None
 
     def pull_for(camp):
@@ -1680,7 +1692,15 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 total += w * rrp * (1.0 - min(0.95, max(0.0, d + shift)))
         if total is not None:
             price = total / (wsum or len(days))
-            where = [f'{c} x{n} ({f})' for (c, f), n in used.most_common(4)]
+            # Spelled out rather than coded. `Boost Week x9 (this product,
+            # same promotion)` needed three things explaining - that x9 was
+            # days, that the bracket was where the number came from, and
+            # what "same promotion" meant on a day with no promotion on it.
+            where = [f'{n} day(s) '
+                     + ('with nothing on' if c == '(no campaign)'
+                        else f'under {c}')
+                     + f', priced off {f}'
+                     for (c, f), n in used.most_common(4)]
             if abs(shift) >= 0.001:
                 where.append(f'{shift * 100:+.1f}pp for a '
                              f'{b2b * 100:.0f}% B2B plan')
@@ -1694,7 +1714,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             # neighbour was needed: it is neither a realised price nor
             # somebody else's, and a rung that cannot be told apart cannot
             # be measured. `price_spread --by how` is where it shows.
-            told = any(f.startswith("the plan's") for _, f in used)
+            told = any('quoted price' in f for _, f in used)
             BREAKDOWN.append({
                 'code': k, 'model': 'rrp', 'rrp': rrp, 'shift': shift,
                 'b2b': b2b, 'price': price, 'on': on / len(days),
