@@ -104,6 +104,41 @@ changes when the source changes.
 
 ## Scoring a run
 
+**`price_spread.py --compare` is the way to do it.** It scores several
+models over one month and prints one table - a line a group, a pair of
+columns a model:
+
+```
+py tools\price_spread.py --month 2610 --by div1 --compare rrp simple
+```
+
+```
+                                   GSCM             rrp          simple
+div1              units    mean      sd    mean      sd    mean      sd
+TABLET            7,918     -90     115     -14      97    +108     146
+VD                7,674     -55     130      +3     103     +40     149
+HHP               7,042     -45     171     -10      87     +63     156
+HA                6,188     -16     139     -36     105     +93     134
+-----------------------------------------------------------------------
+all              28,822     -54     142     -13      99     +76     149
+```
+
+**Read the sd.** A model whose mean is nearer nought has the level right; a
+model whose sd is lower has the *shape* right, and a level can be moved
+afterwards while a shape cannot.
+
+The month is read once and re-priced once per model, so comparing three
+models costs three re-prices and one read of the order export, not three of
+each.
+
+Every figure in that table is a **group** aggregate - a division, a Div 2,
+never a material and never a customer - so it carries none of the month's
+data and can be pasted into a mail or a chat as it stands. Where the
+rawdata cannot leave the machine it was built on, this table is the whole
+of what has to travel.
+
+### Doing it in a pivot instead
+
 Two things wreck a pivot before the model is in question.
 
 **A material that sold nothing.** The sheet plans and prices materials that

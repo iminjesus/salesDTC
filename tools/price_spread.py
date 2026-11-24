@@ -176,11 +176,14 @@ def spread(rows: list, wkey, dkey) -> dict:
             'p10': pct(0.10), 'mid': pct(0.50), 'p90': pct(0.90)}
 
 
-def analyse(folder: Path, ym: int, back: int, plan_stems,
-            say=print) -> tuple[list, dict]:
-    """One row per material, with both differences and its chain."""
+def read_base(folder: Path, ym: int, say=print) -> tuple:
+    """The plan, the month as it sold, and the product master.
+
+    Split out from `analyse` so that scoring several models over one month
+    reads the order export once rather than once a model. It is the slow
+    part and none of it depends on how the month was re-priced.
+    """
     import plan_price as PP
-    import reprice as RP
 
     gf = PP.find_plan(folder, 'gscm')
     if gf is None:
@@ -202,6 +205,19 @@ def analyse(folder: Path, ym: int, back: int, plan_stems,
         raw = master(pp, PRODUCT_KEYS, PROD_COLS, say=lambda *a: None)
         levels = {PM.code_norm(k): v for k, v in raw.items()}
         say(f'  product master: {pp.name}, {len(levels):,} product(s)')
+    return planned, sold, levels
+
+
+def analyse(folder: Path, ym: int, back: int, plan_stems,
+            say=print, base=None, **rp) -> tuple[list, dict]:
+    """One row per material, with both differences and its chain.
+
+    `rp` is handed to `reprice.reprice`, so a caller can score a model other
+    than the default one. `base` is a `read_base` result to reuse.
+    """
+    import reprice as RP
+
+    planned, sold, levels = base if base else read_base(folder, ym, say=say)
 
     say('')
     # plan_price reads a sheet and takes YYMM; reprice walks real dates and
@@ -209,7 +225,7 @@ def analyse(folder: Path, ym: int, back: int, plan_stems,
     # quietly leaves every price as the sheet had it, so the conversion is
     # made here rather than relied on.
     priced = RP.reprice(folder, (2000 + ym // 100) * 100 + ym % 100,
-                        back, plan_stems, say=say)
+                        back, plan_stems, say=say, **rp)
 
     rows = []
     no_plan = no_rep = 0
@@ -279,6 +295,65 @@ def group(rows: list, by: str) -> list:
     return sorted(out, key=lambda o: o['impact_g'])
 
 
+def compare_table(by: str, models: list, say=print) -> None:
+    """One table, one line a group, a pair of columns a basis.
+
+    `models` is [(label, rows)], one entry a re-price. The GSCM column comes
+    first and is read off the first entry's rows - the sheet's own price does
+    not change between models, so it is the same column whichever one
+    supplies it.
+
+    Every figure is a **group** aggregate - a division, a Div 2, never a
+    material or a customer - so the table can be pasted into a mail or a chat
+    without taking any of the month's data with it. That is the point of it:
+    the numbers that decide which model to keep are the means and the
+    spreads, and those are a dozen lines, not a file.
+
+    The sd is the one to read. A model whose mean is nearer nought has the
+    level right; a model whose sd is lower has the **shape** right, and a
+    level can be moved afterwards while a shape cannot.
+    """
+    if not models:
+        return
+    cols = [('GSCM', models[0][1], 'g')] + [(lab, rs, 'p')
+                                            for lab, rs in models]
+    keys = [o['name'] for o in group(models[0][1], by)]
+    at = {}
+    for i, (lab, rows, _) in enumerate(cols):
+        gs = {o['name']: o for o in group(rows, by)}
+        whole = group([dict(r, _all='all') for r in rows], '_all')[0]
+        at[i] = (gs, whole)
+    w = max(14, max((len(k) for k in keys), default=6) + 1)
+    pad = 16
+    say('\ngap = the material\u2019s realised price less the price that '
+        'basis would have planned it at')
+    say('      mean is the level, sd is the shape. The lower sd is the '
+        'better model: a level can be moved\n      afterwards and a shape '
+        'cannot\n')
+    say(f'{"":<{w}}{"":>9}'
+        + ''.join(f'{lab[:pad - 1]:>{pad}}' for lab, _, _ in cols))
+    say(f'{by:<{w}}{"units":>9}'
+        + ''.join(f'{"mean":>8}{"sd":>8}' for _ in cols))
+    num = lambda v, sign: ('-' if v is None
+                           else format(v, '+,.0f' if sign else ',.0f'))
+
+    def line(name, pick):
+        cells, units = '', 0.0
+        for i, (_, _, key) in enumerate(cols):
+            o = pick(i)
+            d = o.get(key) if o else None
+            if i == 0 and o:
+                units = o['units']
+            cells += f'{num(d["mean"] if d else None, True):>8}'
+            cells += f'{num(d["sd"] if d else None, False):>8}'
+        return f'{name[:w - 1]:<{w}}{units:>9,.0f}{cells}'
+
+    for name in keys:
+        say(line(name, lambda i, n=name: at[i][0].get(n)))
+    say('-' * (w + 9 + pad * len(cols)))
+    say(line('all', lambda i: at[i][1]))
+
+
 def says(o: dict) -> str:
     """The one sentence the two numbers of a group add up to.
 
@@ -320,6 +395,19 @@ def main() -> int:
                          'under a Xth of, the planned price (default 3)')
     ap.add_argument('--out', default=None, metavar='CSV',
                     help='write the per-material rows as well')
+    ap.add_argument('--compare', nargs='+', default=None, metavar='MODEL',
+                    help='score several re-price models over the one month '
+                         'and print a single table of them - e.g. '
+                         '--compare rrp simple. The table is group '
+                         'aggregates only, no material and no customer, so '
+                         'it is safe to paste anywhere')
+    ap.add_argument('--scope', default=None, metavar='LEVEL',
+                    help='passed to the re-price: how far a promotion\u2019s '
+                         'discount may be borrowed from')
+    ap.add_argument('--by-members', dest='by_units', action='store_false',
+                    default=True,
+                    help='passed to the re-price: a group answers with the '
+                         'average of its products, not of its units')
     args = ap.parse_args()
 
     folder = Path(args.dir)
@@ -348,7 +436,31 @@ def main() -> int:
             return 1
         ym = 2600 + have[0]
 
-    rows, _ = analyse(folder, ym, args.back, args.plan)
+    shared = {'by_units': args.by_units}
+    if args.scope:
+        shared['scope'] = args.scope
+
+    if args.compare:
+        base = read_base(folder, ym, say=print)
+        done = []
+        for name in args.compare:
+            print(f'\n{"=" * 72}\nre-pricing on {name}:')
+            rs, _ = analyse(folder, ym, args.back, args.plan, base=base,
+                            model=name, **shared)
+            if rs:
+                done.append((name, rs))
+        if not done:
+            print('no material sold that the plan also priced')
+            return 1
+        m = MONTHS[(ym % 100) - 1]
+        print(f'\n{"=" * 72}')
+        print(f'{m} {2000 + ym // 100}  \u00b7  AUD  \u00b7  order export, '
+              f'Net Value (Item)  \u00b7  by {args.by}')
+        print(f'{len(done[0][1]):,} material(s)')
+        compare_table(args.by, done)
+        return 0
+
+    rows, _ = analyse(folder, ym, args.back, args.plan, **shared)
     if not rows:
         print('no material sold that the plan also priced')
         return 1

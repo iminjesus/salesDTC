@@ -130,6 +130,45 @@ weighted by the units behind them: a division's deviation is a property of its
 models, and naming them is the difference between knowing the plan is
 inconsistent and being able to do something about it.
 
+## `--compare` - two models over one month
+
+```
+py tools\price_spread.py --month 2610 --by div1 --compare rrp simple
+```
+
+One table, a line a group and a pair of columns a basis, with the sheet's
+own price first:
+
+```
+                                   GSCM             rrp          simple
+div1              units    mean      sd    mean      sd    mean      sd
+TABLET            7,918     -90     115     -14      97    +108     146
+VD                7,674     -55     130      +3     103     +40     149
+HHP               7,042     -45     171     -10      87     +63     156
+HA                6,188     -16     139     -36     105     +93     134
+-----------------------------------------------------------------------
+all              28,822     -54     142     -13      99     +76     149
+```
+
+**Read the sd.** The mean is the level and the sd is the shape; a level can
+be moved afterwards and a shape cannot, so the lower sd is the better model
+even where its mean is further out.
+
+The GSCM column is the same whichever model supplies it - the sheet's price
+does not change - so it is read off the first one and printed once.
+
+`--scope` and `--by-members` are handed to every re-price in the run, so the
+models are compared on one setting rather than on two.
+
+**It is safe to send.** Every figure is a group aggregate - a division, a
+Div 2, never a material and never a customer - so the table carries none of
+the month's data. Where the rawdata cannot leave the machine it was built
+on, this is the whole of what has to travel: run it there, paste the dozen
+lines.
+
+The month is read once and re-priced once per model: three models cost three
+re-prices and one read of the order export.
+
 ## What it leaves out
 
 - **Planned and not sold.** No realised price, so nothing to measure. The gap
