@@ -1409,6 +1409,19 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
     # priced at it rather than at the list price less something.
     own_asp = hist.asp(k)
 
+    # And the nearest product's, for a code the window has never seen. Found
+    # on the first day that asks for it and not before: the search walks
+    # every product in the history, and a month of materials that all have a
+    # record of their own would pay for it once each for nothing.
+    lean = {}
+
+    def near_asp():
+        if 'who' not in lean:
+            who = nearest(k, lv, rrp, hist, levels, rrp_at or (lambda c: None))
+            lean['who'] = who
+            lean['asp'] = hist.asp(who) if who else None
+        return lean['who'], lean['asp']
+
     def disc(camp):
         """This product under this campaign, then the ways round not having it.
 
@@ -1454,6 +1467,22 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 return 'off', d, f'{name}, same promotion'
         if own_asp:
             return 'at', own_asp, 'this product, six-month ASP'
+        # Nothing of its own: a new product. The promotion rungs above have
+        # already had their turn - they are tried first for a new product
+        # exactly as for an old one, and a launch is usually on a campaign
+        # its family has run - so what is left is a day no promotion rule
+        # covers, and the answer for that is **what something similar
+        # fetches**, not what something similar comes off list.
+        #
+        # Those are not the same thing, and the difference is the whole
+        # reason this rung is a price. The product a launch most resembles
+        # is the model it replaces, and that model is at the end of its life
+        # and at its deepest discount: inheriting its *discount* prices a
+        # new phone as a run-out, and the deeper the neighbour has been cut
+        # the cheaper the launch comes out. Its ASP carries no such slope.
+        who, a = near_asp()
+        if a:
+            return 'at', a, f'ASP of nearest {who}'
         if not camp:
             for sc in History.scopes(k, lv):
                 q = hist.quiet(sc)
@@ -1508,7 +1537,14 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             if abs(shift) >= 0.001:
                 where.append(f'{shift * 100:+.1f}pp for a '
                              f'{b2b * 100:.0f}% B2B plan')
-            return price, 'rrp', rrp, on / len(days), where
+            # A month that leaned on a neighbour for any of its days is a
+            # new product's month, whatever the promotion rungs covered, and
+            # the row says so: `price_spread --by how` breaks the error out
+            # by rung, and a launch hidden inside `rrp` is the one row it
+            # most needs to see on its own.
+            leaned = any(f.startswith('ASP of nearest') for _, f in used)
+            return (price, 'new' if leaned else 'rrp', rrp,
+                    on / len(days), where)
     # Its own ASP, where it has one and no list price to discount.
     asp = hist.asp(k)
     if asp:
@@ -1517,8 +1553,18 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
     # Nothing of its own at all: a product this window has never seen. Say so,
     # name what was leant on, and price off that rather than quietly keeping a
     # number the sheet already had.
-    near = nearest(k, lv, rrp, hist, levels, rrp_at or (lambda c: None))
+    near, a = near_asp()
     if near:
+        # Its ASP before its discount, for the reason given at the rung
+        # above: a neighbour's discount is its own position in its own life
+        # and a launch inheriting one is priced as a run-out.
+        if a:
+            note = f'new SKU; ASP of nearest {near}'
+            if abs(shift) >= 0.001:
+                note += (f'; {shift * 100:+.1f}pp for a '
+                         f'{b2b * 100:.0f}% B2B plan')
+                a = max(a * 0.5, a - (rrp or a) * shift)
+            return a, 'new', rrp, 0.0, [note]
         d = hist.own(near)
         if rrp and d is not None:
             # The neighbour a launch resembles is usually the model it
@@ -1539,9 +1585,6 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 note += f'; {shift * 100:+.1f}pp for a {b2b * 100:.0f}% B2B plan'
             out = min(0.95, max(0.0, capped + shift))
             return rrp * (1.0 - out), 'new', rrp, 0.0, [note]
-        a = hist.asp(near)
-        if a:
-            return a, 'new', rrp, 0.0, [f'new SKU; ASP of nearest {near}']
     return gscm, 'kept', rrp, 0.0, ['no list price and no history']
 
 
@@ -1743,7 +1786,14 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         # judgement someone may want to overrule one line at a time.
         near = ''
         if kind == 'new' and where:
-            near = where[0].split('nearest ')[-1].split(' ')[0].rstrip(';')
+            # The code is written three ways now - `nearest X at ...`,
+            # `ASP of nearest X` and, inside a day walk, `... (ASP of
+            # nearest X)` - so the trailing bracket comes off with the
+            # semicolon rather than riding into the column.
+            for w in where:
+                if 'nearest ' in w:
+                    near = w.split('nearest ')[-1].split(' ')[0].rstrip(';)')
+                    break
         out[code] = {
             'gscm': it['aud'], 'price': round(price, 2), 'how': kind,
             'rrp': rrp, 'promo_days': round(promo, 3), 'qty': it['qty'],

@@ -666,10 +666,10 @@ this order:
 | 1 | this SKU's own discount off RRP **the last time this same promotion ran** | list less that | `rrp` |
 | 2 | never run it: the **same promotion** at its model family, then Div 3, then Div 1 (`--scope`) | list less that | `rrp` |
 | 3 | no group answer either: this SKU's **own six-month ASP** | **at the ASP** | `rrp` |
-| 4 | a quiet day for a SKU with no record at all: its group's **ordinary markdown off list** | list less that | `rrp` |
-| 5 | no list price in the plan at all | the six-month ASP, whole | `asp` |
-| 6 | nothing of its own and no group answer - a **new SKU** | the nearest product's discount off list | `new` |
-| 7 | not even a neighbour to lean on | the GSCM price, unchanged | `kept` |
+| 4 | nothing of its own: the **nearest similar product's ASP** | at that ASP | `new` |
+| 5 | not even a neighbour, on a quiet day: its group's **ordinary markdown off list** | list less that | `rrp` |
+| 6 | no list price in the plan at all | the six-month ASP, whole | `asp` |
+| 7 | nothing anywhere | the GSCM price, unchanged | `kept` |
 
 **Rung 3 is a price, not a discount**, and that is the difference between it
 and what used to be there. The old rung took the product's own six-month
@@ -690,16 +690,46 @@ is quoted against; the rung under them is just what the product has been
 fetching, and it has no business being re-based on a list price it never
 sold at.
 
-**A new product lands on rungs 2 and 4.** The promotion table carries its
-list price before it has sold a thing, and what its family comes off that
-list - under October's promotion on the promoted days, and ordinarily on the
-rest - is the best answer there is. Rung 4 is a backstop under rung 2: with
-`--by-members` a family needs three products that each sold enough to vote,
-and a family of two cannot, while its pooled quiet markdown still can.
-Without it the day walk gave up on the first quiet day and the product fell
-to rung 6, where the nearest neighbour is usually the model it replaces - at
-the end of its life and at its deepest discount, which is the one price a
-launch should not inherit.
+### A new product takes the same rungs, in the same order
+
+**The promotion rule is tried first for a launch exactly as for anything
+else.** The promotion table carries a new product's list price before it has
+sold a thing, and a launch is usually on a campaign its family has run, so
+rung 2 answers most of its days. Only a day no promotion rule covers falls
+to rung 4.
+
+```
+the model it replaces: ASP 1,300, 35% off its 2,000 list
+the launch lists at 2,400
+
+October runs Boost Week, which the family has run
+  rung 2   2,400 x (1 - 40% the family's Boost Week)  =  1,440   how=rrp
+October runs Black Friday, which nobody has run
+  rung 4   the nearest product's ASP                  =  1,300   how=new
+```
+
+**Rung 4 is the neighbour's ASP, not its discount**, and that is the
+difference that matters. The product a launch most resembles is the model it
+replaces; that model is at the end of its life and at its deepest discount,
+so inheriting its *discount* prices a new phone as a run-out, and the deeper
+the predecessor has been cut the cheaper the launch comes out. Its ASP
+carries no such slope.
+
+> It carries the opposite one. A launch that lists **above** the model it
+> replaces takes that model's ASP flat, so it comes out cheap by the
+> difference in list price - 1,300 against a 2,400 list above. The discount
+> form had the same sign of error for the other reason. Neither is right on
+> a launch priced above its predecessor; `--new-cap` was the knob for the
+> old form and there is nothing equivalent for this one yet, so the `new`
+> row in `price_spread --by how` is the place to watch it.
+
+A month that leans on a neighbour for any of its days is written `new`,
+whatever the promotion rungs covered - a launch hidden inside `rrp` is the
+one row that most needs to be seen on its own.
+
+Rung 5 is the backstop under rung 2 for a product with no neighbour either:
+with `--by-members` a family needs three products that each sold enough to
+vote, and a family of two cannot, while its pooled quiet markdown still can.
 
 The B2B shift applies on either shape. It is measured in points off the list
 price, so a price rung takes `rrp x shift` off in money - the same money the
