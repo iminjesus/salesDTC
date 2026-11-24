@@ -188,6 +188,10 @@ MON3 = {m.upper()[:3]: i + 1 for i, m in enumerate(MONTHS)}
 # the seasonal ones run two to six weeks - and well under the year the
 # standing rules declare.
 STANDING_DAYS = 180
+# A rule family live in this share of the window is how the channel is
+# priced rather than a promotion. Two thirds, so a family can miss a month
+# or two of a six-month window and still read as standing.
+STANDING_SHARE = 2 / 3
 
 
 def rule_window(rule: str):
@@ -215,20 +219,48 @@ def rule_window(rule: str):
     return (a, b) if b >= a else (b, a)
 
 
-def rule_kind(rule: str) -> str:
-    """'standing' or 'campaign', off the window the rule declares.
+DATEY = re.compile(r'^(?:\d{2}[A-Z]{3}\d{2}|\d{2}|\d{4}|\d{6}|\d{8})$')
 
-    No dates at all is standing: a welcome voucher, a BIN offer, a CRP rule
-    - they are how a channel is priced and they do not end. A declared
-    window of half a year or more is the same thing written out. Anything
-    shorter is a promotion with a start and a finish, and carrying what it
-    did into a month that is not running it is the error this exists to
-    find.
+
+def rule_family(rule: str) -> str:
+    """The rule with its dates taken out, so re-issues read as one offer.
+
+    This is the whole of the classification, and the first two attempts at
+    it both failed on the same fact: **the channel's standing pricing is
+    re-issued as a new dated rule every fortnight**.
+
+        AU_EPP_WEB_MX_26FEB26_24MAR26_PROMOTEXT_50P   26 days   55.8% off
+        AU_EPP_WEB_MX_26FEB26_10MAR26_PWP_50PCT-MAI   12 days   55.6% off
+        AU_EPP_WEB_MX_26FEB26_10MAR26_DISCOUNT_THY-   12 days   55.1% off
+
+    Same channel, same division, same depth, a new name each time. Counting
+    the months a **name** appears in therefore measured the naming, and 38%
+    of the file read as "one month only". Measuring the **declared window**
+    instead called three quarters of the file a campaign, which is the same
+    mistake from the other end: each instance really is short-dated, and
+    the offer behind it is not.
+
+    Strip the dates and the re-issues collapse into one family, which is
+    the thing that either runs all year or does not.
     """
-    got = rule_window(rule)
-    if got is None:
-        return 'standing'
-    return 'standing' if (got[1] - got[0]).days >= STANDING_DAYS else 'campaign'
+    bits = [b for b in re.split(r'[_\s]+', rule.strip()) if b]
+    return '_'.join(b for b in bits if not DATEY.match(b.upper())) or rule
+
+
+def rule_kinds(rows: list, months: list) -> dict:
+    """{family: 'standing' | 'campaign'}, by how much of the window it ran.
+
+    A family live in most of the window is how the channel is priced, be it
+    one rule or thirty re-issues of one. A family live in a month or two is
+    a promotion with a start and a finish, and carrying what it did into a
+    month that is not running it is the error this exists to find.
+    """
+    seen: dict = {}
+    for r in rows:
+        seen.setdefault(rule_family(r['rule']), set()).add(r['ym'])
+    need = max(2, round(len(months) * STANDING_SHARE))
+    return {f: ('standing' if len(ms) >= need else 'campaign')
+            for f, ms in seen.items()}
 
 
 def rule_parts(rule: str) -> tuple:
@@ -281,10 +313,15 @@ def rule_report(rows: list, say=print, top: int = 25) -> None:
     whole = sum(r['qty'] for r in live)
     say(f'\nthe rules the export says applied, over {len(months)} month(s), '
         f'{whole:,.0f} unit(s)')
-    say('  a rule names its own window - 01JAN26_31DEC26 is how a channel '
-        'is priced,\n  26FEB26_24MAR26 is a promotion. '
-        f'{STANDING_DAYS} days or more, or no dates at all, reads as '
-        'standing')
+    kinds = rule_kinds(live, months)
+    kind = lambda r: kinds.get(rule_family(r['rule']), 'campaign')
+    fams = len(kinds)
+    say(f'  {len(set(r["rule"] for r in live)):,} rule name(s), '
+        f'{fams:,} once their dates are stripped: the channel re-issues its '
+        'standing\n  pricing as a new dated rule every fortnight, so the '
+        'name is not the offer. A family live in\n  '
+        f'{STANDING_SHARE * 100:.0f}% of the window or more is how the '
+        'channel is priced; less is a promotion')
 
     def block(title, got, width=30):
         say(f"\n  {title:<{width}}{'rules':>8}{'units':>10}{'share':>7}"
@@ -294,33 +331,32 @@ def rule_report(rows: list, say=print, top: int = 25) -> None:
             say(f'  {str(k)[:width - 1]:<{width}}{len(t[3]):>8,}'
                 f'{t[0]:>10,.0f}{t[0] / whole * 100:>6.1f}%{off:>9.1f}%')
 
-    block('what kind of rule', tally(lambda r: rule_kind(r['rule'])))
+    block('what kind of rule', tally(kind))
     block('by channel', tally(lambda r: rule_parts(r['rule'])[0]))
     mech = tally(lambda r: (rule_parts(r['rule'])[1]
-                            if rule_kind(r['rule']) == 'campaign' else None))
+                            if kind(r) == 'campaign' else None))
     mech.pop(None, None)
     block('campaign rules, by mechanic', mech)
 
-    camp = [r for r in live if rule_kind(r['rule']) == 'campaign']
+    camp = [r for r in live if kind(r) == 'campaign']
     cq = sum(r['qty'] for r in camp)
     say(f'\n  {cq:,.0f} unit(s), {cq / whole * 100:.1f}% of the window, '
-        'sold under a rule with a window of its own.')
-    say('  Those are the lines a six-month average carries forward as '
-        'though they were\n  the ordinary price, on a month that is '
-        'running none of them.')
-    say(f"\n  the widest campaign rules {' ' * 4}{'units':>10}"
-        f"{'days':>7}{'off list':>10}")
+        'sold under an offer that is not how the channel prices - one that '
+        'ran\n  in part of the window and stopped. Those are the lines a '
+        'six-month average carries\n  forward as the ordinary price, into '
+        'a month running none of them.')
+    say(f"\n  the biggest campaign families{' ' * 2}{'months':>7}"
+        f"{'units':>10}{'off list':>10}")
     wide: dict = {}
     for r in camp:
-        got = rule_window(r['rule'])
-        t = wide.setdefault(r['rule'], [0.0, 0.0, 0.0,
-                                        (got[1] - got[0]).days if got else 0])
+        t = wide.setdefault(rule_family(r['rule']), [0.0, 0.0, 0.0, set()])
         t[0] += r['qty']
         t[1] += r['amt']
         t[2] += r['qty'] * r['rrp']
+        t[3].add(r['ym'])
     for name, t in sorted(wide.items(), key=lambda kv: -kv[1][0])[:top]:
         off = (1 - t[1] / t[2]) * 100 if t[2] > 0 else 0.0
-        say(f'  {name[:28]:<28}{t[0]:>10,.0f}{t[3]:>7}{off:>10.1f}%')
+        say(f'  {name[:30]:<32}{len(t[3]):>7}{t[0]:>10,.0f}{off:>10.1f}%')
 
 
 def main() -> int:
