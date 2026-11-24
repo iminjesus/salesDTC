@@ -1686,11 +1686,13 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     """
     import plan_price as PP
 
-    gf = PP.find_plan(folder, 'gscm')
-    if gf is None:
-        raise SystemExit(f'no gscm_* file in {folder} - that is the month '
-                         'being re-priced')
     say('reading the plan to re-price:')
+    # Whichever sheet carries this month. The folder holds one a month now,
+    # and the first one its name turns up is not always the one being
+    # priced.
+    gf, _ = PP.pick_month(folder, 'gscm', ym % 10000, say=say)
+    if gf is None:
+        raise SystemExit(f'no gscm_* sheet in {folder} prices that month')
     planned = PP.read_plan(gf, ym, say=say)
     if planned is None:
         raise SystemExit('the GSCM sheet has no price for that month')
@@ -2131,19 +2133,13 @@ def main() -> int:
     if not folder.is_dir():
         raise SystemExit(f'no such folder: {folder.resolve()}')
 
-    ym = args.month
+    import plan_price as PP
+    gf, ym = PP.pick_month(folder, 'gscm', args.month)
     if ym is None:
-        import plan_price as PP
-        gf = PP.find_plan(folder, 'gscm')
-        if gf is None:
-            raise SystemExit(f'no gscm_* file in {folder.resolve()}')
-        body, _ = read_any(gf)
-        head = [h.strip() for h in (body[0] if body else [])]
-        have = [i for i in range(1, 13)
-                if PP.columns(head, 2600 + i)['aud'] is not None]
-        if not have:
-            raise SystemExit(f'{gf.name}: no month column in it')
-        ym = 2600 + have[0]
+        raise SystemExit(f'no gscm_* file in {folder.resolve()}')
+    if gf is None:
+        raise SystemExit(f'no gscm_* sheet in {folder.resolve()} prices that '
+                         'month')
     full = (2000 + ym // 100) * 100 + ym % 100
 
     out = reprice(folder, full, args.back, args.plan, explain=args.explain,

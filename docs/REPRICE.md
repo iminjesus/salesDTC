@@ -51,6 +51,37 @@ Two deliberate limits:
   forecast, and inventing one would bury a price estimate inside a demand
   estimate.
 
+### Which month, and which sheet prices it
+
+The folder holds a GSCM sheet a month - `GSCM_Oct` beside `GSCM_Nov` - and a
+promotion plan per division that is **cumulative**: `MX_promo_2611` carries
+every line since 2025, not just November's.
+
+| | how it is chosen |
+| --- | --- |
+| the promotion plan | the newest cut per division, one file each - `MX_promo_2611` over `MX_promo_2610`. Cumulative, so the newest is the whole history |
+| the GSCM sheet | **the one that prices the month asked for**, found by walking the series |
+| the month, with no `--month` | the **newest** month any of those sheets carries |
+
+```
+py tools\reprice.py                 # November, off GSCM_Nov
+py tools\reprice.py --month 2610    # October, off GSCM_Oct, same plan files
+```
+
+Both months read the same cumulative plan, so re-running October after a new
+plan arrives needs nothing but `--month 2610`.
+
+> Two things here were wrong while the folder held one sheet of one month,
+> and only showed up once it held two. The sheet was whichever the name
+> turned up first, and the run died on its missing column rather than
+> looking at the next one. The month was `have[0]`, the **lowest** month
+> number in it - October on a sheet of Oct, Nov and Dec, which is the month
+> least likely to be the one wanted. It is the newest now.
+
+Because the plan is cumulative, the six-month window on the list price below
+is doing much more work than it was: a 2025 line is in the file and its
+price was in force a year ago.
+
 ### The list price is a six-month figure too
 
 A product is planned many times over, so the list price is the **commonest**

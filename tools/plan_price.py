@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rawdata import (MONTHS, find, parse_number,                   # noqa: E402
-                     pick_file, read_any)
+                     pick_file, pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -162,6 +162,64 @@ def read_plan(path: Path, ym: int, say=print) -> dict | None:
 
 def find_plan(folder: Path, stem: str = 'gscm'):
     return pick_file(folder, stem)
+
+
+def months_in(path: Path) -> list:
+    """Every month this sheet carries an AUD price column for, newest last."""
+    try:
+        body, _ = read_any(path)
+    except (ValueError, OSError):
+        return []
+    head = [h.strip() for h in (body[0] if body else [])]
+    return [2600 + i for i in range(1, 13)
+            if columns(head, 2600 + i)['aud'] is not None]
+
+
+def pick_month(folder: Path, stem: str = 'gscm', ym: int | None = None,
+               say=print) -> tuple:
+    """(the sheet that prices this month, the month), or (None, None).
+
+    The folder holds a sheet a month now - GSCM_Oct beside GSCM_Nov - and
+    one of them has the month being priced and the other does not. Taking
+    whichever the name sorts first and failing on its missing column is a
+    run lost to a file that was never the right one, so the series is
+    walked and the first sheet that actually carries the month answers.
+
+    With no month asked for, the **newest** month any of them carries. It
+    used to be the lowest month number in whichever sheet turned up, which
+    was the right answer only while the folder held one sheet and that
+    sheet held one month: `have[0]` on a sheet of Oct, Nov and Dec is
+    October, which is the month least likely to be the one wanted.
+    """
+    if ym is not None and ym >= 100000:
+        ym %= 10000                      # YYYYMM given, the sheets are YYMM
+    files = pick_series(folder, stem)
+    if not files:
+        say(f'  no {stem}_* file in {folder}')
+        return None, None
+    have = {}
+    for path in files:
+        for m in months_in(path):
+            have.setdefault(m, path)
+    if not have:
+        say(f'  no {stem}_* file has a month column: '
+            + ', '.join(p.name for p in files))
+        return None, None
+    if ym is None:
+        ym = max(have)
+        if len(have) > 1:
+            say(f'  {len(have)} month(s) priced in {len(files)} sheet(s): '
+                + ', '.join(f'{MONTHS[(m % 100) - 1]} ({have[m].name})'
+                            for m in sorted(have))
+                + f' - taking {MONTHS[(ym % 100) - 1]}, the newest. --month '
+                'picks another')
+        return have[ym], ym
+    if ym not in have:
+        say(f'  no {stem}_* sheet prices {MONTHS[(ym % 100) - 1]} - '
+            + ', '.join(f'{MONTHS[(m % 100) - 1]} is in {have[m].name}'
+                        for m in sorted(have)))
+        return None, ym
+    return have[ym], ym
 
 
 def payload(plan: dict) -> dict:

@@ -331,15 +331,21 @@ def main() -> int:
 
     ym = args.month
     if ym is None:
+        # This writes into one workbook, so the month comes from that
+        # workbook and not from the series: the newest it prices, which on
+        # a sheet of Oct, Nov and Dec is the one being planned. It used to
+        # take the lowest, which was October on that sheet.
         import plan_price as PP
-        body, _ = read_any(src)
-        head = [str(h or '').strip() for h in (body[0] if body else [])]
-        have = [i for i in range(1, 13)
-                if PP.columns(head, 2600 + i)['aud'] is not None]
+        have = PP.months_in(src)
         if not have:
             print(f'  {src.name}: no month price column in it')
             return 1
-        ym = 2600 + have[0]
+        ym = max(have)
+        if len(have) > 1:
+            print(f'  {src.name} prices '
+                  + ', '.join(MONTHS[(m % 100) - 1] for m in sorted(have))
+                  + f' - writing {MONTHS[(ym % 100) - 1]}, the newest. '
+                  '--month picks another')
     if ym >= 100000:
         ym %= 10000
     mon = MONTHS[(ym % 100) - 1]

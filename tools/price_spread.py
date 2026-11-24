@@ -420,21 +420,11 @@ def main() -> int:
     ym = args.month
     if ym is not None and ym >= 100000:
         ym = ym % 10000                       # YYYYMM given, YYMM wanted
-    if ym is None:
-        import plan_price as PP
-        gf = PP.find_plan(folder, 'gscm')
-        if gf is None:
-            print(f'no gscm_* file in {folder}')
-            return 1
-        body, _ = read_any(gf)
-        head = [h.strip() for h in (body[0] if body else [])]
-        have = [i for i in range(1, 13)
-                if PP.columns(head, 2600 + i)['aud'] is not None
-                or PP.columns(head, 2600 + i)['amt_aud'] is not None]
-        if not have:
-            print(f'  {gf.name}: no month column in it')
-            return 1
-        ym = 2600 + have[0]
+    import plan_price as PP
+    gf, ym = PP.pick_month(folder, 'gscm', ym)
+    if gf is None:
+        print(f'no gscm_* sheet in {folder} prices that month')
+        return 1
 
     shared = {'by_units': args.by_units}
     if args.scope:
