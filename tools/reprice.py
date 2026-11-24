@@ -182,7 +182,7 @@ def campaign_at(plan, canon, code: str, day) -> str:
             or ('(nationwide)' if nat else NO_CAMP))
 
 
-def rrp_of(plan, code: str):
+def rrp_of(plan, code: str, since=None):
     """The list price the plan quotes for a product.
 
     The RRP column where there is one, and the plan has several price columns
@@ -193,8 +193,27 @@ def rrp_of(plan, code: str):
 
     Commonest value wins among the lines: the same product is planned many
     times over, and one mistyped cell should not become the price.
+
+    `since` is the start of the history window, and holds the vote to the
+    lines that reach into it. The plan files carry every campaign they have
+    ever held, so the commonest RRP was the commonest **over all time**, and
+    a price that was in force for a year outvoted the one in force now on a
+    product that has had one price change. Everything else in this module is
+    read over the same six months; the list price was the one figure that
+    was not.
+
+    A line with no date is kept either way. Undated is not old - it is
+    unsaid - and dropping it would lose the plans that carry no window at
+    all. Where the window leaves nothing, the whole file answers rather than
+    the product losing its price.
     """
     cands, _ = plan.candidates(PM.code_norm(code))
+    if since is not None and cands:
+        live = [c for c in cands
+                if (c.get('end') or c.get('start')) is None
+                or (c.get('end') or c.get('start')) >= since]
+        if live:
+            cands = live
     named = [c['prices']['RRP'] for c in cands
              if (c['prices'].get('RRP') or 0) > 0]
     if named:
@@ -1337,14 +1356,16 @@ def explain_terms(out, levels, say):
 def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
               scope: str = 'range', rrp_at=None, new_cap: float = 0.0,
               b2b: float = None, flat_days: bool = False,
-              by_units: bool = True):
+              by_units: bool = True, plan_mix=None):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
     months: a product on Boost Week for nine days of October is not the same
     price as one on it for all thirty-one.
     """
-    rrp = rrp_of(plan, code)
+    # Through the cache, so this model reads the same windowed list price
+    # the rest of the module does rather than a vote over every line.
+    rrp = (rrp_at(code) if rrp_at else None) or rrp_of(plan, code)
     lv = levels.get(PM.code_norm(code), {})
     k = PM.code_norm(code)
     where = []
@@ -1365,9 +1386,23 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
     if b2b is not None:
         for sc in History.scopes(k, lv):
             m = hist.mix(sc)
-            if m is not None:
-                shift = (b2b - m[0]) * m[1]
-                break
+            if m is None:
+                continue
+            # Plan against plan. What B2B costs comes from the history,
+            # which is the only place a realised discount lives; what it is
+            # measured against comes from the plan, because the sheet's
+            # share is an allocation and the history's is a realisation.
+            # October's plan put REF at 41% B2B where REF sold 29%, and
+            # measuring one against the other charged it for a shift that
+            # never happened.
+            was = m[0]
+            if plan_mix is not None:
+                for sc2 in History.scopes(k, lv):
+                    if sc2 in plan_mix:
+                        was = plan_mix[sc2]
+                        break
+            shift = (b2b - was) * m[1]
+            break
 
     def disc(camp):
         """This product under this campaign, then the ways round not having it.
@@ -1394,6 +1429,22 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 return d, f'{name}, same promotion'
         if own is not None:
             return own, 'this product, six-month average'
+        # A day with no campaign on it, for a product with no past of its
+        # own: what its group comes off list when nothing is running. This
+        # is the rung a new product lands on, and the only one that can
+        # answer for it - a group's ordinary markdown is a group fact by
+        # design (see History.quiet), where a *promoted* rate borrowed for
+        # a quiet day would price the month as a sale.
+        #
+        # Without it the whole day walk gave up on the first quiet day and
+        # the product fell through to a nearest-neighbour's blended
+        # discount, which on a launch is the discount of the model it
+        # replaces, at the end of its life and at its deepest.
+        if not camp:
+            for sc in History.scopes(k, lv):
+                q = hist.quiet(sc)
+                if q is not None:
+                    return q, f'{sc[1] or "the whole book"}, nothing running'
         return None, None
 
     def pull_for(camp):
@@ -1628,10 +1679,24 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     # asks for a lot of them.
     rrp_cache: dict = {}
 
+    # The list price over the same six months as everything else. See
+    # rrp_of: the vote used to run over every line the plan files hold,
+    # whatever year it was written in.
+    since = month_days(months[0])[0]
+
     def rrp_at(c):
         if c not in rrp_cache:
-            rrp_cache[c] = rrp_of(plan, c)
+            rrp_cache[c] = rrp_of(plan, c, since)
         return rrp_cache[c]
+
+    moved = 0
+    for code in planned['items']:
+        if rrp_at(code) != rrp_of(plan, code):
+            moved += 1
+    say(f'\n  the list price is read over {MONTHS[(months[0] % 100) - 1]} '
+        f'onwards, like the rest: {moved:,} of '
+        f'{len(planned["items"]):,} material(s) take a different one from '
+        'the vote over every line the plan files hold')
 
     out = {}
     how = collections.Counter()
@@ -1647,6 +1712,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 code, plan, canon, hist, levels, days, it['aud'],
                 scope=scope, rrp_at=rrp_at, new_cap=new_cap,
                 flat_days=flat_days, by_units=by_units,
+                plan_mix=plan_mix,
                 b2b=(None if no_mix else it.get('b2b')))
         how[kind] += 1
         # The nearest SKU is named on the row, not only in the prose, so a
@@ -1681,11 +1747,15 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         if why:
             why_one(why, hist, out, levels, say)
         return out
-    say('  rrp  = list price x what this product came off it under the same')
-    say('         promotion, and its own six-month discount on the rest')
+    say('  rrp  = the promotion table\u2019s list price, day by day, less')
+    say('         what the same promotion has been running at: this')
+    say('         product\u2019s own record of it first, then its '
+        f'group\u2019s as far as {scope},')
+    say('         then its own six-month discount, and on a day with')
+    say('         nothing running its group\u2019s ordinary markdown')
     say('  asp  = no list price in the plan, so its six-month ASP stands in')
-    say('  new  = nothing of its own in the window - priced off the nearest')
-    say('         product, which is named on the row')
+    say('  new  = nothing of its own and no group answer either - priced')
+    say('         off the nearest product, which is named on the row')
     say('  kept = not even that, so the GSCM price is unchanged')
     fresh = [(c, v) for c, v in out.items() if v['how'] == 'new']
     if fresh:
@@ -1714,17 +1784,22 @@ def main() -> int:
                     help='how many months of history to read (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
-    ap.add_argument('--model', default='simple',
-                    choices=('simple', 'campaign'),
-                    help='simple: each product\u2019s own six-month ASP, '
-                         'nudged by three group ratios. campaign: the older '
-                         'per-product per-campaign discount off RRP, with '
-                         'its borrowing ladder')
-    ap.add_argument('--scope', default='range', choices=SCOPES,
-                    help='how far a discount may be borrowed from when the '
-                         'product has none of its own (default div1, which '
-                         'blocks only the whole book; all restores the '
-                         'behaviour before this flag existed)')
+    ap.add_argument('--model', default='rrp',
+                    choices=('rrp', 'campaign', 'simple'),
+                    help='rrp (default): the list price the promotion table '
+                         'quotes, less what the same promotion has been '
+                         'running at - this product\u2019s own record of it '
+                         'first, then its group\u2019s. simple: each '
+                         'product\u2019s own six-month ASP, nudged by three '
+                         'group ratios. campaign is the old name for rrp')
+    ap.add_argument('--scope', default='div1', choices=SCOPES,
+                    help='how far a promotion\u2019s discount may be '
+                         'borrowed from when the product has never run it '
+                         '(default div1: its model family, then Div 3, then '
+                         'Div 1, never the whole book; all lets the book '
+                         'answer, range holds it to the family). This flag '
+                         'said div1 and did range - it does what it says '
+                         'now')
     ap.add_argument('--flat-days', action='store_true',
                     help='weight every day of the month alike instead of '
                          'by how hard each campaign sells')

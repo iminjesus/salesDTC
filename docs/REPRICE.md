@@ -19,7 +19,7 @@ price = RRP x (1 - discount),  one day at a time, averaged over the month
 
 | | from |
 | --- | --- |
-| the list price | the promotion plan's `RRP` column |
+| the list price | the promotion plan's `RRP` column, **over the same six months as everything else** |
 | the discount | what came off that list price the last time the product sold **under the same campaign** |
 | which campaign | October's own plan, read day by day |
 
@@ -50,6 +50,38 @@ Two deliberate limits:
 - The day average weights every day alike. The folder has no daily volume
   forecast, and inventing one would bury a price estimate inside a demand
   estimate.
+
+### The list price is a six-month figure too
+
+A product is planned many times over, so the list price is the **commonest**
+value among its plan lines rather than the first one found - one mistyped
+cell should not become the price. That vote used to run over **every line
+the plan files hold**, whatever year it was written in, while everything
+else in the model was read over the last six months (`--back`).
+
+On a product that has had one price change, that is the wrong answer by
+construction: three old lines outvote two current ones and the discount is
+measured off a price that is no longer in force.
+
+```
+lines:  Nov 2,599   Jan 2,599   Mar 2,599   Aug 2,499   Oct 2,499
+vote over every line        ->  2,599     (not in force since March)
+vote over the last 6 months ->  2,499
+```
+
+The vote is now held to the lines whose window reaches into the history
+window. **An undated line is kept either way** - undated is not old, it is
+unsaid, and plans that carry no window at all would otherwise lose every
+price. Where the window leaves a product nothing, the whole file answers
+rather than the product losing its list price.
+
+The run says how many materials this moves:
+
+```
+  the list price is read over May onwards, like the rest: 214 of 3,908
+  material(s) take a different one from the vote over every line the plan
+  files hold
+```
 
 ## Where the history comes from
 
@@ -589,17 +621,34 @@ against 79%: -1.0pp; unplanned deals on 31% of units lately against 27%
 with the borrowing ladder below. It is kept because it is what every
 measurement so far was taken against.
 
-## The ladder (the `campaign` model)
+## The ladder (the `rrp` model, the default)
 
-One product, one month, in this order:
+`price = RRP x (1 - discount)`, a day at a time. One product, one month, in
+this order:
 
 | | what is used | written as |
 | --- | --- | --- |
 | 1 | this SKU's own discount off RRP **the last time this same promotion ran** | `rrp` |
-| 2 | no such promotion in its history: this SKU's **own six-month** discount | `rrp` |
-| 3 | no list price to discount: this SKU's **own six-month ASP** | `asp` |
-| 4 | nothing of its own at all - a **new SKU** | `new` |
-| 5 | not even a neighbour to lean on | `kept` |
+| 2 | never run it: the **same promotion** at its model family, then Div 3, then Div 1 (`--scope`) | `rrp` |
+| 3 | no group answer either: this SKU's **own six-month** discount | `rrp` |
+| 4 | a day with nothing running and no record of its own: its group's **ordinary markdown off list** | `rrp` |
+| 5 | no list price to discount: this SKU's **own six-month ASP** | `asp` |
+| 6 | nothing of its own at all - a **new SKU** | `new` |
+| 7 | not even a neighbour to lean on | `kept` |
+
+**A new product lands on rungs 2 and 4**, which is the point of them: the
+promotion table carries its list price before it has sold a thing, and what
+its family comes off that list - under October's promotion on the promoted
+days, and ordinarily on the rest - is the best answer there is. Rung 4 is a
+backstop under rung 2: with `--by-members` a family needs three products that
+each sold enough to vote, and a family of two cannot, while its pooled quiet
+markdown still can. Without it the day walk gave up on the first quiet day
+and the product fell to rung 6, where the nearest neighbour is usually the
+model it replaces - at the end of its life and at its deepest discount, which
+is the one price a launch should not inherit.
+
+`--model simple` is the other model, below. `campaign` is the old name for
+`rrp` and still works.
 
 Steps 1 and 2 are walked a day at a time, because October's plan puts
 different promotions on different days: a product on Boost Week for nine days
@@ -713,9 +762,16 @@ flag that stays off until there is a measurement for it.
 
 ### `--scope {sku,range,div3,div1,all}` - borrowing from a group
 
-**Default `range`: the model family.** One phone's colours and capacities,
-named by the DTC export's own `Product Range`. `sku` refuses to borrow at
-all; `div3` and wider are too coarse.
+**Default `div1`: the model family, then Div 3, then Div 1 - never the whole
+book.** The family is one phone's colours and capacities, named by the DTC
+export's own `Product Range`, and it is tried first. `sku` refuses to borrow
+at all; `all` lets the book answer.
+
+> This flag's help said `div1` and the code did `range`, so only the family
+> was ever asked and a product whose family could not answer dropped straight
+> past Div 3 and Div 1 to its own ASP. It does what it says now. On a
+> **new** product that matters most: the family of a launch is often the
+> launch itself.
 
 The range exists because **a thin product's own record is a noisy estimate
 of its own price**, and Mobile is where that bites. On October, 42% of MX's

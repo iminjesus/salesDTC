@@ -259,16 +259,19 @@ def main() -> int:
                     help='months of history the re-price reads (default 6)')
     ap.add_argument('--plan', nargs='+', default=list(PM.PLAN_STEMS),
                     metavar='STEM')
-    ap.add_argument('--model', default='simple',
-                    choices=('simple', 'campaign'),
-                    help='simple: each product\u2019s own six-month ASP, '
-                         'nudged by three group ratios. campaign: the older '
-                         'per-product per-campaign discount off RRP')
-    ap.add_argument('--scope', default='range', choices=RP.SCOPES,
-                    help='how far a thin product may borrow a discount '
-                         'from. Default range: its own model family, which '
-                         'is close enough to be worth having. sku refuses '
-                         'to borrow at all; div3 and wider are too coarse')
+    ap.add_argument('--model', default='rrp',
+                    choices=('rrp', 'campaign', 'simple'),
+                    help='rrp (default): the promotion table\u2019s list '
+                         'price, less what the same promotion has been '
+                         'running at. simple: each product\u2019s own '
+                         'six-month ASP, nudged by three group ratios. '
+                         'campaign is the old name for rrp')
+    ap.add_argument('--scope', default='div1', choices=RP.SCOPES,
+                    help='how far a promotion\u2019s discount may be '
+                         'borrowed from when the product has never run it '
+                         '(default div1: model family, then Div 3, then '
+                         'Div 1, never the whole book). sku refuses to '
+                         'borrow at all')
     ap.add_argument('--by-members', dest='by_units', action='store_false',
                     default=True,
                     help='a group answers with the average of its products '
