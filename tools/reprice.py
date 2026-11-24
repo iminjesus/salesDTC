@@ -1422,7 +1422,32 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             lean['asp'] = hist.asp(who) if who else None
         return lean['who'], lean['asp']
 
-    def disc(camp):
+    def quoted(day):
+        """What the plan itself quotes this product at on this day.
+
+        A **launch campaign has no past by definition**. Tab S12 Launch has
+        never run before, so neither the product nor its family has a record
+        of it, and every rung above this one is silent - which is why a
+        launch kept falling all the way to another product’s ASP. The plan
+        line for that campaign carries its own price, and for this product
+        under this campaign that is the best evidence there is.
+
+        It is what was **quoted**, not what was collected: a voucher, a
+        trade-in or a stacked offer moves the two apart, and a realised
+        price beats a quoted one wherever there is one. That is the whole
+        reason this sits below every rung that has one, and above the rungs
+        that borrow from another product.
+
+        `S.COM_Price` is the store’s own column, which is the channel being
+        priced. Where a day carries two live lines the cheaper quote wins:
+        that is the offer a customer would take.
+        """
+        live, _, _ = PM.plan_state(plan, k, day)
+        got = [p for c in live for col, p in (c.get('prices') or {}).items()
+               if col == 'S.COM_Price' and p and p > 0]
+        return min(got) if got else None
+
+    def disc(camp, day=None):
         """This product under this campaign, then the ways round not having it.
 
         Returns `(kind, value, from_)`. `kind` is 'off' for a discount off
@@ -1467,6 +1492,9 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 return 'off', d, f'{name}, same promotion'
         if own_asp:
             return 'at', own_asp, 'this product, six-month ASP'
+        q = quoted(day) if day is not None else None
+        if q:
+            return 'at', q, "the plan's own price for the day"
         # Nothing of its own: a new product. The promotion rungs above have
         # already had their turn - they are tried first for a new product
         # exactly as for an old one, and a launch is usually on a campaign
@@ -1514,7 +1542,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             camp = campaign_at(plan, canon, k, day)
             if camp:
                 on += 1
-            kind, d, from_ = disc(camp)
+            kind, d, from_ = disc(camp, day)
             if d is None:
                 total = None
                 break
@@ -1543,8 +1571,13 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             # by rung, and a launch hidden inside `rrp` is the one row it
             # most needs to see on its own.
             leaned = any(f.startswith('ASP of nearest') for _, f in used)
-            return (price, 'new' if leaned else 'rrp', rrp,
-                    on / len(days), where)
+            # `plan` where the plan's own quote carried a day and no
+            # neighbour was needed: it is neither a realised price nor
+            # somebody else's, and a rung that cannot be told apart cannot
+            # be measured. `price_spread --by how` is where it shows.
+            told = any(f.startswith("the plan's") for _, f in used)
+            return (price, 'new' if leaned else 'plan' if told else 'rrp',
+                    rrp, on / len(days), where)
     # Its own ASP, where it has one and no list price to discount.
     asp = hist.asp(k)
     if asp:
@@ -1852,6 +1885,9 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     say('         A day neither can answer is priced at the product\u2019s')
     say('         own six-month ASP; a quiet day for a product with no')
     say('         record at all, at its group\u2019s ordinary markdown')
+    say('  plan = a campaign with no past anywhere - a launch is one by')
+    say('         definition - so the plan\u2019s own quoted price for the')
+    say('         day stands, which is this product under this campaign')
     say('  asp  = no list price in the plan at all, so the six-month ASP')
     say('         is the whole of it')
     say('  new  = nothing of its own and no group answer either - priced')

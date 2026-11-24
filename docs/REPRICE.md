@@ -666,10 +666,11 @@ this order:
 | 1 | this SKU's own discount off RRP **the last time this same promotion ran** | list less that | `rrp` |
 | 2 | never run it: the **same promotion** at its model family, then Div 3, then Div 1 (`--scope`) | list less that | `rrp` |
 | 3 | no group answer either: this SKU's **own six-month ASP** | **at the ASP** | `rrp` |
-| 4 | nothing of its own: the **nearest similar product's ASP** | at that ASP | `new` |
-| 5 | not even a neighbour, on a quiet day: its group's **ordinary markdown off list** | list less that | `rrp` |
-| 6 | no list price in the plan at all | the six-month ASP, whole | `asp` |
-| 7 | nothing anywhere | the GSCM price, unchanged | `kept` |
+| 4 | nothing of its own: **the plan's own quoted price for that day** | at that quote | `plan` |
+| 5 | the plan quotes no store price either: the **nearest similar product's ASP** | at that ASP | `new` |
+| 6 | not even a neighbour, on a quiet day: its group's **ordinary markdown off list** | list less that | `rrp` |
+| 7 | no list price in the plan at all | the six-month ASP, whole | `asp` |
+| 8 | nothing anywhere | the GSCM price, unchanged | `kept` |
 
 **Rung 3 is a price, not a discount**, and that is the difference between it
 and what used to be there. The old rung took the product's own six-month
@@ -708,20 +709,54 @@ October runs Black Friday, which nobody has run
   rung 4   the nearest product's ASP                  =  1,300   how=new
 ```
 
-**Rung 4 is the neighbour's ASP, not its discount**, and that is the
-difference that matters. The product a launch most resembles is the model it
-replaces; that model is at the end of its life and at its deepest discount,
-so inheriting its *discount* prices a new phone as a run-out, and the deeper
-the predecessor has been cut the cheaper the launch comes out. Its ASP
-carries no such slope.
+### Rung 4: a launch campaign has no past, so the plan answers
 
-> It carries the opposite one. A launch that lists **above** the model it
-> replaces takes that model's ASP flat, so it comes out cheap by the
-> difference in list price - 1,300 against a 2,400 list above. The discount
-> form had the same sign of error for the other reason. Neither is right on
-> a launch priced above its predecessor; `--new-cap` was the knob for the
-> old form and there is nothing equivalent for this one yet, so the `new`
-> row in `price_spread --by how` is the place to watch it.
+**A launch campaign has never run before.** Tab S12 Launch, Galaxy Watch9
+Launch, Buds4 Launch - the name is new because the product is, so neither
+the product nor its family has a record of it and rungs 1 to 3 are all
+silent. That is not a thin history; it is a campaign that cannot have one.
+
+The plan line for that campaign carries **its own price**, in the same row
+as the RRP: `S.COM_Price`, `T1_Price`, `T2_Price`, `T3_Price`, `EDU_Price`,
+`RRP`. For this product under this campaign that is the best evidence there
+is, and the store's own column is the channel being priced. Two live lines
+on a day, and the cheaper quote wins - that is the offer a customer would
+take.
+
+```
+the launch lists at 2,399 and the plan quotes it at 2,159 for the launch
+the model it replaces: ASP 1,300, 35% off its own 2,000 list
+
+rung 4  the plan's own quote                       =  2,159   how=plan
+rung 5  the neighbour's ASP                        =  1,300
+        inheriting the neighbour's 35% off 2,399   =  1,559
+```
+
+It is what was **quoted**, not what was collected - a voucher, a trade-in or
+a stacked offer moves the two apart - which is why it sits below every rung
+that has a realised price and above the two that borrow from another
+product. A product with a record of its own never reaches it.
+
+**Why the two rungs below it are both wrong on a launch.** The product a
+launch most resembles is the model it replaces, and that model is at the end
+of its life and at its deepest discount:
+
+| | and so |
+| --- | --- |
+| inheriting its **discount** | the deeper the predecessor was cut, the cheaper the launch |
+| inheriting its **ASP** | the predecessor lists lower, so the launch comes out cheap by that gap |
+
+Both err the same way, and scaling the ASP by the list ratio is not a third
+option - it is algebraically the first one:
+
+```
+neighbour ASP x (my list / its list)
+  = its list x (1 - d) x my list / its list
+  = my list x (1 - d)                         the discount form exactly
+```
+
+So on a launch there were only two answers and both were low. Rung 4 is the
+one that is neither, because it is not about the neighbour at all.
 
 A month that leans on a neighbour for any of its days is written `new`,
 whatever the promotion rungs covered - a launch hidden inside `rrp` is the
