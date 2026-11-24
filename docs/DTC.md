@@ -10,6 +10,40 @@ Files are found by name - anything with `dtc` in it, so `26 DTC Sep.csv` and
 own `Year` and `Month` columns rather than from the file name.
 
 
+## `--sku CODE --rules` - one product's own offers
+
+```
+py tools\dtc.py --sku SM-F971BZWGATS --rules
+```
+
+```
+  SM-F971BZWGATS: 5 line(s), 480 unit(s), 46.9% off list over the window
+      month    units  off list   rule
+     202608      220     50.0%   AU_B2C_WEB_MX_01AUG26_20AUG26_PREORDER_FF8-500OFF
+     202608       90     43.3%   AU_EPP_WEB_MX_01AUG26_14AUG26_DISCOUNT_FF8R-50
+     202609       70     42.6%   AU_EPP_WEB_MX_01SEP26_14SEP26_DISCOUNT_FF8R-50
+     202609       60     49.3%   AU_B2C_WEB_MX_21AUG26_10SEP26_PREORDER_FF8-500OFF
+     202610       40     42.1%   AU_EPP_WEB_MX_01OCT26_14OCT26_DISCOUNT_FF8R-50
+```
+
+**Classifying the whole file failed three ways**, and `--rules` below records
+how. One product at a time is a different question and a much easier one:
+what did this material actually sell under, and how deep was each offer?
+
+That is what decides whether a launch discount can be **told apart from the
+channel's ordinary one and added back** to recover an ordinary price - which
+is the alternative to dropping the launch months from the window
+(`reprice --drop-launch-months`). It needs the pre-order lines and the
+ordinary lines to come out at visibly different depths. If they do not -
+if everything the product ever sold is one depth - there is no ordinary
+price to recover and no add-back to size.
+
+The plan's campaign flag cannot size it. Book-wide, a day the plan calls a
+campaign is **1.1 points** deeper than a day it does not, because the quiet
+days are under the channel's standing rules at the same depth. Whatever
+separates a launch offer from an ordinary one is in the rule, not in the
+flag.
+
 ## `--rules` - standing pricing against a campaign
 
 ```

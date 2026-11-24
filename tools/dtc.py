@@ -279,6 +279,50 @@ def rule_parts(rule: str) -> tuple:
     return chan, mech[:18]
 
 
+def sku_rules(rows: list, codes, say=print) -> None:
+    """Every rule one product's lines carried, month by month.
+
+    Classifying eighteen thousand rule names failed three ways - by the
+    months a name appears in, by the window a name declares, and by the
+    family left when the dates come out - because the names are
+    identifiers, minted per window **and** per product code, and the
+    depths behind them are all the same standing offer.
+
+    One product at a time is a different question and a much easier one.
+    What did this material actually sell under, in the months its window
+    covers, and how deep was each? That is the evidence for whether a
+    launch discount can be told apart from the channel's ordinary one and
+    added back - and it is two dozen lines, not eighteen thousand.
+    """
+    want = {str(c).strip().upper() for c in codes if str(c).strip()}
+    mine = [r for r in rows
+            if str(r.get('code') or '').strip().upper() in want]
+    if not mine:
+        say('\nno line in the window carries that code')
+        return
+    for code in sorted({str(r['code']).strip().upper() for r in mine}):
+        got = [r for r in mine
+               if str(r['code']).strip().upper() == code and r['qty'] > 0]
+        q = sum(r['qty'] for r in got)
+        a = sum(r['amt'] for r in got)
+        lst = sum(r['qty'] * (r['rrp'] or 0) for r in got)
+        say(f'\n  {code}: {len(got):,} line(s), {q:,.0f} unit(s), '
+            + (f'{(1 - a / lst) * 100:.1f}% off list over the window'
+               if lst > 0 else 'no list price on the lines'))
+        by: dict = {}
+        for r in got:
+            t = by.setdefault((r['ym'], (r.get('rule') or '(none)').strip()),
+                              [0.0, 0.0, 0.0])
+            t[0] += r['qty']
+            t[1] += r['amt']
+            t[2] += r['qty'] * (r['rrp'] or 0)
+        say(f"    {'month':>7}{'units':>9}{'off list':>10}   rule")
+        for (ym, rule), t in sorted(by.items(),
+                                    key=lambda kv: (kv[0][0], -kv[1][0])):
+            off = (1 - t[1] / t[2]) * 100 if t[2] > 0 else 0.0
+            say(f'    {ym:>7}{t[0]:>9,.0f}{off:>9.1f}%   {rule[:66]}')
+
+
 def rule_report(rows: list, say=print, top: int = 25) -> None:
     """How much of the window is standing pricing and how much is a campaign.
 
@@ -390,6 +434,11 @@ def main() -> int:
                          'half-life came closest')
     ap.add_argument('--back', type=int, default=6, metavar='N',
                     help='months of history --fit reads (default 6)')
+    ap.add_argument('--sku', nargs='+', default=(), metavar='CODE',
+                    help='with --rules: every rule these materials\u2019 own '
+                         'lines carried, month by month, with the depth of '
+                         'each. One product is answerable where the whole '
+                         'file is not')
     ap.add_argument('--rules', action='store_true',
                     help='every promotion_rule the export says applied, '
                          'with how deep it discounted and how many months '
@@ -423,8 +472,11 @@ def main() -> int:
         print('nothing to report')
         return 1
 
-    if args.rules:
-        rule_report(rows)
+    if args.rules or args.sku:
+        if args.sku:
+            sku_rules(rows, args.sku)
+        else:
+            rule_report(rows)
         return 0
 
     by = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
