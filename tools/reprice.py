@@ -1404,19 +1404,44 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             shift = (b2b - was) * m[1]
             break
 
+    # The product's own six-month ASP, which is a price and not a discount
+    # off one. It is the rung under the promotion, so a day it answers is
+    # priced at it rather than at the list price less something.
+    own_asp = hist.asp(k)
+
     def disc(camp):
         """This product under this campaign, then the ways round not having it.
 
-        The order is the point. What this product came off its list price the
-        last time this same campaign ran is the thing being asked for. Where
-        it has never run it, its own recent discount under anything else
-        comes next - a product's own behaviour beats another product's,
-        whatever promotion that other one was on. Borrowing from a group at
-        all is off unless --scope asks for it.
+        Returns `(kind, value, from_)`. `kind` is 'off' for a discount off
+        the list price and 'at' for a price in its own right, because the
+        rungs are not all the same shape: the promotion rungs say what comes
+        off list, and the one under them says what the product has simply
+        been fetching.
+
+        The order is the point:
+
+            1  what this product came off list the last time **this same
+               campaign** ran - the thing actually being asked
+            2  never run it: the same campaign at its model family, then
+               Div 3, then Div 1, as far as --scope allows
+            3  no group answer either: this product's own **six-month ASP**,
+               as a price. Its own record beats another product's, whatever
+               promotion that other one was on
+            4  a quiet day for a product with no record at all: its group's
+               ordinary markdown off list
+
+        Rung 4 is the one a new product lands on, and the only one that can
+        answer for it - a group's ordinary markdown is a group fact by
+        design (see History.quiet), where a *promoted* rate borrowed for a
+        quiet day would price the month as a sale. Without it the whole day
+        walk gave up on the first quiet day and the product fell through to
+        a nearest-neighbour's blended discount, which on a launch is the
+        discount of the model it replaces - at the end of its life and at
+        its deepest.
         """
         d = hist.discount(('sku', k), camp)
         if d is not None:
-            return d, 'this product, same promotion'
+            return 'off', d, 'this product, same promotion'
         ladder = ((('range', lv.get('range')), lv.get('range')),
                   (('div3', lv.get('div3')), lv.get('div3')),
                   (('div1', lv.get('div1')), lv.get('div1')),
@@ -1426,26 +1451,15 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 continue
             d = hist.lent(sc, camp, by_units)
             if d is not None:
-                return d, f'{name}, same promotion'
-        if own is not None:
-            return own, 'this product, six-month average'
-        # A day with no campaign on it, for a product with no past of its
-        # own: what its group comes off list when nothing is running. This
-        # is the rung a new product lands on, and the only one that can
-        # answer for it - a group's ordinary markdown is a group fact by
-        # design (see History.quiet), where a *promoted* rate borrowed for
-        # a quiet day would price the month as a sale.
-        #
-        # Without it the whole day walk gave up on the first quiet day and
-        # the product fell through to a nearest-neighbour's blended
-        # discount, which on a launch is the discount of the model it
-        # replaces, at the end of its life and at its deepest.
+                return 'off', d, f'{name}, same promotion'
+        if own_asp:
+            return 'at', own_asp, 'this product, six-month ASP'
         if not camp:
             for sc in History.scopes(k, lv):
                 q = hist.quiet(sc)
                 if q is not None:
-                    return q, f'{sc[1] or "the whole book"}, nothing running'
-        return None, None
+                    return 'off', q, f'{sc[1] or "the whole book"}, nothing running'
+        return None, None, None
 
     def pull_for(camp):
         """How much of the month's selling this day is worth, against one.
@@ -1463,22 +1477,31 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 return p
         return 1.0
 
-    if rrp and (own is not None or hist.discount(('sku', k), ANY) is not None
-                or deep):
+    if rrp and (own is not None or own_asp
+                or hist.discount(('sku', k), ANY) is not None or deep):
         total, wsum, on = 0.0, 0.0, 0
         used = collections.Counter()
         for day in days:
             camp = campaign_at(plan, canon, k, day)
             if camp:
                 on += 1
-            d, from_ = disc(camp)
+            kind, d, from_ = disc(camp)
             if d is None:
                 total = None
                 break
             used[(camp or '(no campaign)', from_)] += 1
             w = pull_for(camp)
             wsum += w
-            total += w * rrp * (1.0 - min(0.95, max(0.0, d + shift)))
+            if kind == 'at':
+                # An ASP already has the product's own discount in it, so
+                # the B2B shift is the only thing left to apply - and it is
+                # measured in points off the list price, which is what it
+                # is worth here too. `rrp * (1 - d - shift)` is
+                # `rrp * (1 - d)` less `rrp * shift`, so a price rung takes
+                # the same money off and the two rungs stay comparable.
+                total += w * max(d * 0.5, d - rrp * shift)
+            else:
+                total += w * rrp * (1.0 - min(0.95, max(0.0, d + shift)))
         if total is not None:
             price = total / (wsum or len(days))
             where = [f'{c} x{n} ({f})' for (c, f), n in used.most_common(4)]
@@ -1750,10 +1773,12 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     say('  rrp  = the promotion table\u2019s list price, day by day, less')
     say('         what the same promotion has been running at: this')
     say('         product\u2019s own record of it first, then its '
-        f'group\u2019s as far as {scope},')
-    say('         then its own six-month discount, and on a day with')
-    say('         nothing running its group\u2019s ordinary markdown')
-    say('  asp  = no list price in the plan, so its six-month ASP stands in')
+        f'group\u2019s as far as {scope}.')
+    say('         A day neither can answer is priced at the product\u2019s')
+    say('         own six-month ASP; a quiet day for a product with no')
+    say('         record at all, at its group\u2019s ordinary markdown')
+    say('  asp  = no list price in the plan at all, so the six-month ASP')
+    say('         is the whole of it')
     say('  new  = nothing of its own and no group answer either - priced')
     say('         off the nearest product, which is named on the row')
     say('  kept = not even that, so the GSCM price is unchanged')

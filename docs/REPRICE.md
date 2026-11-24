@@ -626,26 +626,49 @@ measurement so far was taken against.
 `price = RRP x (1 - discount)`, a day at a time. One product, one month, in
 this order:
 
-| | what is used | written as |
-| --- | --- | --- |
-| 1 | this SKU's own discount off RRP **the last time this same promotion ran** | `rrp` |
-| 2 | never run it: the **same promotion** at its model family, then Div 3, then Div 1 (`--scope`) | `rrp` |
-| 3 | no group answer either: this SKU's **own six-month** discount | `rrp` |
-| 4 | a day with nothing running and no record of its own: its group's **ordinary markdown off list** | `rrp` |
-| 5 | no list price to discount: this SKU's **own six-month ASP** | `asp` |
-| 6 | nothing of its own at all - a **new SKU** | `new` |
-| 7 | not even a neighbour to lean on | `kept` |
+| | what is used | the day is priced | written as |
+| --- | --- | --- | --- |
+| 1 | this SKU's own discount off RRP **the last time this same promotion ran** | list less that | `rrp` |
+| 2 | never run it: the **same promotion** at its model family, then Div 3, then Div 1 (`--scope`) | list less that | `rrp` |
+| 3 | no group answer either: this SKU's **own six-month ASP** | **at the ASP** | `rrp` |
+| 4 | a quiet day for a SKU with no record at all: its group's **ordinary markdown off list** | list less that | `rrp` |
+| 5 | no list price in the plan at all | the six-month ASP, whole | `asp` |
+| 6 | nothing of its own and no group answer - a **new SKU** | the nearest product's discount off list | `new` |
+| 7 | not even a neighbour to lean on | the GSCM price, unchanged | `kept` |
 
-**A new product lands on rungs 2 and 4**, which is the point of them: the
-promotion table carries its list price before it has sold a thing, and what
-its family comes off that list - under October's promotion on the promoted
-days, and ordinarily on the rest - is the best answer there is. Rung 4 is a
-backstop under rung 2: with `--by-members` a family needs three products that
-each sold enough to vote, and a family of two cannot, while its pooled quiet
-markdown still can. Without it the day walk gave up on the first quiet day
-and the product fell to rung 6, where the nearest neighbour is usually the
-model it replaces - at the end of its life and at its deepest discount, which
-is the one price a launch should not inherit.
+**Rung 3 is a price, not a discount**, and that is the difference between it
+and what used to be there. The old rung took the product's own six-month
+*discount* and applied it to the current list price, so a list price that
+had moved since carried straight into the forecast:
+
+```
+SIB: six-month ASP 1,650, six-month discount 17.5% off a list of 2,000
+     the list price has since moved to 2,400
+
+October runs a campaign nobody has run
+  old   2,400 x (1 - 17.5%)  =  1,980     the list rise, inherited
+  now   the six-month ASP    =  1,650
+```
+
+The promotion rungs stay on the list price, because that is what a promotion
+is quoted against; the rung under them is just what the product has been
+fetching, and it has no business being re-based on a list price it never
+sold at.
+
+**A new product lands on rungs 2 and 4.** The promotion table carries its
+list price before it has sold a thing, and what its family comes off that
+list - under October's promotion on the promoted days, and ordinarily on the
+rest - is the best answer there is. Rung 4 is a backstop under rung 2: with
+`--by-members` a family needs three products that each sold enough to vote,
+and a family of two cannot, while its pooled quiet markdown still can.
+Without it the day walk gave up on the first quiet day and the product fell
+to rung 6, where the nearest neighbour is usually the model it replaces - at
+the end of its life and at its deepest discount, which is the one price a
+launch should not inherit.
+
+The B2B shift applies on either shape. It is measured in points off the list
+price, so a price rung takes `rrp x shift` off in money - the same money the
+discount rungs take off - and the two stay comparable.
 
 `--model simple` is the other model, below. `campaign` is the old name for
 `rrp` and still works.
