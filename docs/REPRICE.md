@@ -742,7 +742,59 @@ October runs Black Friday, which nobody has run
   rung 4   the nearest product's ASP                  =  1,300   how=new
 ```
 
-### `--model quote` - when the plan knows more than the history
+### `--keep NAME` - where the sheet already wins
+
+**The model earns its place where the sheet is stale, and not everywhere.**
+November, by Div 1, unit-weighted deviation of the gap:
+
+```
+div1       units   GSCM mean  sd      rrp mean  sd
+MX        19,652          -7  78           -61  97
+DA         2,539        +272  253          -27  108
+VD         5,424        +162  450          -83  435
+```
+
+MX's November sheet is set so carefully - a mean of **-7** and a deviation
+of 78 over 19,652 units - that there is nothing left in it to find, and
+every model tried came out worse. DA's was out by 272 and the model more
+than halved its deviation. October said the same thing: MX was the one
+division the model made worse, at every level down to Div 3.
+
+`--keep MX` leaves that group's GSCM price alone, written `kept`, and the
+rest of the book is re-priced as usual. The name is matched against Biz,
+Div 1, Div 2, Div 3 and Range alike, so `--keep REF` works the same way.
+
+**Measure before naming one.** Which groups these are is a reading of
+`price_spread --compare`, not a guess, and it is a reading that can change:
+a sheet that is good this month is good because somebody set it well, not
+because of anything structural.
+
+### `--model quote` - measured and rejected
+
+The idea was that a day whose campaign nobody has a record of should take
+the plan's own quote ahead of the product's ordinary-month ASP, Black
+Friday being the case: the deepest discounting month of the year, named in
+the cumulative plan from 2025, with no sales under it in a six-month window
+and no `25 DTC Nov` in the folder to put there.
+
+**It was worse everywhere.** November, deviation of the gap:
+
+```
+            rrp    quote
+MX           97      107
+DA          108      196
+VD          435      567
+all         212      280
+```
+
+So the plan's quoted price is **dearer than what is realised**, by enough
+to matter: a voucher, a trade-in and a stacked offer do the work that the
+quote does not show, and on Black Friday they do most of it. The rung is
+still there below the ASP, where it answers for a product that has no ASP
+at all; what is rejected is putting it above one.
+
+`--model quote` is kept so the reading can be repeated on another month.
+
 
 The two rungs below the realised ones answer the same day two ways, and
 **which should go first is a real question that October and November answer

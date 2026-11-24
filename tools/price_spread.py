@@ -404,6 +404,9 @@ def main() -> int:
     ap.add_argument('--scope', default=None, metavar='LEVEL',
                     help='passed to the re-price: how far a promotion\u2019s '
                          'discount may be borrowed from')
+    ap.add_argument('--keep', nargs='+', default=(), metavar='NAME',
+                    help='passed to the re-price: leave these groups at the '
+                         'GSCM price')
     ap.add_argument('--by-members', dest='by_units', action='store_false',
                     default=True,
                     help='passed to the re-price: a group answers with the '
@@ -426,7 +429,7 @@ def main() -> int:
         print(f'no gscm_* sheet in {folder} prices that month')
         return 1
 
-    shared = {'by_units': args.by_units}
+    shared = {'by_units': args.by_units, 'keep': args.keep}
     if args.scope:
         shared['scope'] = args.scope
 

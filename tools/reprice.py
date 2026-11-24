@@ -868,6 +868,27 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
     return h
 
 
+HOLD_AT = ('biz', 'div1', 'div2', 'div3', 'range')
+
+
+def held_by(levels: dict, keep) -> callable:
+    """A test for "is this material in a group that keeps its sheet price".
+
+    Matched against every level a product has a name at, so one flag covers
+    `--keep MX` (a Biz), `--keep REF` (a Div 3) and a range alike, and the
+    caller does not have to say which kind of name it is giving.
+    """
+    hold = {str(n).strip().upper() for n in keep or () if str(n).strip()}
+    if not hold:
+        return lambda code: False
+
+    def is_held(code):
+        lv = levels.get(PM.code_norm(code)) or {}
+        return any((lv.get(n) or '').strip().upper() in hold
+                   for n in HOLD_AT)
+    return is_held
+
+
 def nearest(k, lv, rrp, hist, levels, rrp_at):
     """The product most like this one that has actually been sold.
 
@@ -1691,7 +1712,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             campaigns: str = '', clearance: bool = True,
             why=(), quiet_list: bool = False,
             promo_first: bool = True, actual: bool = False,
-            new_from: str = 'sheet') -> dict:
+            new_from: str = 'sheet', keep=()) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1861,9 +1882,33 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         f'{len(planned["items"]):,} material(s) take a different one from '
         'the vote over every line the plan files hold')
 
+    # Groups the sheet already prices better than anything here can. Named
+    # rather than inferred: which they are is a measurement, and it is made
+    # with `price_spread --compare`, not guessed at run time.
+    #
+    # On October and November both, MX was the one division the model made
+    # worse. November's sheet put it at a mean of -7 and a deviation of 78
+    # over 19,652 units, where the model came in at 97 - a sheet set that
+    # carefully has nothing left in it to find, while DA's was out by 272
+    # and the model more than halved its deviation. The model earns its
+    # place where the sheet is stale and not where it is not.
+    hold = {str(n).strip().upper() for n in keep if str(n).strip()}
+    is_held = held_by(levels, keep)
+    held = 0
+
     out = {}
     how = collections.Counter()
     for code, it in planned['items'].items():
+        if is_held(code):
+            held += 1
+            out[code] = {
+                'gscm': it['aud'], 'price': round(it['aud'], 2),
+                'how': 'kept', 'rrp': None, 'promo_days': 0.0,
+                'qty': it['qty'], 'chain': it['chain'], 'near': '',
+                'why': '--keep: the sheet prices this group better',
+            }
+            how['kept'] += 1
+            continue
         if model == 'simple':
             price, kind, rrp, promo, where = simple_price(
                 code, plan, canon, hist, levels, days, it['aud'], months,
@@ -1926,6 +1971,9 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             f'{ym} and carry a realised price; the rest were planned and '
             'not sold')
 
+    if held:
+        say(f'\n  {held:,} material(s) in ' + ', '.join(sorted(hold))
+            + ' kept at the sheet price (--keep)')
     say(f'\nre-priced {len(out):,} material(s): '
         + ', '.join(f'{n:,} {k}' for k, n in how.most_common()))
     if model == 'simple':
@@ -2084,6 +2132,12 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--keep', nargs='+', default=(), metavar='NAME',
+                    help='leave these groups at the GSCM price, by any of '
+                         'Biz, Div 1, Div 2, Div 3 or Range - e.g. --keep MX. '
+                         'For a group the sheet already prices better than '
+                         'anything here can: measure with price_spread '
+                         '--compare before naming one')
     ap.add_argument('--new-from', default='sheet',
                     choices=('sheet', 'asp', 'rate'),
                     help='what prices a product with no record of its own '
@@ -2172,7 +2226,7 @@ def main() -> int:
                   new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                   flat_days=args.flat_days, by_units=args.by_units,
                   model=args.model, actual=not args.no_actual,
-                  new_from=args.new_from)
+                  new_from=args.new_from, keep=args.keep)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)

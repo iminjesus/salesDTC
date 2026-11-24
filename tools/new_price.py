@@ -272,6 +272,9 @@ def main() -> int:
                          '(default div1: model family, then Div 3, then '
                          'Div 1, never the whole book). sku refuses to '
                          'borrow at all')
+    ap.add_argument('--keep', nargs='+', default=(), metavar='NAME',
+                    help='leave these groups at the GSCM price, by any of '
+                         'Biz, Div 1, Div 2, Div 3 or Range - e.g. --keep MX')
     ap.add_argument('--by-members', dest='by_units', action='store_false',
                     default=True,
                     help='a group answers with the average of its products '
@@ -362,7 +365,8 @@ def main() -> int:
                         scope=args.scope, decay=args.decay, also=also,
                         new_cap=args.new_cap / 100.0, no_mix=args.no_mix,
                         flat_days=args.flat_days, by_units=args.by_units,
-                        model=args.model, promo_first=args.promo_first,
+                        model=args.model, keep=args.keep,
+                        promo_first=args.promo_first,
                         quiet_list=args.quiet_list, pooled=args.pooled,
                         clearance=args.clearance, explain=args.explain,
                         campaigns=args.campaigns, why=args.why)
