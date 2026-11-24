@@ -9,6 +9,47 @@ Files are found by name - anything with `dtc` in it, so `26 DTC Sep.csv` and
 `26_DTC_Sep.csv` are both picked up - and the month is read from each row's
 own `Year` and `Month` columns rather than from the file name.
 
+
+## `--rules` - a standing offer against a campaign one
+
+```
+py tools\dtc.py --rules
+```
+
+```
+the rules the export says actually applied, over 6 month(s): 4 of them, 6,210 unit(s)
+
+  rule                          months     units  share  off list   reads as
+  EPP Tier 1                         6     4,800  77.3%      8.0%   standing
+  FF8 Pre-order                      2       550   8.9%     45.0%   campaign
+  Early Black Friday                 1       500   8.1%     25.0%   one month only
+  Staff purchase                     6       360   5.8%     15.0%   standing
+```
+
+The re-price keys its history on the **plan's** campaign for a date,
+because the month being priced has not happened and has only a plan to be
+described by. The export knows better: `promotion_rule` is the rule that
+actually applied to each line. The two disagree in the case that matters
+most.
+
+A Fold8 whose plan says *no campaign* on half its days still sold those
+days at its **pre-order** price, because the pre-order offer covered them.
+Carried forward, that becomes the product's ordinary price, and the next
+month is priced at a launch discount it is not running - which is exactly
+how `SM-F971BZWGATS` came out at 45% off a 2,999 list in a November with
+nothing on.
+
+**What separates the two is how many months a rule runs in.** EPP tiers,
+staff pricing and the ordinary channel rules are live every month and
+belong in a window. A pre-order, a launch bonus or a Black Friday rule is
+live in one or two and does not. That is measured rather than kept as a
+list someone has to maintain, and the last line of the report says how much
+of the window is carried forward wrongly:
+
+```
+  1 rule(s) ran in one month only, 500 unit(s) - 8.1% of the window
+```
+
 ## Why it is preferred
 
 It is the same sale the order export carries, with two things on the line

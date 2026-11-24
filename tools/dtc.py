@@ -179,6 +179,72 @@ def read(folder: Path, months=None, say=print, keep=None) -> list:
     return out
 
 
+def rule_report(rows: list, say=print, top: int = 40) -> None:
+    """Every `promotion_rule` in the window: how deep, and how often.
+
+    The re-price keys its history on the **plan's** campaign for a date,
+    because the month being priced has not happened and has only a plan to
+    be described by. The export knows better: it carries the rule that
+    actually applied to each line. The two disagree in the case that
+    matters most.
+
+    A Fold8 whose plan says "no campaign" on half its days still sold those
+    days at its pre-order price, because the pre-order offer covered them.
+    Carried forward, that becomes the product's ordinary price and the next
+    month is priced at a launch discount it is not running.
+
+    What separates a standing rule from a campaign one is **how many months
+    it runs in**. EPP tiers, staff pricing and the like are live every
+    month and belong in a window; a pre-order, a launch bonus or a Black
+    Friday rule is live in one or two and does not. That is measured here
+    rather than kept as a list someone has to maintain.
+    """
+    live = [r for r in rows if (r.get('rule') or '').strip()
+            and r['qty'] > 0 and r['rrp']]
+    if not live:
+        say('\nno line carries a promotion_rule, so there is nothing to '
+            'separate standing offers from campaign ones')
+        return
+    months = sorted({r['ym'] for r in live})
+    by: dict = {}
+    for r in live:
+        t = by.setdefault(r['rule'].strip(), {'q': 0.0, 'a': 0.0, 'l': 0.0,
+                                              'm': set()})
+        t['q'] += r['qty']
+        t['a'] += r['amt']
+        t['l'] += r['qty'] * r['rrp']
+        t['m'].add(r['ym'])
+    whole = sum(t['q'] for t in by.values())
+    say(f'\nthe rules the export says actually applied, over '
+        f'{len(months)} month(s): {len(by):,} of them, '
+        f'{whole:,.0f} unit(s)')
+    say('  a rule in every month is a standing offer - EPP, staff, an '
+        'ordinary tier - and belongs\n  in a window. One in a month or two '
+        'is a campaign, and carrying it forward prices the\n  next month '
+        'at an offer it is not running')
+    say(f"\n  {'rule':<44}{'months':>7}{'units':>10}{'share':>7}"
+        f"{'off list':>10}   reads as")
+    rank = sorted(by.items(), key=lambda kv: -kv[1]['q'])
+    for name, t in rank[:top]:
+        off = (1 - t['a'] / t['l']) * 100 if t['l'] > 0 else 0.0
+        n = len(t['m'])
+        kind = ('standing' if n >= len(months)
+                else 'most months' if n >= len(months) - 1
+                else 'campaign' if n > 1 else 'one month only')
+        say(f'  {name[:43]:<44}{n:>7}{t["q"]:>10,.0f}'
+            f'{t["q"] / whole * 100:>6.1f}%{off:>9.1f}%   {kind}')
+    if len(rank) > top:
+        rest = sum(t['q'] for _, t in rank[top:])
+        say(f'  ... and {len(rank) - top:,} more, {rest:,.0f} unit(s)')
+    once = [(n, t) for n, t in by.items() if len(t['m']) <= 1]
+    if once:
+        q = sum(t['q'] for _, t in once)
+        say(f'\n  {len(once):,} rule(s) ran in one month only, '
+            f'{q:,.0f} unit(s) - {q / whole * 100:.1f}% of the window. '
+            'Those are the\n  ones a window carries forward as though they '
+            'were the ordinary price')
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -210,6 +276,11 @@ def main() -> int:
                          'half-life came closest')
     ap.add_argument('--back', type=int, default=6, metavar='N',
                     help='months of history --fit reads (default 6)')
+    ap.add_argument('--rules', action='store_true',
+                    help='every promotion_rule the export says applied, '
+                         'with how deep it discounted and how many months '
+                         'it ran in - which is what separates a standing '
+                         'offer like EPP from a campaign like a pre-order')
     ap.add_argument('--drift', default=None, metavar='LEVEL',
                     nargs='?', const='cat',
                     choices=('div', 'cat', 'range'),
@@ -237,6 +308,10 @@ def main() -> int:
     if not rows:
         print('nothing to report')
         return 1
+
+    if args.rules:
+        rule_report(rows)
+        return 0
 
     by = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
     for r in rows:
