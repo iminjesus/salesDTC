@@ -1197,9 +1197,37 @@ reads the launch under another name. `bare()` is safe per product for
 exactly the reason the old one was not - those days are excluded now,
 because the offer was live on them.
 
-Off by default until the two months are measured. A history built without
-it behaves as it always did: `History.add` falls back to the campaign
-column when no `bare` is supplied.
+### Measured on October and November, and not adopted
+
+**It does not beat the model it replaces.** Both months were re-priced
+with it and scored against what they sold at, by Div 3 and by Div 1, and
+it is not an improvement. It stays behind the flag, off, and nothing uses
+it.
+
+That is the fifth attempt in one family to fail, and the family is worth
+naming because the next idea will look like a sixth:
+
+| attempt | reading |
+|---|---|
+| `promotion_rule` by the months a name appears in | 38.5% |
+| by the window the name declares | 74.3% |
+| by family, with the dates stripped | 81.4% |
+| `Offer_Detail` added back to the ASP | gap moves 29 points, p25 negative |
+| `Offer_Detail` splitting the day, both sides read | no improvement |
+
+Every one of them asks the plan **what kind of day this was** and prices
+off days of the same kind. The measurements say, five times over, that
+the answer carries almost nothing the product's own recent ASP does not
+already carry. The offer text is real - the no-offer price is dearer on
+75% of the book, and that is measured - but what it separates is already
+in the average by the time a month is priced.
+
+The diagnostics stay (`--clean`, `--offers`), because they are the
+cheapest way to re-test this if a file ever arrives with take-up in it.
+The rungs stay off.
+
+A history built without the flag behaves as it always did: `History.add`
+falls back to the campaign column when no `bare` is supplied.
 
 A count of months reading an offer worth **more than the list price** is
 printed above the table when there is one. Those are the instrument, not
