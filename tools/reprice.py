@@ -2435,10 +2435,12 @@ def clean_days(plan, rows, months, say=print) -> None:
             undated += r['qty']
             continue
         k = PM.code_norm(r['code'])
-        t = tot.setdefault(k, [0.0, 0.0, 0.0, 0.0])
+        t = tot.setdefault(k, [0.0, 0.0, 0.0, 0.0, 0.0])
         t[0] += r['qty']
         t[1] += r['amt']
-        if r['day'] not in live.get(k, ()):
+        if r['day'] in live.get(k, ()):
+            t[4] += r['qty']                       # sold under an offer
+        else:
             t[2] += r['qty']
             t[3] += r['amt']
 
@@ -2448,8 +2450,16 @@ def clean_days(plan, rows, months, say=print) -> None:
         return
     units = sum(t[0] for t in tot.values())
     free = sum(t[2] for t in tot.values())
-    read = [k for k, t in tot.items() if t[2] >= MIN_UNITS]
-    freeu = sum(tot[k][2] for k in read)
+
+    # Three groups, because they want three different things and averaging
+    # them together is what made the first reading say nothing. A product
+    # the window never put an offer on has a clean price identical to its
+    # window price by construction - it is a nought that is right, and a
+    # few hundred of them sitting in the middle of the distribution drag
+    # any median to nought whatever the filter is doing elsewhere.
+    noop = [k for k, t in tot.items() if t[4] <= 0]
+    work = [k for k, t in tot.items() if t[4] > 0 and t[2] >= MIN_UNITS]
+    short = [k for k, t in tot.items() if t[4] > 0 and t[2] < MIN_UNITS]
 
     say(f'\n  {len(tot):,} product(s), {units:,.0f} dated unit(s) over '
         f'{len(span):,} day(s) of window')
@@ -2457,38 +2467,63 @@ def clean_days(plan, rows, months, say=print) -> None:
         say(f'  {undated:,.0f} unit(s) carry no date and are left out')
     say(f'  {free / units * 100:.1f}% of those units fell on a day with no '
         'offer live')
-    say(f'  {len(read):,} product(s) ({len(read) / len(tot) * 100:.0f}%) '
-        f'keep {MIN_UNITS}+ unit(s) on clean days, which is '
-        f'{freeu / units * 100:.1f}% of the book')
 
-    moves = []
-    for k in read:
+    def share(ks):
+        return sum(tot[k][0] for k in ks) / units * 100
+
+    say('')
+    say(f"    {'':<34}{'products':>10}{'% of book':>11}")
+    say(f"    {'A  never had an offer':<34}{len(noop):>10,}"
+        f'{share(noop):>10.1f}%')
+    say(f"    {'B  had one, and clean days left':<34}{len(work):>10,}"
+        f'{share(work):>10.1f}%')
+    say(f"    {'C  had one, too few clean days':<34}{len(short):>10,}"
+        f'{share(short):>10.1f}%')
+    say('\n  A needs no filter - its window price is already clean. C '
+        'falls through to')
+    say('  the plain ASP whatever happens. **B is the only group this is '
+        'for.**')
+
+    if not work:
+        say('\n  B is empty: every product with an offer in the window '
+            'kept too few\n  clean units to read one. The filter has '
+            'nothing to work on')
+        return
+
+    moves, deep = [], []
+    for k in work:
         t = tot[k]
         whole, bare = t[1] / t[0], t[3] / t[2]
         if whole > 0:
             moves.append((bare / whole - 1) * 100)
-    if not moves:
-        say('  and none of them has a price to compare')
-        return
+            deep.append(t[4] / t[0] * 100)
     moves.sort()
+    deep.sort()
 
-    def at(f):
-        return moves[min(len(moves) - 1, int(f * len(moves)))]
+    def at(v, f):
+        return v[min(len(v) - 1, int(f * len(v)))]
 
-    say('\n  the clean-day price against the whole-window price, in '
+    say(f'\n  B: {len(work):,} product(s). How much of each one\u2019s '
+        'month sold under an offer:')
+    say(f"    {'p25':>8}{'median':>9}{'p75':>8}{'p90':>8}")
+    say(f'    {at(deep, 0.25):>7.0f}%{at(deep, 0.50):>8.0f}%'
+        f'{at(deep, 0.75):>7.0f}%{at(deep, 0.90):>7.0f}%')
+    say('\n  B: the clean-day price against the whole-window price, in '
         'percent:')
     say(f"    {'p25':>8}{'median':>9}{'p75':>8}{'p90':>8}")
-    say(f'    {at(0.25):>+7.1f}%{at(0.50):>+8.1f}%{at(0.75):>+7.1f}%'
-        f'{at(0.90):>+7.1f}%')
-    up = sum(1 for v in moves if v > 0) / len(moves) * 100
-    say(f'  {up:.0f}% of them are DEARER on clean days, which is the '
-        'direction the filter')
-    say('  is for: the window average is dragged down by the offers in it')
-    say('\n  Coverage is what decides it. Enough of the book on clean days '
-        'and the')
-    say('  ordinary price can be observed instead of reconstructed; too '
-        'little, and')
-    say('  there is nothing behind the filter to average')
+    say(f'    {at(moves, 0.25):>+7.1f}%{at(moves, 0.50):>+8.1f}%'
+        f'{at(moves, 0.75):>+7.1f}%{at(moves, 0.90):>+7.1f}%')
+    up = sum(1 for v in moves if v > 0.05) / len(moves) * 100
+    flat = sum(1 for v in moves if abs(v) <= 0.05) / len(moves) * 100
+    say(f'  {up:.0f}% dearer on clean days, {flat:.0f}% unchanged, '
+        f'{100 - up - flat:.0f}% cheaper')
+    say('\n  Dearer is the direction the filter is for: the window '
+        'average is dragged')
+    say('  down by the offers in it, and taking those days out should '
+        'put it back.')
+    say('  Cheaper means the offer days were not the cheap ones, and on '
+        'those products')
+    say('  the filter would make the answer worse, not better')
 
 
 def offer_report(plan, codes=(), say=print, top: int = 40) -> None:

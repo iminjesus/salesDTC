@@ -995,27 +995,47 @@ py tools\reprice.py --clean
 ```
 
 ```
-  1,555 product(s), N dated unit(s) over 184 day(s) of window
-  NN.N% of those units fell on a day with no offer live
-  N product(s) (NN%) keep 5+ unit(s) on clean days, which is NN.N% of the book
+  1,514 product(s), 166,434 dated unit(s) over 184 day(s) of window
+  35.5% of those units fell on a day with no offer live
 
-  the clean-day price against the whole-window price, in percent:
-         p25   median     p75     p90
-  NN% of them are DEARER on clean days
+                                        products  % of book
+    A  never had an offer                      N       NN.N%
+    B  had one, and clean days left            N       NN.N%
+    C  had one, too few clean days             N       NN.N%
 ```
 
-**Coverage decides it.** The promotion file is cumulative from 2025 and
-the standing EPP rules sit under everything, so a product can carry a live
-offer on every day of the window - and then there is nothing left to
-average and this road is shut as well. The second number is the one to
-read first.
+**Three groups, and only one of them is the question.** A product the
+window never put an offer on has a clean price identical to its window
+price *by construction*. It is a nought that is right, and a few hundred
+of them sitting in the middle of the distribution drag any median to
+nought whatever the filter is doing elsewhere - which is exactly what the
+first reading of this did, reporting a median of +0.2% and a coin-flip
+51% dearer over a population that was mostly no-ops.
 
-The third block says whether the filter is worth having even where it
-reaches. A clean-day price that comes out the same as the window price
-means the offers were not moving the average, and a filter that changes
-nothing is not worth its complexity. It should come out **dearer**: that is
+A needs no filter. C falls through to the plain ASP whatever happens. **B
+is the only group this is for**, and it is reported on its own:
+
+```
+  B: N product(s). How much of each one's month sold under an offer:
+         p25   median     p75     p90
+
+  B: the clean-day price against the whole-window price, in percent:
+         p25   median     p75     p90
+  NN% dearer on clean days, NN% unchanged, NN% cheaper
+```
+
+**Coverage decides whether it can be built; B's spread decides whether it
+is worth building.** The promotion file is cumulative from 2025 and the
+standing EPP rules sit under everything, so a product can carry a live
+offer on every day of the window - that product lands in C and this road
+is shut for it.
+
+Where it does reach, the clean price should come out **dearer**: that is
 the whole claim, that the window average is dragged down by the offers
-inside it.
+inside it. Unchanged means the offers were not moving the average and the
+filter is complexity for nothing. **Cheaper** means the offer days were not
+the cheap days, and on those products the filter would make the answer
+worse.
 
 Only lines whose `Offer_Detail` carries an amount mark a day. A line that
 names a campaign and no money does not: that is the campaign flag again,
