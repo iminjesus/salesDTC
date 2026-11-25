@@ -2127,6 +2127,84 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     return out
 
 
+def offer_report(plan, codes=(), say=print, top: int = 40) -> None:
+    """What the plan’s `Offer_Detail` column says, and what it is worth.
+
+    The plan carries the offer in words beside the campaign that ran it,
+    and the re-price has never read it: the model asks the plan only *which
+    campaign* covered a day, then measures the depth from the sales. That
+    works while a campaign’s name is the whole of what it did, and fails on
+    a launch, where what the product sold at is the launch and there is no
+    ordinary price behind it to find.
+
+    The offer in words is the one place the two are written apart - a
+    pre-order bonus named as such, beside the tier discount that would have
+    applied anyway. This lists the vocabulary so that what can be read out
+    of it is a reading and not a hope.
+
+    The quoted depth beside each is the plan’s own: its store price against
+    its list price, on the lines that carry both.
+    """
+    rows = plan.rows or []
+    if codes:
+        want, mine = set(), []
+        for c in codes:
+            got, _ = plan.candidates(PM.code_norm(c))
+            for r in got:
+                if id(r) not in want:
+                    want.add(id(r))
+                    mine.append(r)
+        rows = mine
+        say(f'\nthe plan\u2019s offers for '
+            + ', '.join(str(c) for c in codes) + f': {len(rows):,} line(s)')
+    else:
+        say(f'\nthe plan\u2019s Offer_Detail column, over '
+            f'{len(rows):,} line(s)')
+    if not rows:
+        say('  no plan line to read')
+        return
+
+    def depth(r):
+        px = r.get('prices') or {}
+        rrp, com = px.get('RRP'), px.get('S.COM_Price')
+        return (1 - com / rrp) if rrp and com and rrp > 0 else None
+
+    if codes:
+        say(f"    {'from':>10}{'to':>12}  {'quoted':>7}  "
+            f"{'campaign':<26}offer")
+        for r in sorted(rows, key=lambda r: (r['start'] or date.min)):
+            d = depth(r)
+            camp = ' / '.join(x for x in (r.get('camp') or []) if x) or '-'
+            say(f"    {str(r['start'] or '-'):>10}{str(r['end'] or '-'):>12}"
+                + (f'{d * 100:>8.1f}%' if d is not None else f"{'-':>9}")
+                + f"  {camp[:25]:<26}{(r.get('detail') or '-')[:46]}")
+        return
+
+    by: dict = {}
+    for r in rows:
+        t = by.setdefault((r.get('detail') or '(blank)').strip()[:46],
+                          [0, set(), [], set()])
+        t[0] += 1
+        t[1].add(r.get('code') or '')
+        d = depth(r)
+        if d is not None:
+            t[2].append(d)
+        for x in (r.get('camp') or []):
+            if x:
+                t[3].add(x)
+    say(f"  {'offer':<48}{'lines':>7}{'SKUs':>7}{'quoted':>9}   a campaign "
+        'it runs under')
+    for name, t in sorted(by.items(), key=lambda kv: -kv[1][0])[:top]:
+        d = (sum(t[2]) / len(t[2]) * 100) if t[2] else None
+        camp = sorted(t[3])
+        say(f'  {name:<48}{t[0]:>7,}{len(t[1]):>7,}'
+            + (f'{d:>8.1f}%' if d is not None else f"{'-':>9}")
+            + f'   {(camp[0] if camp else "-")[:28]}'
+            + (f' +{len(camp) - 1}' if len(camp) > 1 else ''))
+    if len(by) > top:
+        say(f'  ... and {len(by) - top:,} more')
+
+
 def report(out, levels, hist, explain, campaigns, why, say) -> None:
     """The three asked-for readings, whichever model was run.
 
@@ -2247,6 +2325,12 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--offers', nargs='*', default=None, metavar='CODE',
+                    help='what the plan\u2019s Offer_Detail column says, with '
+                         'the depth the plan quotes beside it. With no code, '
+                         'the vocabulary over the whole plan; with codes, '
+                         'those products\u2019 own lines in date order. Reads '
+                         'the plan only - no history, no pricing')
     ap.add_argument('--drop-launch-months', dest='drop_launch',
                     action='store_true',
                     help='where a month in the window carried a launch or a '
@@ -2339,6 +2423,15 @@ def main() -> int:
         raise SystemExit(f'no gscm_* sheet in {folder.resolve()} prices that '
                          'month')
     full = (2000 + ym // 100) * 100 + ym % 100
+
+    if args.offers is not None:
+        say = print
+        say('reading the promotion plan:')
+        plan, _ = PM.load_plans(folder, args.plan, say=say)
+        if not getattr(plan, 'rows', None):
+            raise SystemExit('no promotion plan to read')
+        offer_report(plan, args.offers, say=say)
+        return 0
 
     out = reprice(folder, full, args.back, args.plan, explain=args.explain,
                   pooled=args.pooled, campaigns=args.campaigns,

@@ -797,6 +797,52 @@ campaign was named or not. 45% off is what it has always sold at, because
 it has only ever sold at launch. A product whose whole history is its launch
 has no ordinary price to find, on any rung.
 
+### `--offers` - the plan says what the offer was, in words
+
+The plan carries `Offer_Detail` beside the campaign that ran it, and the
+re-price has never read it. The model asks the plan only **which campaign**
+covered a day and measures the depth from the sales, which works while a
+campaign's name is the whole of what it did - and fails on a launch, where
+what the product sold at *is* the launch and there is no ordinary price
+behind it to average.
+
+The offer in words is the one place the two are written apart: a pre-order
+bonus named as such, beside the tier discount that would have applied
+anyway.
+
+```
+py tools\reprice.py --offers                    the vocabulary
+py tools\reprice.py --offers SM-F971BZWGATS      one product's own lines
+```
+
+```
+  offer                                           lines   SKUs   quoted   a campaign it runs under
+  Pre-order bonus: $500 credit + double storage        2      2    16.0%   FF8 Pre-order
+  EPP T2 tier - 10% off                                2      2    10.0%   -
+  $200 instant discount                                1      1     6.7%   Samsung Week
+
+          from          to   quoted  campaign        offer
+    2026-08-01  2026-08-20    16.7%  FF8 Pre-order   Pre-order bonus: $500 credit + double storage
+    2026-08-01  2026-10-31    10.0%  -               EPP T2 tier - 10% off
+    2026-09-10  2026-09-24     6.7%  Samsung Week    $200 instant discount
+```
+
+`quoted` is the plan's own depth - its store price against its list price -
+on the lines that carry both. It reads the plan and nothing else: no
+history, no pricing, so it is quick.
+
+**What it is for.** If a launch month's lines carry a pre-order offer *and*
+a tier offer with separate depths, then the launch part can be added back
+to recover an ordinary price, and the window does not have to be thrown
+away. If every line of the product's window is the one offer, there is no
+ordinary price to recover and `--drop-launch-months` or `kept` is the
+honest answer.
+
+The plan's **campaign flag** cannot size it either way: book-wide, a day
+the plan calls a campaign is only **1.1 points** deeper than a day it does
+not, because the quiet days are under the channel's standing rules at the
+same depth.
+
 ### `--drop-launch-months` - a launch does not end where the plan stops naming it
 
 A product in its pre-order sells at the pre-order price on the days the plan
