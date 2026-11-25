@@ -1163,14 +1163,14 @@ def voucher_report(rows, say=print, top: int = 25, least: int = 20) -> None:
     def table(keyed, head, show):
         units = sum(t[0] for t in keyed.values())
         say(f'\n  {len(keyed):,} {head} over {units:,.0f} unit(s)')
-        say(f"    {'':<34}{'units':>9}{'off list':>10}"
+        say(f"    {'':<26}{'units':>8}{'products':>10}{'off list':>10}"
             f"{'under its own clean price':>27}")
         for c, t in sorted(keyed.items(), key=lambda kv: -kv[1][0])[:show]:
             off = (f'{(1 - t[1] / t[2]) * 100:8.1f}%' if t[2] > 0
                    else f"{'-':>9}")
             under = (f'{(1 - (t[1] / t[0]) / (t[3] / t[4])) * 100:25.1f}%'
                      if t[4] >= least and t[3] > 0 else f"{'too thin':>26}")
-            say(f'    {c[:33]:<34}{t[0]:9,.0f}{off}{under}')
+            say(f'    {c[:25]:<26}{t[0]:8,.0f}{len(t[5]):10,}{off}{under}')
         if len(keyed) > show:
             say(f'    ... and {len(keyed) - show:,} more')
 
@@ -1195,10 +1195,11 @@ def voucher_report(rows, say=print, top: int = 25, least: int = 20) -> None:
         for keyed, names in ((by, got),
                              (stem, {voucher_stem(c) for c in got})):
             for c in names:
-                t = keyed.setdefault(c, [0.0, 0.0, 0.0, 0.0, 0.0])
+                t = keyed.setdefault(c, [0.0, 0.0, 0.0, 0.0, 0.0, set()])
                 t[0] += r['qty']
                 t[1] += r['amt']
                 t[2] += r['qty'] * (r['rrp'] or 0.0)
+                t[5].add(PM.code_norm(r['code']))
                 if own:
                     t[3] += r['qty'] * own
                     t[4] += r['qty']
@@ -1213,6 +1214,23 @@ def voucher_report(rows, say=print, top: int = 25, least: int = 20) -> None:
     # family.
     table(stem, 'voucher stem(s)', top)
     table(by, 'voucher code(s)', min(top, 12))
+    wide = [c for c, t in stem.items()
+            if len(t[5]) > 1 and t[4] >= least and t[3] > 0
+            and (1 - (t[1] / t[0]) / (t[3] / t[4])) > 0.20]
+    one = sum(1 for t in stem.values() if len(t[5]) == 1)
+    say(f'\n  the `products` column is what decides whether a stem is a '
+        'rule or a code.\n  A stem on one product is that product\u2019s '
+        'own voucher and naming it buys one\n  product; a stem across '
+        f'hundreds is a mechanic. {one:,} of {len(stem):,} stem(s) '
+        'touch\n  one product only.')
+    if wide:
+        say('\n  deep (20+ points under) AND on more than one product - '
+            'the ones worth naming:')
+        say('    ' + ', '.join(sorted(wide, key=lambda c: -stem[c][0])[:20]))
+    else:
+        say('\n  no stem is both deep and spread over several products, '
+            'so a stem list would\n  be a list of individual products. '
+            '--floor is the rule that needs no names')
     say(f'\n  "under its own clean price" compares each code against what '
         f'the same\n  products fetched on their voucher-free lines, over '
         f'the codes with {least}+\n  unit(s) of that comparison. Deep and '

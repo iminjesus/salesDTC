@@ -1248,6 +1248,27 @@ voucher-free; `FF8C`, `LS` and `UNFOLD2026` are within a few points and
 belong in the average. Dropping the two deep stems takes that product's
 window ASP from 2,138 to 2,447.
 
+### Is a stem a rule, or just one product's code?
+
+That is what the `products` column answers, and it is the question that
+decides whether naming stems is worth doing **at all**. `FF8` almost
+certainly means Fold8 - the stem names the product, and the letter after
+it the mechanic - so a list built from one product buys one product. The
+report says so outright:
+
+```
+  N of N stem(s) touch one product only.
+
+  deep (20+ points under) AND on more than one product - the ones worth naming:
+    ...
+```
+
+A stem on one product is that product's own voucher. A stem across
+hundreds is a mechanic, and worth a standing `--drop-voucher`. If the
+report finds none of the second kind, a stem list is a list of
+individual products and should not be kept - `--floor` is the rule that
+needs no names and works on a product whose codes have never been seen.
+
 Each code is read two ways. Against the **list price**, which says how
 deep the line went; and against **what the same products fetched on
 their own voucher-free lines**, which is the number that matters here,
