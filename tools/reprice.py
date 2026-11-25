@@ -897,7 +897,7 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  by_units: bool = True, skip=None,
                  clean_quiet: bool = False, drop_day=None,
                  band=None, no_deals: bool = False,
-                 no_vouch=(), floor=None) -> History:
+                 no_vouch=(), floor=None, ceil=None) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -954,7 +954,7 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             gift = [0, 0.0]
             want_v = {str(v).strip().upper() for v in no_vouch or ()
                       if str(v).strip()}
-            deep = deep_cut(rows, floor) if floor else set()
+            deep = deep_cut(rows, floor or 0.0, ceil or 0.0)
             for i, r in enumerate(rows):
                 code = PM.code_norm(r['code'])
                 # The export names the model family itself, which the
@@ -1023,10 +1023,15 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     f'{odd[0]:,} line(s) '
                     f'({odd[0] / tot * 100:.1f}%), {odd[1]:,.0f} unit(s) '
                     'left out of every ASP and every discount')
-            if floor:
+            if floor or ceil:
                 tot = len(rows) or 1
-                say(f'  more than {floor * 100:.0f}% below what the '
-                    f'product fetches voucher-free: {len(deep):,} line(s) '
+                ends = ' and '.join(
+                    x for x in ((f'{floor * 100:.0f}% below' if floor
+                                 else ''),
+                                (f'{ceil * 100:.0f}% above' if ceil
+                                 else '')) if x)
+                say(f'  more than {ends} what the product fetches '
+                    f'voucher-free: {len(deep):,} line(s) '
                     f'({len(deep) / tot * 100:.1f}%) left out of every ASP '
                     'and every discount')
                 # And what they were. The point of a floor is that it
@@ -1265,7 +1270,8 @@ def voucher_report(rows, say=print, top: int = 25, least: int = 20) -> None:
             'make a shallow one it travels with look deeper than it is')
 
 
-def deep_cut(rows, floor: float, least: int = MIN_UNITS) -> set:
+def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
+             least: int = MIN_UNITS) -> set:
     """Indices of lines far below what the product fetches voucher-free.
 
     The answer to "not every voucher disturbs a price, but some do" that
@@ -1285,10 +1291,20 @@ def deep_cut(rows, floor: float, least: int = MIN_UNITS) -> set:
     30% under its own price" - rather than in a rank that happens to land
     somewhere useful.
 
+    `ceil` is the same cut at the other end, and it is not symmetry for
+    its own sake. A floor only ever pushes a price **up**: it removes
+    cheap lines, every ASP rises, and the month is forecast dearer. Where
+    the model is already dearer than the month turns out - which
+    book-wide it is, by 62 on November - that makes the level worse
+    whatever it does to the scatter. A ceiling pushes the other way, so
+    the two together can take both tails off without moving the middle.
+
     A product whose voucher-free lines come to fewer than `least` units
     has no reliable base and is left alone: its odd lines may be the only
     lines it has.
     """
+    if not floor and not ceil:
+        return set()
     base: dict = {}
     for r in rows:
         if r['qty'] > 0 and not r.get('vouch') and not r.get('trade'):
@@ -1302,7 +1318,12 @@ def deep_cut(rows, floor: float, least: int = MIN_UNITS) -> set:
         if r['qty'] <= 0:
             continue
         p = own.get(PM.code_norm(r['code']))
-        if p and r['amt'] / r['qty'] < p * (1.0 - floor):
+        if not p:
+            continue
+        at = r['amt'] / r['qty']
+        if floor and at < p * (1.0 - floor):
+            out.add(i)
+        elif ceil and at > p * (1.0 + ceil):
             out.add(i)
     return out
 
@@ -2409,7 +2430,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             clean_quiet: bool = False,
             grace: int | None = None, band=None,
             no_deals: bool = False, no_vouch=(),
-            floor=None) -> dict:
+            floor=None, ceil=None) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -2535,7 +2556,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                         pooled=pooled, by_units=by_units, skip=skip,
                         clean_quiet=clean_quiet, drop_day=drop_day,
                         band=band, no_deals=no_deals,
-                        no_vouch=no_vouch, floor=floor)
+                        no_vouch=no_vouch, floor=floor, ceil=ceil)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -3542,6 +3563,11 @@ def main() -> int:
                          'whichever voucher did it or none. One number, '
                          'no list to keep, and a product with nothing odd '
                          'in it loses nothing')
+    ap.add_argument('--ceil', type=float, default=None, metavar='PCT',
+                    help='the other end of --floor: leave out every line '
+                         'more than PCT%% ABOVE what the product fetches '
+                         'voucher-free. A floor only ever makes the '
+                         'forecast dearer; a ceiling pushes back')
     ap.add_argument('--vouchers', action='store_true',
                     help='which voucher codes move a price and by how '
                          'much, against the list price and against what '
@@ -3747,7 +3773,8 @@ def main() -> int:
                   clean_quiet=args.clean_quiet, grace=args.grace,
                   band=band_of(args.band), no_deals=args.no_deals,
                   no_vouch=args.no_vouch,
-                  floor=(args.floor / 100.0 if args.floor else None))
+                  floor=(args.floor / 100.0 if args.floor else None),
+                  ceil=(args.ceil / 100.0 if args.ceil else None))
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)

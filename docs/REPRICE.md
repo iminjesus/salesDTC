@@ -1363,6 +1363,30 @@ The flag stays, off. The diagnostics around it (`--vouchers`, and the
 "what it caught" line) are worth keeping whatever the rungs do: they are
 the only way to see which mechanics move a price, and they cost one run.
 
+### `--ceil PCT` - the other end, because a floor only pushes one way
+
+A floor **only ever makes the forecast dearer**: it removes cheap lines,
+every ASP rises, and the month is priced up. Where the model is already
+dearer than the month turns out - which book-wide it is, by 62 on
+November - that makes the level worse whatever it does to the scatter,
+and the measurement above says exactly that.
+
+`--ceil` cuts the other tail, against the same base: every line more
+than PCT% **above** what the product fetches voucher-free. The two
+together take both ends off without moving the middle.
+
+```
+py tools\price_spread.py --month 2611 --by div1 \
+    --compare rrp rrp+floor=30 rrp+floor=30+ceil=20 rrp+floor=20+ceil=20
+```
+
+On the one product looked at by hand, a 2,138 window ASP goes to 2,554
+with a floor alone and back to 2,442 with a 20% ceiling beside it. This
+is `--band` asked differently: the band trims by **rank**, a fixed share
+of every product whether or not anything is wrong with it, while these
+two trim by **distance from the product's own ordinary price**, so a
+product with nothing odd in it loses nothing.
+
 **The list comes out, not in.** Nobody can hunt a book of 1,500 products
 by hand for the odd mechanic, and the one stem anybody found was found
 by accident. So the floor takes a number and reports what it caught:

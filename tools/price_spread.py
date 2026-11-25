@@ -335,6 +335,8 @@ def split_entry(entry: str, shared: dict):
             over['no_deals'] = True
         elif key == 'floor':
             over['floor'] = float(val) / 100.0
+        elif key == 'ceil':
+            over['ceil'] = float(val) / 100.0
         elif key in ('novouch', 'drop-voucher'):
             over['no_vouch'] = tuple(v.strip() for v in val.split(',')
                                      if v.strip())
@@ -344,7 +346,7 @@ def split_entry(entry: str, shared: dict):
         else:
             raise SystemExit(f'--compare {entry}: no setting called {key!r} '
                              '(keep, scope, drop-launch, clean, grace, '
-                             'band, nodeals, novouch, floor)')
+                             'band, nodeals, novouch, floor, ceil)')
     return name, over
 
 
@@ -464,6 +466,10 @@ def main() -> int:
                     action='store_true',
                     help='passed to the re-price: drop a window month that '
                          'carried a launch or a pre-order for the product')
+    ap.add_argument('--ceil', type=float, default=None, metavar='PCT',
+                    help='passed to the re-price: leave out every line '
+                         'more than PCT%% above what the product fetches '
+                         'voucher-free')
     ap.add_argument('--floor', type=float, default=None, metavar='PCT',
                     help='passed to the re-price: leave out every line '
                          'more than PCT%% below what the product fetches '
@@ -519,7 +525,8 @@ def main() -> int:
               'clean_quiet': args.clean_quiet, 'grace': args.grace,
               'band': __import__('reprice').band_of(args.band),
               'no_deals': args.no_deals, 'no_vouch': args.no_vouch,
-              'floor': (args.floor / 100.0 if args.floor else None)}
+              'floor': (args.floor / 100.0 if args.floor else None),
+              'ceil': (args.ceil / 100.0 if args.ceil else None)}
     if args.scope:
         shared['scope'] = args.scope
 
