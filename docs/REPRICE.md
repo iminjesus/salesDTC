@@ -1176,6 +1176,38 @@ deep trim loses.
 
 Off by default until both months are read by rank.
 
+### `--drop-deals` - name the mechanic instead of guessing it
+
+The band is the blunt instrument. It infers from the price that a line
+was disturbed, and it applies **the same ratio to every product**, so a
+product that never had a voucher still loses its cheapest 40% - real
+evidence, thrown away to catch a disturbance it did not have.
+
+The export flags the mechanic directly, line by line, and
+`--drop-deals` leaves those lines out of every ASP and every discount:
+
+```
+py tools\reprice.py --month 2611 --drop-deals
+py tools\price_spread.py --month 2611 --by div1 \
+    --compare rrp rrp+nodeals rrp+band=40:95 rrp+nodeals+band=40:95
+```
+
+Both a voucher and a trade-in **bonus** go: each is Samsung's money off
+the line. What sits outside a price is the traded phone's own value, and
+that is already outside the revenue a discount is measured from.
+
+The run says what it costs:
+
+```
+  voucher and trade-in line(s) left out of every ASP and every discount:
+  N (N.N%), N unit(s)
+```
+
+The two can be combined - the flag catches what is labelled, the band
+catches a disturbance nobody labelled - and that fourth column is what
+says whether the band is still earning its place once the vouchers are
+gone.
+
 ## `--grace N` - the launch left out by date
 
 **There is no launch price in these files.** The plan writes a campaign

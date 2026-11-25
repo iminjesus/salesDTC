@@ -896,7 +896,7 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  want_days: bool = True, pooled: bool = False,
                  by_units: bool = True, skip=None,
                  clean_quiet: bool = False, drop_day=None,
-                 band=None) -> History:
+                 band=None, no_deals: bool = False) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -944,6 +944,13 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             # question.
             odd = [0, 0.0]
             trimmed = price_band(rows, *band) if band else set()
+            # The narrower instrument for the same problem. A band guesses
+            # from the price that a line was disturbed; these two columns
+            # say so. A voucher and a trade-in bonus are both Samsung's
+            # money off the line, so both go - what sits outside a price
+            # is the traded phone's own value, and that is already outside
+            # the revenue a discount is measured from.
+            gift = [0, 0.0]
             for i, r in enumerate(rows):
                 code = PM.code_norm(r['code'])
                 # The export names the model family itself, which the
@@ -964,6 +971,10 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                 if i in trimmed:
                     odd[0] += 1
                     odd[1] += r['qty']
+                    continue
+                if no_deals and (r.get('vouch') or r.get('trade')):
+                    gift[0] += 1
+                    gift[1] += r['qty']
                     continue
                 if not rrp:
                     miss += 1
@@ -1003,6 +1014,11 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     f'{odd[0]:,} line(s) '
                     f'({odd[0] / tot * 100:.1f}%), {odd[1]:,.0f} unit(s) '
                     'left out of every ASP and every discount')
+            if no_deals:
+                tot = len(rows) or 1
+                say(f'  voucher and trade-in line(s) left out of every ASP '
+                    f'and every discount: {gift[0]:,} ({gift[0] / tot * 100:.1f}'
+                    f'%), {gift[1]:,.0f} unit(s)')
             if dropped[0]:
                 say(f'  {dropped[0]:,} line(s), {dropped[1]:,.0f} unit(s) '
                     'left out: a clearance, secret sale, EOFY or launch '
@@ -2173,7 +2189,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             new_from: str = 'sheet', keep=(),
             drop_launch: bool = False,
             clean_quiet: bool = False,
-            grace: int | None = None, band=None) -> dict:
+            grace: int | None = None, band=None,
+            no_deals: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -2298,7 +2315,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                         half=decay, source=source, want_days=True,
                         pooled=pooled, by_units=by_units, skip=skip,
                         clean_quiet=clean_quiet, drop_day=drop_day,
-                        band=band)
+                        band=band, no_deals=no_deals)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -3299,6 +3316,12 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--drop-deals', dest='no_deals', action='store_true',
+                    help='leave every line the export flags as a voucher '
+                         'or a trade-in out of every ASP and every '
+                         'discount. The narrow instrument where --band is '
+                         'the blunt one: it names the mechanic instead of '
+                         'guessing it from the price')
     ap.add_argument('--band', nargs=2, type=float, default=None,
                     metavar=('LO', 'HI'),
                     help='leave a line out of every ASP and every discount '
@@ -3478,7 +3501,7 @@ def main() -> int:
                   new_from=args.new_from, keep=args.keep,
                   drop_launch=args.drop_launch,
                   clean_quiet=args.clean_quiet, grace=args.grace,
-                  band=band_of(args.band))
+                  band=band_of(args.band), no_deals=args.no_deals)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)
