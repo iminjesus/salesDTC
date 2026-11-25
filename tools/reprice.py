@@ -2175,6 +2175,57 @@ def offer_values(detail: str) -> dict:
     return {k: v for k, v in out.items() if v}
 
 
+def offer_worth(lines, rrp: float):
+    """What the offers on these plan lines are worth, in money off one unit.
+
+    Two rules, and the second one is the whole of what the first book-wide
+    reading got wrong.
+
+    **Within a channel offers stack.** A site credit and a PayPal rebate in
+    the same fortnight are both money off the same purchase, so they add.
+
+    **Across channels they do not.** A customer buys on S.COM *or* through
+    EPP, never both, so adding `[S.COM] Save $300` to `[EPP] Save $200`
+    charges one buyer for two offers they could not both take. Summed that
+    way the book read a median gap of 47 points and a p90 of **167** -
+    impossible as a discount, and the giveaway that the instrument and not
+    the idea was at fault. The deepest channel is taken instead: an upper
+    bound on what any one customer was offered, which is what a discount
+    off list has to be measured against.
+
+    Where one offer names two amounts as alternatives - `$150 Trade-in
+    Bonus OR $150 Site` - the larger is taken, since which a customer took
+    is not in the file. Returns `(worth, named, alternatives?)`.
+    """
+    byc: dict = {}
+    alt = False
+    for r in lines:
+        for tag, got in offer_values(r.get('detail') or '').items():
+            auds = [v for k, v in got if k == 'aud']
+            pcts = [v for k, v in got if k == 'pct']
+            here = 0.0
+            if auds:
+                here = max(auds)
+                alt = alt or len(auds) > 1
+            if pcts and rrp:
+                here = max(here, max(pcts) / 100.0 * rrp)
+                alt = alt or (len(pcts) > 1 or bool(auds))
+            if here:
+                byc[tag] = byc.get(tag, 0.0) + here
+    if not byc:
+        return 0.0, [], alt
+    best = max(byc, key=lambda t: byc[t])
+    return byc[best], [f'{t} {v:,.0f}' for t, v in
+                       sorted(byc.items(), key=lambda kv: -kv[1])], alt
+
+
+def live_lines(lines, a, b):
+    """The plan lines whose window touches the days `a` to `b`."""
+    return [r for r in lines
+            if (not r.get('start') or r['start'] <= b)
+            and (not r.get('end') or r['end'] >= a)]
+
+
 def offer_months(plan, code, rrp, sold, months, say=print) -> None:
     """Do the offers in words account for the discount that was realised?
 
@@ -2208,24 +2259,8 @@ def offer_months(plan, code, rrp, sold, months, say=print) -> None:
         f"{'gap':>8}   the offers live that month")
     for m in months:
         a, b = month_days(m)[0], month_days(m)[-1]
-        live = [r for r in lines
-                if (not r.get('start') or r['start'] <= b)
-                and (not r.get('end') or r['end'] >= a)]
-        worth, alt, names = 0.0, False, []
-        for r in live:
-            for tag, got in offer_values(r.get('detail') or '').items():
-                auds = [v for k, v in got if k == 'aud']
-                pcts = [v for k, v in got if k == 'pct']
-                here = 0.0
-                if auds:
-                    here = max(auds)
-                    alt = alt or len(auds) > 1
-                if pcts and rrp:
-                    here = max(here, max(pcts) / 100.0 * rrp)
-                    alt = alt or (len(pcts) > 1 or bool(auds))
-                worth += here
-                if here:
-                    names.append(f'{tag} {here:,.0f}')
+        live = live_lines(lines, a, b)
+        worth, names, alt = offer_worth(live, rrp)
         q, amt = sold.get(m, (0.0, 0.0))
         real = (1 - amt / (q * rrp)) * 100 if q > 0 and rrp else None
         words = (worth / rrp * 100) if rrp else None
@@ -2274,7 +2309,8 @@ def gap_spread(plan, rows, months, say=print) -> None:
     for r in plan.rows:
         lines.setdefault(PM.code_norm(r.get('code') or ''), []).append(r)
 
-    moves, held = [], 0
+    moves, held, levels_, over = [], 0, [], 0
+    span = 0
     for code in {c for c, _ in by}:
         mine = lines.get(code) or []
         if not mine:
@@ -2285,23 +2321,17 @@ def gap_spread(plan, rows, months, say=print) -> None:
             if not t or t[0] < MIN_UNITS or t[2] <= 0:
                 continue
             rrp = t[2] / t[0]
-            a, b = month_days(m)[0], month_days(m)[-1]
-            worth = 0.0
-            for r in mine:
-                if (r.get('start') and r['start'] > b) or \
-                   (r.get('end') and r['end'] < a):
-                    continue
-                for _, got in offer_values(r.get('detail') or '').items():
-                    auds = [v for k, v in got if k == 'aud']
-                    pcts = [v for k, v in got if k == 'pct']
-                    here = max(auds) if auds else 0.0
-                    if pcts:
-                        here = max(here, max(pcts) / 100.0 * rrp)
-                    worth += here
-            gaps.append((1 - t[1] / t[2]) * 100 - worth / rrp * 100)
+            d1, d2 = month_days(m)[0], month_days(m)[-1]
+            worth, _, _ = offer_worth(live_lines(mine, d1, d2), rrp)
+            words = worth / rrp * 100
+            span += 1
+            if words > 100:
+                over += 1
+            gaps.append((1 - t[1] / t[2]) * 100 - words)
         if len(gaps) < 2:
             continue
         held += 1
+        levels_ += gaps
         gaps.sort()
         moves.append(gaps[-1] - gaps[0])
     if not moves:
@@ -2309,20 +2339,36 @@ def gap_spread(plan, rows, months, say=print) -> None:
             'line, so the gap cannot be followed')
         return
     moves.sort()
-    def at(f):
-        return moves[min(len(moves) - 1, int(f * len(moves)))]
+    levels_.sort()
+
+    def at(v, f):
+        return v[min(len(v) - 1, int(f * len(v)))]
+
     say(f'\n  the gap followed over {held:,} product(s) that sold in two '
-        'months or more')
-    say('  how far each one\u2019s gap moved between its best and worst '
-        'month, in points of list:')
+        f'months or more, {span:,} product-month(s)')
+    if over:
+        say(f'  {over:,} of those month(s) read an offer worth more than '
+            'the list price, which\n  cannot be a discount - read them as '
+            'the instrument, not the book')
+    say('\n  what the gap IS, in points of list (the part the words do not '
+        'account for):')
     say(f"    {'p25':>8}{'median':>9}{'p75':>8}{'p90':>8}")
-    say(f'    {at(0.25):>7.1f}%{at(0.50):>8.1f}%{at(0.75):>7.1f}%'
-        f'{at(0.90):>7.1f}%')
-    tight = sum(1 for v in moves if v <= 5) / len(moves) * 100
-    say(f'  {tight:.0f}% of them move 5 points or less. Tight, and a month '
-        'can be priced as the\n  offers it is actually running plus the '
-        'product\u2019s own gap; loose, and the\n  window average stays the '
-        'better answer however polluted it is')
+    say(f'    {at(levels_, 0.25):>7.1f}%{at(levels_, 0.50):>8.1f}%'
+        f'{at(levels_, 0.75):>7.1f}%{at(levels_, 0.90):>7.1f}%')
+    say('\n  how far each product\u2019s gap MOVES between its best and '
+        'worst month:')
+    say(f"    {'p25':>8}{'median':>9}{'p75':>8}{'p90':>8}")
+    say(f'    {at(moves, 0.25):>7.1f}%{at(moves, 0.50):>8.1f}%'
+        f'{at(moves, 0.75):>7.1f}%{at(moves, 0.90):>7.1f}%')
+    for n in (5, 10, 15):
+        sh = sum(1 for v in moves if v <= n) / len(moves) * 100
+        say(f'    {sh:>5.0f}% move {n:>2} points or less')
+    say('\n  It is the MOVE that decides it, not the level: a gap that '
+        'sits at 24 points\n  and stays there is a price, and one that '
+        'swings 50 is noise. Tight, and a\n  month can be priced as the '
+        'offers it is actually running plus the product\u2019s\n  own gap; '
+        'loose, and the window average stays the better answer however\n'
+        '  polluted it is')
 
 
 def offer_report(plan, codes=(), say=print, top: int = 40) -> None:
