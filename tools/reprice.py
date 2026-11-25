@@ -2396,6 +2396,32 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     if held:
         say(f'\n  {held:,} material(s) in ' + ', '.join(sorted(hold))
             + ' kept at the sheet price (--keep)')
+    elif hold:
+        # A --keep that matches nothing used to be silent, and a silent
+        # --keep is worse than a refused one: the run looks like it did
+        # what was asked and the column it produces is identical to the
+        # one beside it, which reads as "holding this group changes
+        # nothing" when the truth is "nothing was held".
+        seen: dict = {}
+        for code in planned['items']:
+            lv = levels.get(PM.code_norm(code)) or {}
+            for n in HOLD_AT:
+                v = (lv.get(n) or '').strip()
+                if v:
+                    seen.setdefault(n, set()).add(v)
+        say(f"\n  --keep {', '.join(sorted(hold))} matched NO material - "
+            'nothing was held and this run is the')
+        say('  same as one without it')
+        if not seen:
+            say('  no product master in the folder, so no material has a '
+                'group name to match on')
+        else:
+            for n in HOLD_AT:
+                if seen.get(n):
+                    got = sorted(seen[n])
+                    say(f"    {n:<6} {', '.join(got[:12])}"
+                        + (f' ... and {len(got) - 12} more'
+                           if len(got) > 12 else ''))
     say(f'\nre-priced {len(out):,} material(s): '
         + ', '.join(f'{n:,} {k}' for k, n in how.most_common()))
     if model == 'simple':
