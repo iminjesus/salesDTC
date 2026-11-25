@@ -2246,6 +2246,85 @@ def offer_months(plan, code, rrp, sold, months, say=print) -> None:
         'description, and the add-back\n    would be an invention.')
 
 
+def gap_spread(plan, rows, months, say=print) -> None:
+    """Is the gap a property of the product, or is it noise?
+
+    `offer_months` shows, for one product, that what the plan writes down
+    accounts for most of its discount and the rest - the gap - is steady.
+    One product proves nothing. This runs the same subtraction over every
+    product that sold, and asks how much each one\u2019s gap moves from month
+    to month.
+
+    If it barely moves, the gap is the product\u2019s own unwritten markdown
+    and a month can be priced as **the offers it is actually running, plus
+    that**. If it jumps about, the offer text explains one product and not
+    the book, and the window average stays the better answer however
+    polluted it is.
+    """
+    by: dict = {}
+    for r in rows:
+        if r['qty'] <= 0 or not r.get('rrp'):
+            continue
+        t = by.setdefault((PM.code_norm(r['code']), r.get('ym')),
+                          [0.0, 0.0, 0.0])
+        t[0] += r['qty']
+        t[1] += r['amt']
+        t[2] += r['qty'] * r['rrp']
+    lines: dict = {}
+    for r in plan.rows:
+        lines.setdefault(PM.code_norm(r.get('code') or ''), []).append(r)
+
+    moves, held = [], 0
+    for code in {c for c, _ in by}:
+        mine = lines.get(code) or []
+        if not mine:
+            continue
+        gaps = []
+        for m in months:
+            t = by.get((code, m))
+            if not t or t[0] < MIN_UNITS or t[2] <= 0:
+                continue
+            rrp = t[2] / t[0]
+            a, b = month_days(m)[0], month_days(m)[-1]
+            worth = 0.0
+            for r in mine:
+                if (r.get('start') and r['start'] > b) or \
+                   (r.get('end') and r['end'] < a):
+                    continue
+                for _, got in offer_values(r.get('detail') or '').items():
+                    auds = [v for k, v in got if k == 'aud']
+                    pcts = [v for k, v in got if k == 'pct']
+                    here = max(auds) if auds else 0.0
+                    if pcts:
+                        here = max(here, max(pcts) / 100.0 * rrp)
+                    worth += here
+            gaps.append((1 - t[1] / t[2]) * 100 - worth / rrp * 100)
+        if len(gaps) < 2:
+            continue
+        held += 1
+        gaps.sort()
+        moves.append(gaps[-1] - gaps[0])
+    if not moves:
+        say('\n  no product sold in two months of the window with a plan '
+            'line, so the gap cannot be followed')
+        return
+    moves.sort()
+    def at(f):
+        return moves[min(len(moves) - 1, int(f * len(moves)))]
+    say(f'\n  the gap followed over {held:,} product(s) that sold in two '
+        'months or more')
+    say('  how far each one\u2019s gap moved between its best and worst '
+        'month, in points of list:')
+    say(f"    {'p25':>8}{'median':>9}{'p75':>8}{'p90':>8}")
+    say(f'    {at(0.25):>7.1f}%{at(0.50):>8.1f}%{at(0.75):>7.1f}%'
+        f'{at(0.90):>7.1f}%')
+    tight = sum(1 for v in moves if v <= 5) / len(moves) * 100
+    say(f'  {tight:.0f}% of them move 5 points or less. Tight, and a month '
+        'can be priced as the\n  offers it is actually running plus the '
+        'product\u2019s own gap; loose, and the\n  window average stays the '
+        'better answer however polluted it is')
+
+
 def offer_report(plan, codes=(), say=print, top: int = 40) -> None:
     """What the plan’s `Offer_Detail` column says, and what it is worth.
 
@@ -2556,6 +2635,11 @@ def main() -> int:
         if not getattr(plan, 'rows', None):
             raise SystemExit('no promotion plan to read')
         offer_report(plan, args.offers, say=say)
+        if not args.offers:
+            months = months_back(full, args.back)
+            say('\nreading what those products sold at:')
+            gap_spread(plan, DTC.read(folder, set(months), say=say),
+                       months, say=say)
         # With a code, the check that decides whether the words can price
         # anything: the offers added up against what the product actually
         # came off list, month by month.

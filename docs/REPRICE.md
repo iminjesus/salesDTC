@@ -848,19 +848,36 @@ this can price anything: the offers added up, month by month, against what
 the product **actually** came off list.
 
 ```
-      month  offers   in words  realised     gap   the offers live that month
-     202607       3      35.0%         -       - ~S.COM 150, S.COM 150, EPP 750
-     202608       3      35.0%     50.0%   15.0% ~S.COM 150, S.COM 150, EPP 750
-     202609       1      16.7%     46.0%   29.3%  S.COM 300, EPP 200
-     202610       1      16.7%     42.1%   25.5%  S.COM 300, EPP 200
-     202611       0       0.0%     40.0%   40.0%
+SM-F971BZWGATS: list 2,999
+
+  month  offers   in words  realised     gap   the offers live that month
+ 202605       0       0.0%         -       -
+ 202606       0       0.0%         -       -
+ 202607       4      41.7%     48.9%    7.3% ~S.COM 150, EPP 750, S.COM 200, S.COM 150
+ 202608       4      41.7%     49.0%    7.3% ~S.COM 150, EPP 750, S.COM 200, S.COM 150
+ 202609       1      16.7%     31.0%   14.3%  S.COM 300, EPP 200
+ 202610       1      16.7%     34.0%   17.4%  S.COM 300, EPP 200
 ```
+
+That is the real reading for the product the 45% off a 2,999 list came
+from. The words account for **85%** of what it came off list; the two
+pre-order months, which share one offer, agree on the remainder to **0.1
+points**; and across the four months the remainder walks 7.3 -> 7.3 ->
+14.3 -> 17.4, deepening smoothly as the product ages.
 
 `gap` is what the words do not account for - the channel's standing
 pricing, which the plan does not write down. **Steady across the months and
 the offer text is a measurement**: the launch's own share can be added back
 and an ordinary price recovered. Erratic, and the text is a description and
 the add-back would be an invention.
+
+On the product above the gap is not one number, and that is the point: it is
+one number *per offer regime* and it deepens with the product's age. That is
+the product's own unwritten markdown - exactly the quantity a six-month
+window is supposed to be reading, and exactly the one it cannot read today,
+because the written part (a pre-order at 41.7%, at pre-order volume) swamps
+it in the average. Read apart, the two add back up: October's 16.7% in words
+plus its 17.4% gap is the 34.0% it actually sold at.
 
 Offers are **added up**, because they stack: a site credit and a PayPal
 rebate in the same fortnight are both money off, and both stop when the
@@ -872,6 +889,35 @@ discount is measured from.
 Where one offer names two amounts as alternatives - `$150 Trade-in Bonus OR
 $150 Site` - the larger is taken and the row is marked `~`, since which a
 customer took is not in the file.
+
+### Is the gap a property of the product, or is it noise?
+
+One product proves nothing. Without a code, `--offers` runs the same
+subtraction over **every** product that sold in two months or more of the
+window and asks how far each one's gap moves between its best and its worst
+month:
+
+```
+py tools\reprice.py --offers
+```
+
+```
+  the gap followed over 418 product(s) that sold in two months or more
+  how far each one's gap moved between its best and worst month, in points of list:
+         p25   median     p75     p90
+        2.3%     3.0%    3.8%    4.5%
+  100% of them move 5 points or less
+```
+
+Tight, and a month can be priced as **the offers it is actually running
+plus the product's own gap**, which is a different and better model from
+averaging a window that mixes the two. Loose, and the window average stays
+the better answer however polluted it is - the one product above would then
+be a coincidence, not a method.
+
+The numbers above are from a synthetic book built to have a steady
+per-product gap; they say the measurement works, not what the real book
+reads. The real reading is what decides whether the model gets built.
 
 The plan's **campaign flag** cannot size it either way: book-wide, a day
 the plan calls a campaign is only **1.1 points** deeper than a day it does
