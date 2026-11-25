@@ -286,29 +286,19 @@ def main() -> int:
     folder = Path(args.dir)
     if not folder.is_absolute():
         folder = ROOT / folder
-    path = find_plan(folder, args.plan)
+    # Through the picker, so a folder holding GSCM_Oct beside GSCM_Nov
+    # reads the month out of the sheet that prices it rather than out of
+    # whichever one the folder lists first.
+    path, found = pick_month(folder, args.plan, args.month)
     if path is None:
-        print(f'no {args.plan}_* file in {folder.resolve()}')
+        if found is None:
+            print(f'no {args.plan}_* file in {folder.resolve()}')
         return 1
     print(f'reading {folder}')
 
-    want = args.month
-    if want is None:
-        body, _ = read_any(path)
-        head = [h.strip() for h in (body[0] if body else [])]
-        # The newest month the sheet actually prices, so a file holding Oct,
-        # Nov and Dec is read for the one being traded unless told otherwise.
-        have = [i for i in range(1, 13)
-                if columns(head, 2600 + i)['aud'] is not None
-                or columns(head, 2600 + i)['amt_aud'] is not None]
-        if not have:
-            print(f'  {path.name}: no month column in it')
-            return 1
-        want = 2600 + have[0]
-        print(f'  month(s) in it: '
-              + ', '.join(MONTHS[i - 1] for i in have)
-              + f' - reading {MONTHS[want % 100 - 1]} (--month picks another)')
-    plan = read_plan(path, want)
+    # `pick_month` has already resolved and normalised it, and said which
+    # sheet and month it settled on.
+    plan = read_plan(path, found)
     if plan is None:
         return 1
     if args.top:

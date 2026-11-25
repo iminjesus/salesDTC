@@ -160,6 +160,15 @@ does not change - so it is read off the first one and printed once.
 `--scope` and `--by-members` are handed to every re-price in the run, so the
 models are compared on one setting rather than on two.
 
+### Which GSCM sheet answers
+
+The month decides, not the folder's listing order. A folder holding
+`GSCM_Oct` beside `GSCM_Nov` used to read October out of the November
+sheet - which carries no October price - and die saying the sheet had no
+price for that month: the right message about the wrong file. The sheet
+whose name says the month answers for it, and a sheet is only asked for a
+month it actually prices.
+
 ### An entry can carry its own settings
 
 A `--compare` entry may name settings of its own after a `+`, which is how

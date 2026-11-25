@@ -176,19 +176,27 @@ def spread(rows: list, wkey, dkey) -> dict:
             'p10': pct(0.10), 'mid': pct(0.50), 'p90': pct(0.90)}
 
 
-def read_base(folder: Path, ym: int, say=print) -> tuple:
+def read_base(folder: Path, ym: int, say=print, gf=None) -> tuple:
     """The plan, the month as it sold, and the product master.
 
     Split out from `analyse` so that scoring several models over one month
     reads the order export once rather than once a model. It is the slow
     part and none of it depends on how the month was re-priced.
+
+    `gf` is the sheet to read, already resolved. Without one the month
+    decides which sheet answers for it, and **not** whichever gscm file
+    the folder happens to list first: a folder holding GSCM_Oct beside
+    GSCM_Nov had October read out of the November sheet, which carries no
+    October price, and the run died saying the sheet had no price for that
+    month. It was the right message about the wrong file.
     """
     import plan_price as PP
 
-    gf = PP.find_plan(folder, 'gscm')
     if gf is None:
-        raise SystemExit(f'no gscm_* file in {folder} - that is the plan '
-                         'being measured against')
+        gf, _ = PP.pick_month(folder, 'gscm', ym, say=say)
+    if gf is None:
+        raise SystemExit(f'no gscm_* file in {folder} prices that month - '
+                         'that is the plan being measured against')
     say('reading the plan:')
     planned = PP.read_plan(gf, ym, say=say)
     if planned is None:
@@ -480,7 +488,7 @@ def main() -> int:
         shared['scope'] = args.scope
 
     if args.compare:
-        base = read_base(folder, ym, say=print)
+        base = read_base(folder, ym, say=print, gf=gf)
         done = []
         for entry in args.compare:
             name, over = split_entry(entry, shared)
@@ -500,7 +508,9 @@ def main() -> int:
         compare_table(args.by, done)
         return 0
 
-    rows, _ = analyse(folder, ym, args.back, args.plan, **shared)
+    rows, _ = analyse(folder, ym, args.back, args.plan,
+                      base=read_base(folder, ym, say=print, gf=gf),
+                      **shared)
     if not rows:
         print('no material sold that the plan also priced')
         return 1
