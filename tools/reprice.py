@@ -895,7 +895,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  say=print, half: float = 0.0, source: str = 'auto',
                  want_days: bool = True, pooled: bool = False,
                  by_units: bool = True, skip=None,
-                 clean_quiet: bool = False, drop_day=None) -> History:
+                 clean_quiet: bool = False, drop_day=None,
+                 band=None) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -930,6 +931,19 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
         if rows:
             miss = 0
             dropped = [0, 0.0]
+            # A line whose realised price is a long way outside the band
+            # is not this product trading - it is a voucher, a staff
+            # order, a bundle allocation or a mistyped list price, and
+            # every one of them drags an ASP down with far more weight
+            # than its volume deserves. The band is read as a share of
+            # the **list price**: 30-70 keeps a line that went out at
+            # 30% to 70% of list and drops the rest.
+            #
+            # It is a judgement, not a fact, so it is off by default and
+            # the run says how much of the book it costs. A band that
+            # drops a large share is the wrong band, whatever it does to
+            # the scatter.
+            odd = [0, 0.0]
             for r in rows:
                 code = PM.code_norm(r['code'])
                 # The export names the model family itself, which the
@@ -947,6 +961,12 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     dropped[0] += 1
                     dropped[1] += r['qty']
                     continue
+                if band and rrp and r['qty'] > 0:
+                    at = r['amt'] / (r['qty'] * rrp)
+                    if not (band[0] <= at <= band[1]):
+                        odd[0] += 1
+                        odd[1] += r['qty']
+                        continue
                 if not rrp:
                     miss += 1
                 h.add(code, levels.get(code, {}), camp,
@@ -978,6 +998,12 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                         h.saw(code, lv, camp)
             say(f'  {len(rows):,} DTC line(s); {len(h.skus):,} product(s) '
                 'with a realised price')
+            if band:
+                tot = len(rows) or 1
+                say(f'  price band {band[0] * 100:.0f}-{band[1] * 100:.0f}%'
+                    f' of list: {odd[0]:,} line(s) ({odd[0] / tot * 100:.1f}'
+                    f'%), {odd[1]:,.0f} unit(s) left out of every ASP and '
+                    'every discount')
             if dropped[0]:
                 say(f'  {dropped[0]:,} line(s), {dropped[1]:,.0f} unit(s) '
                     'left out: a clearance, secret sale, EOFY or launch '
@@ -1046,6 +1072,19 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
 
 
 HOLD_AT = ('biz', 'div1', 'div2', 'div3', 'range')
+
+
+def band_of(band):
+    """`--band 30 70` as the pair of fractions the reader wants, or None."""
+    if not band:
+        return None
+    lo, hi = sorted(float(v) for v in band)
+    if hi > 1.5:                       # given in percent, as the help says
+        lo, hi = lo / 100.0, hi / 100.0
+    if not (0 <= lo < hi):
+        raise SystemExit(f'--band {band[0]} {band[1]}: LO must be below HI '
+                         'and neither below nought')
+    return lo, hi
 
 
 def held_by(levels: dict, keep) -> callable:
@@ -2077,7 +2116,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             new_from: str = 'sheet', keep=(),
             drop_launch: bool = False,
             clean_quiet: bool = False,
-            grace: int | None = None) -> dict:
+            grace: int | None = None, band=None) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -2201,7 +2240,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     hist = read_history(folder, plan, canon, months, levels, say=say,
                         half=decay, source=source, want_days=True,
                         pooled=pooled, by_units=by_units, skip=skip,
-                        clean_quiet=clean_quiet, drop_day=drop_day)
+                        clean_quiet=clean_quiet, drop_day=drop_day,
+                        band=band)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -3202,6 +3242,13 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--band', nargs=2, type=float, default=None,
+                    metavar=('LO', 'HI'),
+                    help='leave a line out of every ASP and every discount '
+                         'unless its realised price is between LO%% and '
+                         'HI%% of the list price, e.g. --band 30 70. '
+                         'Vouchers, staff orders and bundle allocations '
+                         'sit far below the band and drag an ASP with them')
     ap.add_argument('--grace', type=int, default=None, metavar='N',
                     help='leave the launch out by date, with its written '
                          'end pushed out N days - the plan stops writing '
@@ -3373,7 +3420,8 @@ def main() -> int:
                   model=args.model, actual=not args.no_actual,
                   new_from=args.new_from, keep=args.keep,
                   drop_launch=args.drop_launch,
-                  clean_quiet=args.clean_quiet, grace=args.grace)
+                  clean_quiet=args.clean_quiet, grace=args.grace,
+                  band=band_of(args.band))
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)

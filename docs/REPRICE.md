@@ -1100,6 +1100,43 @@ direction claimed.
 is the cost, and whether it outweighs the gain is a `--compare` question,
 not another diagnostic.
 
+## `--band LO HI` - a price too far off list is not this product trading
+
+```
+py tools\reprice.py --month 2611 --band 30 70
+py tools\price_spread.py --month 2611 --by div1 --compare rrp rrp+band=30:70
+```
+
+A line that went out at a tenth of its list price is a voucher, a staff
+order, a bundle allocation or a mistyped RRP. It is not the product
+trading, and it pulls an ASP down with far more weight than its volume
+deserves - an ASP is money over units, so one line at 300 against a 2,999
+list cancels several at full price.
+
+`--band 30 70` keeps a line only where its realised price is between 30%
+and 70% **of the list price**, and leaves the rest out of **every** tally
+the history keeps: the six-month ASP, the clean and offer ASPs, and every
+discount rung at every level. A line with no list price cannot be judged
+and is kept.
+
+The run says what the band costs:
+
+```
+  price band 30-70% of list: N line(s) (N.N%), N unit(s) left out of every
+  ASP and every discount
+```
+
+**Read that line first.** The band is a judgement and not a fact, so it is
+off by default, and a band that drops a large share of the book is the
+wrong band whatever it does to the scatter. Accessories at 20% off sit at
+80% of list and a 30-70 band throws all of them away; a band meant for
+handsets should be measured on handsets.
+
+The export also flags vouchers and trade-ins per line (`r['vouch']`,
+`r['trade']`), which is a narrower instrument for the same problem: it
+names the mechanic instead of guessing it from the price. The band is the
+blunt one, and the one that catches a disturbance nobody flagged.
+
 ## `--grace N` - the launch left out by date
 
 **There is no launch price in these files.** The plan writes a campaign

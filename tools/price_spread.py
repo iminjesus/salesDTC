@@ -331,9 +331,13 @@ def split_entry(entry: str, shared: dict):
             over['clean_quiet'] = True
         elif key == 'grace':
             over['grace'] = int(val)
+        elif key == 'band':
+            import reprice as RP
+            over['band'] = RP.band_of(val.replace(':', ' ').split())
         else:
             raise SystemExit(f'--compare {entry}: no setting called {key!r} '
-                             '(keep, scope, drop-launch, clean, grace)')
+                             '(keep, scope, drop-launch, clean, grace, '
+                             'band)')
     return name, over
 
 
@@ -453,6 +457,11 @@ def main() -> int:
                     action='store_true',
                     help='passed to the re-price: drop a window month that '
                          'carried a launch or a pre-order for the product')
+    ap.add_argument('--band', nargs=2, type=float, default=None,
+                    metavar=('LO', 'HI'),
+                    help='passed to the re-price: leave a line out of '
+                         'every ASP and discount unless its realised '
+                         'price is between LO%% and HI%% of list')
     ap.add_argument('--grace', type=int, default=None, metavar='N',
                     help='passed to the re-price: leave the launch out by '
                          'date, its written end pushed out N days')
@@ -488,7 +497,8 @@ def main() -> int:
 
     shared = {'by_units': args.by_units, 'keep': args.keep,
               'drop_launch': args.drop_launch,
-              'clean_quiet': args.clean_quiet, 'grace': args.grace}
+              'clean_quiet': args.clean_quiet, 'grace': args.grace,
+              'band': __import__('reprice').band_of(args.band)}
     if args.scope:
         shared['scope'] = args.scope
 
