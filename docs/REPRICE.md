@@ -1041,6 +1041,32 @@ Only lines whose `Offer_Detail` carries an amount mark a day. A line that
 names a campaign and no money does not: that is the campaign flag again,
 and the campaign flag is worth 1.1 points.
 
+### A day is spoiled only for the channel the offer was tagged for
+
+`[EPP] Save $750` is money to an EPP buyer and nothing at all to somebody
+on the consumer store. Counting it against the store's day throws away a
+day that really was ordinary, so the `[TAG]` is read and matched to the
+channel the sales line went out on - `Portal Group` and `Distribution`
+run together, with everything but letters and digits removed, so `S.COM`
+and `S.com / B2C` meet as `SCOM` and `SCOMB2C`.
+
+A tag that matches **no** channel in the sales is one this reader does not
+understand: a mis-spelling, a channel named differently on the two sides,
+an untagged line. It marks the day for **everyone**, which is what the
+first version did for every tag. Not understanding a tag must never
+quietly turn a promoted day into a clean one.
+
+`--clean` prints the tags it found and what each one matched, so an
+unresolved tag high on the list can be seen rather than discovered in a
+price six weeks later:
+
+```
+  offer tag          lines  matched against the sales
+  S.COM              4,112  SCOMB2C
+  EPP                3,980  EPPB2B
+  (untagged)           806  no channel answers to it - marks every channel
+```
+
 The real reading, over May to October:
 
 ```

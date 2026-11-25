@@ -842,14 +842,16 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
     # Built once; `History.add` keys its no-offer tallies on it rather than
     # on the campaign column.
     live: dict = {}
-    if clean_quiet:
-        mine: dict = {}
-        for r in plan.rows:
-            mine.setdefault(PM.code_norm(r.get('code') or ''), []).append(r)
-        live = offer_live(mine)
     if source != 'orders':
         want = set(months)
         rows = DTC.read(folder, want, say=say) if DTC.files(folder) else []
+        if rows and clean_quiet:
+            mine: dict = {}
+            for r in plan.rows:
+                mine.setdefault(PM.code_norm(r.get('code') or ''),
+                                []).append(r)
+            live = offer_live(mine, {chan_key(r) for r in rows
+                                     if r['qty'] > 0})
         if rows:
             miss = 0
             dropped = [0, 0.0]
@@ -876,7 +878,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                       deal=bool(r.get('trade') or r.get('vouch')),
                       ym=r.get('ym'),
                       bare=((r['day'] is not None
-                             and r['day'] not in live.get(code, ()))
+                             and not offer_on(live, code, r['day'],
+                                              chan_key(r)))
                             if clean_quiet else None))
             # One pass over every product and every day of the window,
             # so a campaign's days are counted whether or not it sold on
@@ -2493,29 +2496,111 @@ def gap_spread(plan, rows, months, say=print) -> None:
         '  polluted it is')
 
 
-def offer_live(lines):
-    """`code -> set of days an offer with money in it was live`.
+def chan_key(row) -> str:
+    """One comparable string for the channel a sales line went out on.
+
+    `Portal Group` and `Distribution` run together with everything but
+    letters and digits taken out, so `S.COM` on one side and `S.com /
+    B2C` on the other meet as `SCOM` and `SCOMB2C`.
+    """
+    return re.sub(r'[^A-Z0-9]', '',
+                  f"{row.get('portal') or ''} {row.get('dist') or ''}".upper())
+
+
+def tag_key(tag: str) -> str:
+    return re.sub(r'[^A-Z0-9]', '', (tag or '').upper())
+
+
+def offer_live(lines, chans=()):
+    """`code -> (days for every channel, {channel: days})`.
 
     Only lines whose `Offer_Detail` carries an amount count. A line that
-    names a campaign and no money is not an offer for this purpose: it says
-    a name was in force, and a name is what four attempts at this have
-    already shown cannot size a discount.
+    names a campaign and no money is not an offer for this purpose: it
+    says a name was in force, and a name is what four attempts at this
+    have already shown cannot size a discount.
+
+    **The channel the offer is tagged for decides whose day it spoils.**
+    `[EPP] Save $750` is money to an EPP buyer and nothing at all to
+    somebody on the consumer store, so counting it against the store's
+    day throws away a day that really was ordinary. With the tags read,
+    an EPP offer marks EPP's days and leaves the rest clean.
+
+    `chans` is every channel string the sales actually carry. A tag that
+    matches none of them is one this reader does not understand - a
+    mis-spelling, a channel named differently on the two sides, an
+    untagged line - and it marks the day for **everyone**, which is what
+    the first version of this did for every tag. Not understanding a tag
+    must never quietly turn a promoted day into a clean one.
     """
+    chans = {c for c in chans if c}
+
+    def known(tag):
+        k = tag_key(tag)
+        return k if k and any(k in c for c in chans) else None
+
     out: dict = {}
     for code, mine in lines.items():
-        days = set()
+        every, by = set(), {}
         for r in mine:
-            if not offer_values(r.get('detail') or ''):
+            got = offer_values(r.get('detail') or '')
+            if not got:
                 continue
             a, b = r.get('start'), r.get('end')
             if not a or not b or b < a:
                 continue
+            days = set()
             d = a
             while d <= b:
                 days.add(d)
                 d += timedelta(days=1)
-        out[code] = days
+            for tag in got:
+                k = known(tag)
+                if k is None:
+                    every |= days
+                else:
+                    by.setdefault(k, set()).update(days)
+        out[code] = (every, by)
     return out
+
+
+def offer_on(live, code, day, chan: str) -> bool:
+    """Was an offer this line's buyer could have taken live that day?"""
+    got = live.get(code)
+    if not got:
+        return False
+    every, by = got
+    if day in every:
+        return True
+    for k, days in by.items():
+        if k in chan and day in days:
+            return True
+    return False
+
+
+def offer_tags(plan, chans, say=print, top: int = 12) -> None:
+    """Which `[TAG]`s the plan writes, and which of them a sales line answers to.
+
+    A tag that resolves marks only its own channel's days. One that does
+    not marks everybody's, so it is worth seeing: a tag high on this list
+    and unresolved is a channel named differently on the two sides, and
+    naming it here is cheaper than finding it in a price six weeks later.
+    """
+    seen: dict = {}
+    for r in plan.rows:
+        for tag in offer_values(r.get('detail') or ''):
+            seen[tag] = seen.get(tag, 0) + 1
+    if not seen:
+        say('  the plan writes no tagged offer')
+        return
+    say(f"\n  {'offer tag':<16}{'lines':>8}  matched against the sales")
+    for tag, n in sorted(seen.items(), key=lambda kv: -kv[1])[:top]:
+        k = tag_key(tag)
+        hit = sorted(c for c in chans if k and k in c)
+        say(f'  {tag[:15]:<16}{n:>8}  '
+            + (', '.join(hit)[:46] if hit
+               else 'no channel answers to it - marks every channel'))
+    if len(seen) > top:
+        say(f'  ... and {len(seen) - top} more')
 
 
 def clean_days(plan, rows, months, say=print) -> None:
@@ -2543,7 +2628,9 @@ def clean_days(plan, rows, months, say=print) -> None:
     lines: dict = {}
     for r in plan.rows:
         lines.setdefault(PM.code_norm(r.get('code') or ''), []).append(r)
-    live = offer_live(lines)
+    chans = {chan_key(r) for r in rows if r['qty'] > 0}
+    offer_tags(plan, chans, say=say)
+    live = offer_live(lines, chans)
 
     span = set()
     for m in months:
@@ -2560,7 +2647,7 @@ def clean_days(plan, rows, months, say=print) -> None:
         t = tot.setdefault(k, [0.0, 0.0, 0.0, 0.0, 0.0])
         t[0] += r['qty']
         t[1] += r['amt']
-        if r['day'] in live.get(k, ()):
+        if offer_on(live, k, r['day'], chan_key(r)):
             t[4] += r['qty']                       # sold under an offer
         else:
             t[2] += r['qty']
