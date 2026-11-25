@@ -1377,7 +1377,7 @@ def campaign_report(hist, levels, say, level='div3'):
         'same.')
 
 
-def why_one(codes, hist, out, levels, say):
+def why_one(codes, hist, out, levels, say, clearance: bool = True):
     """Every step of one material's price, with the months it came from.
 
     A pivot says a product came out wrong; it cannot say which of four
@@ -1469,10 +1469,31 @@ def why_one(codes, hist, out, levels, say):
                         f'{(w[1] / w[0] if w[0] else 0):12,.0f}')
                 oa, ba, wa = (hist.offer_asp(k), hist.bare_asp(k),
                               hist.asp(k))
-                dash = lambda v: f'{v:,.2f}' if v else 'too thin to read'
-                say(f"\n    {'on offer':<26}{dash(oa):>18}")
-                say(f"    {'with no offer live':<26}{dash(ba):>18}")
-                say(f"    {'the whole window':<26}{dash(wa):>18}")
+                # "too thin" and "not there at all" are different
+                # answers and the second one is actionable. The clearance
+                # drop deletes a launch's days from the window before the
+                # offer split ever runs, so on a product whose promotion
+                # WAS its launch the offer side is empty by construction,
+                # not for want of units - and --keep-clearance is what
+                # brings it back.
+                gone = (clearance
+                        and not any(c == k for c, _ in hist.omon))
+
+                def dash(v, side=''):
+                    if v:
+                        return f'{v:,.2f}'
+                    if side == 'offer' and gone:
+                        return 'left out of the window'
+                    return f'too thin to read'
+                say(f"\n    {'on offer':<26}{dash(oa, 'offer'):>24}")
+                say(f"    {'with no offer live':<26}{dash(ba):>24}")
+                say(f"    {'the whole window':<26}{dash(wa):>24}")
+                if gone:
+                    say('    the offer side is empty because this '
+                        'product\u2019s promotion was its launch, and a '
+                        'launch\n    the priced month is not running is '
+                        'dropped from the window before the\n    split '
+                        'runs. --keep-clearance leaves it in')
                 say('    one month one vote in each, a month under '
                     f'{MIN_UNITS} units getting none')
             if any(k2 == 'at' for _, _, _, k2, _, _ in p['rows']):
@@ -2349,7 +2370,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             say(f'\n  {len(fresh):,} material(s) with no record to price '
                 f'from, {sum(v["qty"] for _, v in fresh):,.0f} planned '
                 'unit(s)')
-        report(out, levels, hist, explain, campaigns, why, say)
+        report(out, levels, hist, explain, campaigns, why, say,
+               clearance=clearance)
         return out
     say('  rrp  = the promotion table\u2019s list price, day by day, less')
     say('         what the same promotion has been running at: this')
@@ -2381,7 +2403,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     now = sum(v['price'] * v['qty'] for v in out.values())
     say(f'\n  at the planned quantities: {was:,.0f} -> {now:,.0f} AUD '
         f'({(now / was - 1) * 100:+.1f}%)')
-    report(out, levels, hist, explain, campaigns, why, say)
+    report(out, levels, hist, explain, campaigns, why, say,
+           clearance=clearance)
     return out
 
 
@@ -2992,7 +3015,8 @@ def rung_report(out, levels, say=print, top: int = 14) -> None:
     say('    changing it moves nothing however right the change is')
 
 
-def report(out, levels, hist, explain, campaigns, why, say) -> None:
+def report(out, levels, hist, explain, campaigns, why, say,
+           clearance: bool = True) -> None:
     """The three asked-for readings, whichever model was run.
 
     They used to hang off the `simple` branch, so `--why`, `--explain` and
@@ -3005,7 +3029,7 @@ def report(out, levels, hist, explain, campaigns, why, say) -> None:
     if campaigns:
         campaign_report(hist, levels, say, level=campaigns)
     if why:
-        why_one(why, hist, out, levels, say)
+        why_one(why, hist, out, levels, say, clearance=clearance)
 
 
 def write_csv(path, out) -> None:
