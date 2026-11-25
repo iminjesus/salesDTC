@@ -160,6 +160,30 @@ does not change - so it is read off the first one and printed once.
 `--scope` and `--by-members` are handed to every re-price in the run, so the
 models are compared on one setting rather than on two.
 
+### An entry can carry its own settings
+
+A `--compare` entry may name settings of its own after a `+`, which is how
+two ways of running **one** model sit in one table:
+
+```
+py tools\price_spread.py --month 2611 --by div1 --compare rrp rrp+keep=MX
+```
+
+```
+                                   GSCM             rrp     rrp+keep=MX
+div1              units    mean      sd    mean      sd    mean      sd
+```
+
+`keep=A,B` holds those groups at the sheet price, `scope=div3` changes how
+far a discount may be borrowed, `drop-launch` drops a window month that
+carried a launch. Several chain: `rrp+keep=MX+scope=div3`.
+
+This is the only way to answer **should this group be held at the sheet
+price?**, because holding it changes only that group's rows and the
+question is what that does to the book. Two months running, the sheet has
+beaten the model on MX and lost to it on DA and VD; a run like the one
+above is what decides whether that is worth making the default.
+
 **It is safe to send.** Every figure is a group aggregate - a division, a
 Div 2, never a material and never a customer - so the table carries none of
 the month's data. Where the rawdata cannot leave the machine it was built

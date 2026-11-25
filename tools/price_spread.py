@@ -295,6 +295,36 @@ def group(rows: list, by: str) -> list:
     return sorted(out, key=lambda o: o['impact_g'])
 
 
+def split_entry(entry: str, shared: dict):
+    """A `--compare` entry, and the settings it carries of its own.
+
+    `rrp` is the model on the run’s own settings. `rrp+keep=MX` is the
+    same model with MX held at the sheet price, and the two can sit in one
+    table - which is the only way to answer *should this group be held?*,
+    since holding it changes only that group’s rows and the question is
+    what that does to the book.
+
+    Several are comma-separated: `rrp+keep=MX,DA`. `scope` works the same
+    way: `rrp+scope=div3`.
+    """
+    name, _, rest = entry.partition('+')
+    over = dict(shared)
+    while rest:
+        bit, _, rest = rest.partition('+')
+        key, _, val = bit.partition('=')
+        key = key.strip().lower()
+        if key == 'keep':
+            over['keep'] = tuple(v.strip() for v in val.split(',') if v.strip())
+        elif key == 'scope':
+            over['scope'] = val.strip()
+        elif key in ('drop-launch', 'drop_launch'):
+            over['drop_launch'] = True
+        else:
+            raise SystemExit(f'--compare {entry}: no setting called {key!r} '
+                             '(keep, scope, drop-launch)')
+    return name, over
+
+
 def compare_table(by: str, models: list, say=print) -> None:
     """One table, one line a group, a pair of columns a basis.
 
@@ -400,7 +430,10 @@ def main() -> int:
                          'and print a single table of them - e.g. '
                          '--compare rrp simple. The table is group '
                          'aggregates only, no material and no customer, so '
-                         'it is safe to paste anywhere')
+                         'it is safe to paste anywhere. An entry may '
+                         'carry its own settings after a +, so two ways of '
+                         'running one model sit side by side: '
+                         '--compare rrp rrp+keep=MX')
     ap.add_argument('--scope', default=None, metavar='LEVEL',
                     help='passed to the re-price: how far a promotion\u2019s '
                          'discount may be borrowed from')
@@ -441,12 +474,13 @@ def main() -> int:
     if args.compare:
         base = read_base(folder, ym, say=print)
         done = []
-        for name in args.compare:
-            print(f'\n{"=" * 72}\nre-pricing on {name}:')
+        for entry in args.compare:
+            name, over = split_entry(entry, shared)
+            print(f'\n{"=" * 72}\nre-pricing on {entry}:')
             rs, _ = analyse(folder, ym, args.back, args.plan, base=base,
-                            model=name, **shared)
+                            model=name, **over)
             if rs:
-                done.append((name, rs))
+                done.append((entry, rs))
         if not done:
             print('no material sold that the plan also priced')
             return 1

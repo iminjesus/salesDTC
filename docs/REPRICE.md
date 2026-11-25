@@ -918,23 +918,66 @@ py tools\reprice.py --offers
 ```
 
 ```
-  the gap followed over 735 product(s) that sold in two months or more, N product-month(s)
+  the gap followed over 735 product(s) that sold in two months or more, 3,230 product-month(s)
+  219 of those month(s) read an offer worth more than the list price
 
   what the gap IS, in points of list (the part the words do not account for):
          p25   median     p75     p90
+      -12.8%     1.7%   19.6%   34.2%
 
   how far each product's gap MOVES between its best and worst month:
          p25   median     p75     p90
-      ...% move  5 points or less
+       10.4%    29.0%   68.8%  165.5%
+       12% move  5 points or less
+       24% move 10 points or less
+       34% move 15 points or less
 ```
 
 **It is the move that decides it, not the level.** A gap that sits at 24
 points and stays there is a price; one that swings 50 is noise. Tight, and
-a month can be priced as **the offers it is actually running plus the
-product's own gap**, which is a different and better model from averaging a
-window that mixes the two. Loose, and the window average stays the better
-answer however polluted it is - the one product above would then be a
-coincidence, not a method.
+a month could be priced as **the offers it is actually running plus the
+product's own gap**. Loose, and the window average stays the better answer
+however polluted it is - the one product above is then a coincidence, not
+a method.
+
+### The verdict: the words say what was offered, not what was taken
+
+**The book says no, and the add-back is not built.** Fixing the channel
+summation halved the movement, from a median of 47 points to 29, and 29 is
+still far too loose to price anything: only 24% of products hold their gap
+inside 10 points.
+
+The line that settles it is not the movement but the **level**: `p25
+-12.8%`. A negative gap means the offers in words are **deeper than the
+discount actually realised** - on a quarter of product-months, by more than
+twelve points of list. That is not noise around a true value, it is a bias,
+and its cause is structural:
+
+> A plan line live in a month says the offer was **on the table**. It does
+> not say every unit took it, and the take-up rate is in no file here.
+
+Where take-up is near total the subtraction is clean, which is exactly why
+the Fold8 looked so good: during a pre-order essentially every buyer takes
+the pre-order offer, so the words and the realised discount describe the
+same transaction. That product was not a representative case, it was the
+**special case where take-up is 100%**. Across the book, an offer on the
+table and an offer taken are different quantities, and no amount of
+averaging turns one into the other.
+
+This is the fourth attempt to separate a campaign's discount from standing
+pricing out of what the files write down, and the fourth failure:
+
+| attempt | reading |
+|---|---|
+| `promotion_rule` by the months a name appears in | 38.5% |
+| by the window the name declares | 74.3% |
+| by family, with the dates stripped | 81.4% |
+| `Offer_Detail` added back | gap moves 29 points, p25 negative |
+
+All four assume the distinction is written down somewhere. It is not.
+`--offers` stays, because the vocabulary and the per-product table are
+worth having and the measurement should be repeatable if a file carrying
+take-up ever turns up. Nothing prices off it.
 
 A count of months reading an offer worth **more than the list price** is
 printed above the table when there is one. Those are the instrument, not
