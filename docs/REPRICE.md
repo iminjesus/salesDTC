@@ -1331,22 +1331,28 @@ has.
 | VD | 5,424 | 450 | 435 | 436 | 435 | 435 |
 | all | 27,615 | 243 | **212** | 217 | 212 | 211 |
 
-The level gets **worse the deeper the cut**: -62 at no floor, -68 at 40,
--81 at 30, -99 at 20. That ordering is the explanation.
+`gap` is `the month's realised price - the model's price`, so a
+**negative** mean means the model is dearer than the month turned out.
 
-`gap` is `the month's realised price - the model's price`, and **the
-realised price has the vouchers in it too**. Taking the cheap lines out
-of the window makes the model dearer while the thing it is scored
-against does not move, so the two part company by exactly as much as was
-removed. 1,635.909 really does drag the ASP down - and November sells
-the same kind of line and realises the same kind of price.
+The measured fact is an ordering: **-62** with no floor, then -68 at 40,
+-81 at 30, -99 at 20. Book-wide the model was **already too dear**, and
+a floor takes cheap lines out of the window, which raises every ASP and
+makes it dearer still. Deeper cut, worse level, in that order. The
+scatter barely moved at any depth, so those lines were not the source of
+the shape either.
 
-> A voucher is not noise to be removed. It is part of what the month
-> actually realises, and a window without it predicts a month that did
-> not happen.
+Note the sign carefully, because one product can run the other way and
+`SM-F971BZWGATS` does: its October came out at 1,604.84 where the sheet
+says 2,060, dragged down by an August that realised 1,538, and on **that
+product** a floor helps. It is one of 858, and the average leans the
+other way.
 
-This would be different for a tool setting a list price. This one
-predicts a realised one.
+Why the removed lines are not simply noise is a reading and not a
+measurement: a voucher line is part of what the month realises as well
+as part of the window, so a window without it predicts a month that did
+not happen. The ordering above is consistent with that; it does not
+prove it. A tool setting a list price would want the opposite. This one
+predicts a realised price.
 
 **DA is the exception**, consistently: 108 to 92-94 at every depth, over
 2,539 units. Something there sits in the window and not in the month.
