@@ -1029,6 +1029,27 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     f'product fetches voucher-free: {len(deep):,} line(s) '
                     f'({len(deep) / tot * 100:.1f}%) left out of every ASP '
                     'and every discount')
+                # And what they were. The point of a floor is that it
+                # needs no list - nobody can hunt a book of 1,500
+                # products for the odd mechanic by hand - so the list
+                # comes out as **output**. What it names is a finding,
+                # not a setting: it says what the floor caught, and the
+                # next month's floor catches that month's.
+                who: dict = collections.defaultdict(lambda: [0, set()])
+                for i in deep:
+                    r = rows[i]
+                    got = voucher_codes(r.get('vcode'))
+                    for n in ({voucher_stem(c) for c in got}
+                              or {'(no voucher code)'}):
+                        who[n][0] += 1
+                        who[n][1].add(PM.code_norm(r['code']))
+                if who:
+                    rank = sorted(who.items(),
+                                  key=lambda kv: -kv[1][0])[:8]
+                    say('  what it caught, by voucher stem: '
+                        + ', '.join(f'{n} ({c:,} line(s), '
+                                    f'{len(ps):,} product(s))'
+                                    for n, (c, ps) in rank))
             if no_deals or want_v:
                 tot = len(rows) or 1
                 what = ('voucher and trade-in' if no_deals

@@ -1322,6 +1322,23 @@ A product whose voucher-free lines come to fewer than `MIN_UNITS` has no
 reliable base and is left alone: its odd lines may be the only lines it
 has.
 
+**The list comes out, not in.** Nobody can hunt a book of 1,500 products
+by hand for the odd mechanic, and the one stem anybody found was found
+by accident. So the floor takes a number and reports what it caught:
+
+```
+  more than 30% below what the product fetches voucher-free: N line(s)
+  (N.N%) left out of every ASP and every discount
+  what it caught, by voucher stem: FF8F (N line(s), N product(s)),
+  FF8R (...), (no voucher code) (...)
+```
+
+On the one product that was looked at by hand, `--floor 30` found
+`FF8F`, `FF8R` **and** the line carrying no voucher code at all - every
+one of them, told nothing. That is the difference between a setting and
+a finding: next month's floor catches next month's mechanics without
+anybody updating a list.
+
 ## `--grace N` - the launch left out by date
 
 **There is no launch price in these files.** The plan writes a campaign
