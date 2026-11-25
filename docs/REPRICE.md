@@ -1208,6 +1208,52 @@ catches a disturbance nobody labelled - and that fourth column is what
 says whether the band is still earning its place once the vouchers are
 gone.
 
+### `--vouchers` and `--drop-voucher` - not every voucher disturbs a price
+
+`--drop-deals` is still too blunt. A $50 site credit on a 3,000 phone is
+1.7% and belongs in the average; a staff code at half price is a
+different transaction wearing the same column. Dropping all of them
+throws the first away to catch the second.
+
+```
+py tools\reprice.py --month 2611 --vouchers
+```
+
+```
+  N voucher code(s) over N unit(s)
+    code                            units  off list  under its own clean price
+    SITE50                            100     47.7%                      21.5%
+    STAFF-HALF                         40     66.7%                      50.0%
+```
+
+Each code is read two ways. Against the **list price**, which says how
+deep the line went; and against **what the same products fetched on
+their own voucher-free lines**, which is the number that matters here,
+because it is those products' own ordinary price and not a book-wide
+average. A code two points under that is part of the price and should
+stay. A code forty points under it is the thing being hunted.
+
+A line carrying several codes is counted under **each** of them - which
+of them took the money is not in the file - so a deep code can make a
+shallow one it travels with look deeper than it is. The report says how
+many lines are in that position.
+
+Then drop only those, by name:
+
+```
+py tools\reprice.py --month 2611 --drop-voucher STAFF EMP
+py tools\price_spread.py --month 2611 --by div1 \
+    --compare rrp rrp+nodeals rrp+novouch=STAFF,EMP
+```
+
+Matched as a case-insensitive **substring**, so a family of codes can be
+named by its stem without listing every suffix the site minted.
+
+This needs the export's `Voucher Code(s)` column, which the reader now
+keeps as text rather than only as a yes/no. If `--vouchers` says no line
+carries a code, the column is empty or absent and only `--band` can
+reach the problem.
+
 ## `--grace N` - the launch left out by date
 
 **There is no launch price in these files.** The plan writes a campaign

@@ -333,13 +333,16 @@ def split_entry(entry: str, shared: dict):
             over['grace'] = int(val)
         elif key in ('nodeals', 'no-deals', 'drop-deals'):
             over['no_deals'] = True
+        elif key in ('novouch', 'drop-voucher'):
+            over['no_vouch'] = tuple(v.strip() for v in val.split(',')
+                                     if v.strip())
         elif key == 'band':
             import reprice as RP
             over['band'] = RP.band_of(val.replace(':', ' ').split())
         else:
             raise SystemExit(f'--compare {entry}: no setting called {key!r} '
                              '(keep, scope, drop-launch, clean, grace, '
-                             'band, nodeals)')
+                             'band, nodeals, novouch)')
     return name, over
 
 
@@ -459,6 +462,11 @@ def main() -> int:
                     action='store_true',
                     help='passed to the re-price: drop a window month that '
                          'carried a launch or a pre-order for the product')
+    ap.add_argument('--drop-voucher', dest='no_vouch', nargs='+',
+                    default=(), metavar='NAME',
+                    help='passed to the re-price: leave lines carrying '
+                         'these voucher codes out of every ASP and '
+                         'discount')
     ap.add_argument('--drop-deals', dest='no_deals', action='store_true',
                     help='passed to the re-price: leave voucher and '
                          'trade-in lines out of every ASP and discount')
@@ -504,7 +512,7 @@ def main() -> int:
               'drop_launch': args.drop_launch,
               'clean_quiet': args.clean_quiet, 'grace': args.grace,
               'band': __import__('reprice').band_of(args.band),
-              'no_deals': args.no_deals}
+              'no_deals': args.no_deals, 'no_vouch': args.no_vouch}
     if args.scope:
         shared['scope'] = args.scope
 

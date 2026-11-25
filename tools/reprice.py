@@ -896,7 +896,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  want_days: bool = True, pooled: bool = False,
                  by_units: bool = True, skip=None,
                  clean_quiet: bool = False, drop_day=None,
-                 band=None, no_deals: bool = False) -> History:
+                 band=None, no_deals: bool = False,
+                 no_vouch=()) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -951,6 +952,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             # is the traded phone's own value, and that is already outside
             # the revenue a discount is measured from.
             gift = [0, 0.0]
+            want_v = {str(v).strip().upper() for v in no_vouch or ()
+                      if str(v).strip()}
             for i, r in enumerate(rows):
                 code = PM.code_norm(r['code'])
                 # The export names the model family itself, which the
@@ -973,6 +976,11 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     odd[1] += r['qty']
                     continue
                 if no_deals and (r.get('vouch') or r.get('trade')):
+                    gift[0] += 1
+                    gift[1] += r['qty']
+                    continue
+                if want_v and voucher_hit(voucher_codes(r.get('vcode')),
+                                          want_v):
                     gift[0] += 1
                     gift[1] += r['qty']
                     continue
@@ -1014,11 +1022,13 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     f'{odd[0]:,} line(s) '
                     f'({odd[0] / tot * 100:.1f}%), {odd[1]:,.0f} unit(s) '
                     'left out of every ASP and every discount')
-            if no_deals:
+            if no_deals or want_v:
                 tot = len(rows) or 1
-                say(f'  voucher and trade-in line(s) left out of every ASP '
-                    f'and every discount: {gift[0]:,} ({gift[0] / tot * 100:.1f}'
-                    f'%), {gift[1]:,.0f} unit(s)')
+                what = ('voucher and trade-in' if no_deals
+                        else 'voucher ' + ', '.join(sorted(want_v)))
+                say(f'  {what} line(s) left out of every ASP and every '
+                    f'discount: {gift[0]:,} ({gift[0] / tot * 100:.1f}%), '
+                    f'{gift[1]:,.0f} unit(s)')
             if dropped[0]:
                 say(f'  {dropped[0]:,} line(s), {dropped[1]:,.0f} unit(s) '
                     'left out: a clearance, secret sale, EOFY or launch '
@@ -1087,6 +1097,95 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
 
 
 HOLD_AT = ('biz', 'div1', 'div2', 'div3', 'range')
+
+
+VOUCH_SPLIT = re.compile(r'[,;|/]+')
+
+
+def voucher_codes(text) -> list:
+    """The codes on one line. The column is `Voucher Code(s)` and plural."""
+    return [c.strip().upper() for c in VOUCH_SPLIT.split(text or '')
+            if c.strip()]
+
+
+def voucher_hit(codes, want) -> bool:
+    """Does any code on this line match any name asked for?
+
+    Substring and case-insensitive, so a family of codes can be named by
+    its stem without listing every suffix the site minted.
+    """
+    return any(w in c for c in codes for w in want)
+
+
+def voucher_report(rows, say=print, top: int = 25, least: int = 20) -> None:
+    """Which voucher codes move a price, and by how much.
+
+    Not every voucher disturbs an ASP. A $50 site credit on a 3,000 phone
+    is 1.7% and belongs in the average; a staff code at half price is a
+    different transaction wearing the same column. Dropping all of them
+    throws the first away to catch the second, and dropping none leaves
+    the second in - so the first thing to do is **name them**.
+
+    Each code is read two ways. Against the **list price**, which says how
+    deep the line went; and against **what the same product fetched on
+    its own voucher-free lines**, which is the number that matters here,
+    because it is this product's own ordinary price and not a book-wide
+    average. A code 2% under that is noise in the ASP. A code 40% under
+    it is the thing being hunted.
+    """
+    base: dict = {}
+    for r in rows:
+        if r['qty'] <= 0 or r.get('vouch') or r.get('trade'):
+            continue
+        t = base.setdefault(PM.code_norm(r['code']), [0.0, 0.0])
+        t[0] += r['qty']
+        t[1] += r['amt']
+    clean = {c: t[1] / t[0] for c, t in base.items() if t[0] > 0}
+
+    by: dict = {}
+    for r in rows:
+        if r['qty'] <= 0:
+            continue
+        got = voucher_codes(r.get('vcode'))
+        if not got:
+            continue
+        own = clean.get(PM.code_norm(r['code']))
+        for c in got:
+            t = by.setdefault(c, [0.0, 0.0, 0.0, 0.0, 0.0])
+            t[0] += r['qty']
+            t[1] += r['amt']
+            t[2] += r['qty'] * (r['rrp'] or 0.0)
+            if own:
+                t[3] += r['qty'] * own
+                t[4] += r['qty']
+
+    if not by:
+        say('  no line carries a voucher code - the column is empty or '
+            'not in the export')
+        return
+    units = sum(t[0] for t in by.values())
+    say(f'\n  {len(by):,} voucher code(s) over {units:,.0f} unit(s)')
+    say(f"    {'code':<34}{'units':>9}{'off list':>10}"
+        f"{'under its own clean price':>27}")
+    rank = sorted(by.items(), key=lambda kv: -kv[1][0])
+    for c, t in rank[:top]:
+        off = f'{(1 - t[1] / t[2]) * 100:8.1f}%' if t[2] > 0 else f"{'-':>9}"
+        under = (f'{(1 - (t[1] / t[0]) / (t[3] / t[4])) * 100:25.1f}%'
+                 if t[4] >= least and t[3] > 0 else f"{'too thin':>26}")
+        say(f'    {c[:33]:<34}{t[0]:9,.0f}{off}{under}')
+    if len(by) > top:
+        say(f'    ... and {len(by) - top:,} more')
+    say(f'\n  "under its own clean price" compares each code against what '
+        f'the same\n  products fetched on their voucher-free lines, over '
+        f'the codes with {least}+\n  unit(s) of that comparison. Deep and '
+        'heavy is what --drop-voucher is for;\n  a code a point or two '
+        'under is part of the price and should stay')
+    both = sum(1 for r in rows if len(voucher_codes(r.get('vcode'))) > 1)
+    if both:
+        say(f'\n  {both:,} line(s) carry more than one code and are '
+            'counted under each of them,\n  because which of them took '
+            'the money is not in the file. A deep code can\n  therefore '
+            'make a shallow one it travels with look deeper than it is')
 
 
 def band_of(band):
@@ -2190,7 +2289,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             drop_launch: bool = False,
             clean_quiet: bool = False,
             grace: int | None = None, band=None,
-            no_deals: bool = False) -> dict:
+            no_deals: bool = False, no_vouch=()) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -2315,7 +2414,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                         half=decay, source=source, want_days=True,
                         pooled=pooled, by_units=by_units, skip=skip,
                         clean_quiet=clean_quiet, drop_day=drop_day,
-                        band=band, no_deals=no_deals)
+                        band=band, no_deals=no_deals,
+                        no_vouch=no_vouch)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -3316,6 +3416,17 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--vouchers', action='store_true',
+                    help='which voucher codes move a price and by how '
+                         'much, against the list price and against what '
+                         'the same products fetched voucher-free. Group '
+                         'aggregates only, so it is safe to paste')
+    ap.add_argument('--drop-voucher', dest='no_vouch', nargs='+',
+                    default=(), metavar='NAME',
+                    help='leave lines carrying these voucher codes out of '
+                         'every ASP and discount. Matched as a '
+                         'case-insensitive substring, so a family can be '
+                         'named by its stem. Read --vouchers first')
     ap.add_argument('--drop-deals', dest='no_deals', action='store_true',
                     help='leave every line the export flags as a voucher '
                          'or a trade-in out of every ASP and every '
@@ -3444,6 +3555,13 @@ def main() -> int:
                          'month')
     full = (2000 + ym // 100) * 100 + ym % 100
 
+    if args.vouchers:
+        say = print
+        months = months_back(full, args.back)
+        say('reading what sold, and under which voucher:')
+        voucher_report(DTC.read(folder, set(months), say=say), say=say)
+        return 0
+
     if args.clean:
         say = print
         say('reading the promotion plan:')
@@ -3501,7 +3619,8 @@ def main() -> int:
                   new_from=args.new_from, keep=args.keep,
                   drop_launch=args.drop_launch,
                   clean_quiet=args.clean_quiet, grace=args.grace,
-                  band=band_of(args.band), no_deals=args.no_deals)
+                  band=band_of(args.band), no_deals=args.no_deals,
+                  no_vouch=args.no_vouch)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)

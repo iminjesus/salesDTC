@@ -158,6 +158,12 @@ def read(folder: Path, months=None, say=print, keep=None) -> list:
                 'trade': any(str(cell(r, at[c])).strip() not in EMPTY
                              for c in ('trade', 'trade2')),
                 'vouch': str(cell(r, at['vouch'])).strip() not in EMPTY,
+                # The code itself, not only that there was one. Not every
+                # voucher moves a price the same way - a $50 site credit
+                # and a 50%-off staff code sit in different parts of the
+                # distribution - and a report that cannot name them can
+                # only drop all of them or none.
+                'vcode': str(cell(r, at['vouch'])).strip(),
                 'div': str(cell(r, at['div'])).strip(),
                 'cat': str(cell(r, at['cat'])).strip(),
                 'range': str(cell(r, at['range'])).strip(),
