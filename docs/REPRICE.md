@@ -1169,14 +1169,27 @@ campaign, so the model asked what it did on *its* no-campaign days, every
 one of which fell inside its pre-order, and priced a 2,999 phone at
 1,651.89 as its **ordinary** price.
 
-Two rungs change, and only for a day with nothing running:
+Every day of the priced month is sorted by whether the plan had **money**
+on the table for this product that day, and answered from the window days
+that were the same way. Both sides, not one:
 
-1. `History.bare(scope)` - what the bucket came off list on days with no
-   offer live, asked of the product first and then up the group ladder as
-   far as `--scope` allows. It sits **above** the old rung 1, which would
-   otherwise answer first with the plan-quiet days.
-2. `History.bare_asp(code)` - the product's ASP over those same days, one
-   month one vote, in place of the six-month ASP.
+| the day | the rungs it takes |
+|---|---|
+| an offer live | `History.onoff(scope)`, then its group ladder, then `History.offer_asp(code)` |
+| no offer live | `History.bare(scope)`, then its group ladder, then `History.bare_asp(code)` |
+
+They sit **above** the campaign rungs, which answer only where neither
+side has enough units.
+
+Reading only one side was a bug, not a simplification. The first version
+fired the no-offer rungs on a day the plan wrote no campaign *name* on,
+and `SM-F971BZWGATS` has no campaign name on any day of October - so all
+31 of its days took the no-offer rung, including the **seven** running
+`[S.COM] Save $300`. A day with an offer on it is not a quiet day because
+nobody wrote a name for it.
+
+With both sides read, that product's October is
+`(7 x on-offer + 24 x no-offer) / 31` rather than 31 days of one of them.
 
 `quiet()` is a group fact on purpose and stays one: a product's plan-quiet
 days inside its launch *are* launch days, and reading them per product

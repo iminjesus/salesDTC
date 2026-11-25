@@ -287,6 +287,10 @@ class History:
         # `Offer_Detail` put money on the table that day instead, which the
         # plan states exactly.
         self.bq: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        # And its mirror, the days an offer was live. A month running one
+        # wants this side; the two are different questions and the window
+        # answers neither.
+        self.oq: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
         # And the ASP over those same days, month by month, so it can take
         # one month one vote exactly as `asp` does.
         self.bs: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -418,14 +422,13 @@ class History:
                     t[0] += amt * w
                     t[1] += qty * rrp * w
                     t[2] += qty
-            if bare:
-                for c in (chan, ''):
-                    if c is None:
-                        continue
-                    t = self.bq[(scope, c)]
-                    t[0] += amt * w
-                    t[1] += qty * rrp * w
-                    t[2] += qty
+            for c in (chan, ''):
+                if c is None:
+                    continue
+                t = (self.bq if bare else self.oq)[(scope, c)]
+                t[0] += amt * w
+                t[1] += qty * rrp * w
+                t[2] += qty
 
     def discount(self, scope, camp):
         """1 - what was collected over what was listed, or None.
@@ -537,6 +540,19 @@ class History:
         each = [t[1] / t[0] for (c, _), t in self.smon.items()
                 if c == code and t[0] >= MIN_UNITS and t[1] > 0]
         return sum(each) / len(each) if len(each) >= MIN_MONTHS else a / q
+
+    def onoff(self, scope, chan=''):
+        """What this bucket comes off list on days an offer WAS live.
+
+        The mirror of `bare`. A month running a promotion is priced off
+        this side and a month running none off the other; the window
+        pools them at whatever mix the window happened to have, which is
+        the mix of the past and not of the month being priced.
+        """
+        t = self.oq.get((scope, chan))
+        if not t or t[2] < MIN_UNITS or t[1] <= 0:
+            return None
+        return max(0.0, 1.0 - t[0] / t[1])
 
     def bare(self, scope, chan=''):
         """What this bucket comes off list on days that carried no offer.
@@ -1425,6 +1441,11 @@ def why_one(codes, hist, out, levels, say, clearance: bool = True):
             say('      priced off    which rung answered. "days like these" '
                 'means days with the\n                    same campaign on, '
                 'or with nothing on')
+            if p.get('bare') is not None:
+                say('                    with --clean-quiet the day is '
+                    'sorted by whether an offer\n                    was '
+                    'live instead, and answered from the window days '
+                    'that\n                    were the same way')
             say(f"\n    {'what was on':<30}{'days':>5}{'pull':>6}  "
                 f"{'priced off':<32}{'the day':>11}")
             for camp, from_, n, kind, d, pull in p['rows']:
@@ -1823,26 +1844,39 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                   (('div3', lv.get('div3')), lv.get('div3')),
                   (('div1', lv.get('div1')), lv.get('div1')),
                   (('all', ''), 'the whole book'))
-        # A day with nothing running, answered from days that really had
-        # nothing running. Above rung 1, because rung 1 would otherwise
-        # answer it with `discount(sku, '')` - every day the plan wrote no
-        # campaign name on, launch offers and standing EPP rules included.
-        # That is how a Fold8 with no November campaign was priced at its
-        # own launch depth: its plan-quiet days were all inside its
-        # pre-order. The offer windows say which days were genuinely bare,
-        # and the measurement behind reading them per product is that the
-        # median product sold 67% of its window under a live offer, with
-        # the no-offer price coming out dearer on 75% of the book.
-        if clean_quiet and not camp:
-            d = hist.bare(('sku', k))
+        # The day sorted by whether the plan had **money** on the table,
+        # and answered from the days of the window that were the same way.
+        #
+        # Not by whether the plan wrote a campaign name. That column is
+        # worth 1.1 points book-wide, and keying on it got this wrong in
+        # both directions on one product: SM-F971BZWGATS has no campaign
+        # name on any day of October, so every one of its 31 days took
+        # the no-offer rung - including the seven that were running
+        # `[S.COM] Save $300`. A day with an offer on it is not a quiet
+        # day because nobody wrote a name for it.
+        #
+        # Both sides are read, because they are two questions and the
+        # window answers neither: the median product sold 67% of its
+        # window under a live offer, and its no-offer price came out
+        # dearer on 75% of the book.
+        if clean_quiet:
+            live = offered(day) if day is not None else False
+            ask, word = ((hist.onoff, 'an offer live') if live
+                         else (hist.bare, 'no offer live'))
+            d = ask(('sku', k))
             if d is not None:
-                return 'off', d, 'this product, days with no offer live'
+                return 'off', d, f'this product, days with {word}'
             for sc, name in ladder[:deep]:
                 if sc[1] is None:
                     continue
-                d = hist.bare(sc)
+                d = ask(sc)
                 if d is not None:
-                    return 'off', d, f'{name}, days with no offer live'
+                    return 'off', d, f'{name}, days with {word}'
+            a = (hist.offer_asp if live else hist.bare_asp)(k)
+            if a:
+                return 'at', a, ('this product\u2019s ASP over its '
+                                 + ('offer' if live else 'no-offer')
+                                 + ' days')
         d = hist.discount(('sku', k), camp)
         if d is not None:
             return 'off', d, 'this product, days like these'
@@ -1870,11 +1904,6 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         q = quoted(day) if day is not None else None
         if quote_first and q:
             return 'at', q, "the plan’s quoted price"
-        if clean_quiet and not camp:
-            a = hist.bare_asp(k)
-            if a:
-                return 'at', a, ("this product’s ASP over its "
-                                 'no-offer days')
         if own_asp:
             return 'at', own_asp, "this product’s six-month ASP"
         if q:
