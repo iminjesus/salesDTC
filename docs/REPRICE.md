@@ -1322,6 +1322,41 @@ A product whose voucher-free lines come to fewer than `MIN_UNITS` has no
 reliable base and is left alone: its odd lines may be the only lines it
 has.
 
+### Measured on November, and it does not earn its place
+
+| div1 | units | GSCM sd | rrp sd | floor 20 | floor 30 | floor 40 |
+|---|---|---|---|---|---|---|
+| MX | 19,652 | 78 | 97 | 112 | 98 | 96 |
+| DA | 2,539 | 253 | 108 | **94** | **92** | **93** |
+| VD | 5,424 | 450 | 435 | 436 | 435 | 435 |
+| all | 27,615 | 243 | **212** | 217 | 212 | 211 |
+
+The level gets **worse the deeper the cut**: -62 at no floor, -68 at 40,
+-81 at 30, -99 at 20. That ordering is the explanation.
+
+`gap` is `the month's realised price - the model's price`, and **the
+realised price has the vouchers in it too**. Taking the cheap lines out
+of the window makes the model dearer while the thing it is scored
+against does not move, so the two part company by exactly as much as was
+removed. 1,635.909 really does drag the ASP down - and November sells
+the same kind of line and realises the same kind of price.
+
+> A voucher is not noise to be removed. It is part of what the month
+> actually realises, and a window without it predicts a month that did
+> not happen.
+
+This would be different for a tool setting a list price. This one
+predicts a realised one.
+
+**DA is the exception**, consistently: 108 to 92-94 at every depth, over
+2,539 units. Something there sits in the window and not in the month.
+Not acted on - one division, one month - but it is the only place a
+floor paid.
+
+The flag stays, off. The diagnostics around it (`--vouchers`, and the
+"what it caught" line) are worth keeping whatever the rungs do: they are
+the only way to see which mechanics move a price, and they cost one run.
+
 **The list comes out, not in.** Nobody can hunt a book of 1,500 products
 by hand for the odd mechanic, and the one stem anybody found was found
 by accident. So the floor takes a number and reports what it caught:
