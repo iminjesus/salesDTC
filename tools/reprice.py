@@ -2819,6 +2819,47 @@ def offer_report(plan, codes=(), say=print, top: int = 40) -> None:
         say(f'  ... and {len(by) - top:,} more')
 
 
+def rung_report(out, levels, say=print, top: int = 14) -> None:
+    """Which rung of the ladder actually carried the month.
+
+    The rrp model walks a day at a time and the rungs are tried in order,
+    so a change to a low rung can be perfectly correct and move nothing,
+    because a rung above it answers first on nearly every day. That is not
+    visible in the prices and it is not visible in the spread - a model
+    that is 0.2 points different from another looks like a model that was
+    barely changed, when it may be one whose change never ran.
+
+    Days are counted twice: once flat, and once weighted by the units the
+    product sold, because a rung carrying 3% of the days of a product that
+    shifts half the division is not a 3% rung.
+    """
+    units = {PM.code_norm(c): max(v.get('qty') or 0.0, 0.0)
+             for c, v in out.items()}
+    flat: dict = collections.defaultdict(float)
+    heavy: dict = collections.defaultdict(float)
+    days = wsum = 0.0
+    for p in BREAKDOWN:
+        u = units.get(p['code'], 0.0)
+        for c, f, n, *_ in p.get('rows', ()):
+            flat[f] += n
+            heavy[f] += n * u
+            days += n
+            wsum += n * u
+    if not days:
+        say('\n  no day-by-day record to break down')
+        return
+    say(f'\n  which rung priced the day, over {days:,.0f} product-day(s):')
+    say(f"    {'rung':<42}{'days':>9}{'by units':>10}")
+    for f, n in sorted(flat.items(), key=lambda kv: -kv[1])[:top]:
+        say(f'    {f[:41]:<42}{n / days * 100:>8.1f}%'
+            + (f'{heavy[f] / wsum * 100:>9.1f}%' if wsum else f"{'-':>10}"))
+    if len(flat) > top:
+        say(f'    ... and {len(flat) - top} more')
+    say('    a rung with few days is one the rungs above it answer for '
+        'first, and')
+    say('    changing it moves nothing however right the change is')
+
+
 def report(out, levels, hist, explain, campaigns, why, say) -> None:
     """The three asked-for readings, whichever model was run.
 
@@ -2827,6 +2868,7 @@ def report(out, levels, hist, explain, campaigns, why, say) -> None:
     the one question they exist to answer was the one they would not take.
     """
     if explain:
+        rung_report(out, levels, say)
         explain_terms(out, levels, say)
     if campaigns:
         campaign_report(hist, levels, say, level=campaigns)
