@@ -291,6 +291,13 @@ class History:
         # one month one vote exactly as `asp` does.
         self.bs: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
         self.bmon: dict = collections.defaultdict(lambda: [0.0, 0.0])
+        # And its mirror: the days an offer **was** live. A month that is
+        # running a promotion wants this one, exactly as a month that is
+        # not wants the other; the window ASP is the two of them averaged
+        # together at whatever mix the window happened to have, which is
+        # neither answer.
+        self.os: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        self.omon: dict = collections.defaultdict(lambda: [0.0, 0.0])
         # The same tally split by channel, which is the only way to see what
         # the B2B half of a month costs that the consumer half does not.
         self.ch: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -366,18 +373,17 @@ class History:
         self.skus[code][0] += qty * w
         self.skus[code][1] += amt * w
         self.skus[code][2] += qty
-        if bare:
-            self.bs[code][0] += qty * w
-            self.bs[code][1] += amt * w
-            self.bs[code][2] += qty
+        side = self.bs if bare else self.os
+        side[code][0] += qty * w
+        side[code][1] += amt * w
+        side[code][2] += qty
         if ym is not None:
             t = self.smon[(code, ym)]
             t[0] += qty * w
             t[1] += amt * w
-            if bare:
-                t = self.bmon[(code, ym)]
-                t[0] += qty * w
-                t[1] += amt * w
+            t = (self.bmon if bare else self.omon)[(code, ym)]
+            t[0] += qty * w
+            t[1] += amt * w
             t = self.sc[code][(ym, bool(camp), chan or '')]
             t[0] += qty * w
             t[1] += amt * w
@@ -556,6 +562,27 @@ class History:
             return None
         return max(0.0, 1.0 - t[0] / t[1])
 
+    def offer_asp(self, code):
+        """The product's ASP over its offer days, one month one vote.
+
+        `bare_asp` with the sides swapped. What it fetches **while a
+        promotion is on**, which is the right base for pricing a month
+        that is running one - the window ASP mixes the two sides at
+        whatever share the window happened to have, and that share is not
+        the share the month being priced will have.
+        """
+        return self._vote(self.os, self.omon, code)
+
+    def _vote(self, tot, mon, code):
+        q, a, raw = tot.get(code, [0.0, 0.0, 0.0])
+        if raw < MIN_UNITS or q <= 0:
+            return None
+        if self.pooled:
+            return a / q
+        each = [t[1] / t[0] for (c, _), t in mon.items()
+                if c == code and t[0] >= MIN_UNITS and t[1] > 0]
+        return sum(each) / len(each) if len(each) >= MIN_MONTHS else a / q
+
     def bare_asp(self, code):
         """The product's ASP over its no-offer days, one month one vote.
 
@@ -564,14 +591,7 @@ class History:
         product sold 67% of its window under a live offer - and this is
         the part of it that was not.
         """
-        q, a, raw = self.bs.get(code, [0.0, 0.0, 0.0])
-        if raw < MIN_UNITS or q <= 0:
-            return None
-        if self.pooled:
-            return a / q
-        each = [t[1] / t[0] for (c, _), t in self.bmon.items()
-                if c == code and t[0] >= MIN_UNITS and t[1] > 0]
-        return sum(each) / len(each) if len(each) >= MIN_MONTHS else a / q
+        return self._vote(self.bs, self.bmon, code)
 
     def own(self, code):
         """This product's own discount over the window, campaigns together.
@@ -1380,27 +1400,37 @@ def why_one(codes, hist, out, levels, say):
                 f"-> {p['price']:,.2f}")
             say(f"    GSCM {row['gscm']:,.2f} -> {row['price']:,.2f}"
                 f"  ({(row['price'] / row['gscm'] - 1) * 100:+.1f}%)")
-            if any('no offer live' in f or 'no-offer days' in f
-                   for _, f, _, _, _, _ in p['rows']):
-                bare = sorted((ym, t) for (c, ym), t in hist.bmon.items()
-                              if c == k)
-                say('\n    a no-offer rung answered, so the months '
-                    'behind it are the window with the\n    offer '
-                    'days taken out. Beside them, the same months '
-                    'whole:')
+            if p.get('bare') is not None:
+                mine = sorted({ym for (c, ym) in hist.bmon if c == k}
+                              | {ym for (c, ym) in hist.omon if c == k})
+                say('\n    the window split by whether an offer was live, '
+                    'month by month. A month\n    that is running a '
+                    'promotion wants the offer side; a month that is not '
+                    'wants\n    the other. The window ASP is the two '
+                    'averaged at whatever mix the window\n    happened to '
+                    'have, which is neither answer:')
+                say(f"    {'month':>9}{'offer units':>13}{'offer ASP':>12}"
+                    f"{'clean units':>13}{'clean ASP':>12}"
+                    f"{'all units':>11}{'window ASP':>12}")
                 whole = dict(each)
-                say(f"    {'month':>9}{'clean units':>13}"
-                    f"{'clean ASP':>12}{'all units':>11}"
-                    f"{'window ASP':>12}")
-                for ym, t in bare:
+                for ym in mine:
+                    o = hist.omon.get((k, ym), [0.0, 0.0])
+                    c2 = hist.bmon.get((k, ym), [0.0, 0.0])
                     w = whole.get(ym, [0.0, 0.0])
-                    say(f'    {ym:>9}{t[0]:13,.0f}'
-                        f'{(t[1] / t[0] if t[0] else 0):12,.0f}'
+                    say(f'    {ym:>9}{o[0]:13,.0f}'
+                        f'{(o[1] / o[0] if o[0] else 0):12,.0f}'
+                        f'{c2[0]:13,.0f}'
+                        f'{(c2[1] / c2[0] if c2[0] else 0):12,.0f}'
                         f'{w[0]:11,.0f}'
                         f'{(w[1] / w[0] if w[0] else 0):12,.0f}')
-                if not bare:
-                    say('      none - it answered from a group, not '
-                        'from this product')
+                oa, ba, wa = (hist.offer_asp(k), hist.bare_asp(k),
+                              hist.asp(k))
+                dash = lambda v: f'{v:,.2f}' if v else 'too thin to read'
+                say(f"\n    {'on offer':<26}{dash(oa):>18}")
+                say(f"    {'with no offer live':<26}{dash(ba):>18}")
+                say(f"    {'the whole window':<26}{dash(wa):>18}")
+                say('    one month one vote in each, a month under '
+                    f'{MIN_UNITS} units getting none')
             if any(k2 == 'at' for _, _, _, k2, _, _ in p['rows']):
                 say(f"\n    a rung reading `at` is a **price**, not a "
                     'discount, so the list price does not enter it. Where '
