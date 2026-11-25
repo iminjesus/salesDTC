@@ -1041,6 +1041,86 @@ Only lines whose `Offer_Detail` carries an amount mark a day. A line that
 names a campaign and no money does not: that is the campaign flag again,
 and the campaign flag is worth 1.1 points.
 
+The real reading, over May to October:
+
+```
+  1,514 product(s), 166,434 dated unit(s) over 184 day(s) of window
+  35.5% of those units fell on a day with no offer live
+
+                                        products  % of book
+    A  never had an offer                    476       13.0%
+    B  had one, and clean days left          622       80.8%
+    C  had one, too few clean days           416        6.2%
+
+  B: 622 product(s). How much of each one's month sold under an offer:
+         p25   median     p75     p90
+         38%      67%     85%     93%
+
+  B: the clean-day price against the whole-window price, in percent:
+         p25   median     p75     p90
+       +0.1%    +3.5%  +18.5%  +38.1%
+  75% dearer on clean days, 1% unchanged, 23% cheaper
+```
+
+Three things in that, and all three say build it. **B is 80.8% of the
+book**, so the filter reaches almost all of it. **The median product sold
+67% of its window under a live offer**, so the window ASP it would
+otherwise use is a promotion average and not an ordinary price - the
+problem is real and large. And the clean price comes out **dearer on 75%**
+of them, with the upper half moving 18 to 38 percent, which is the
+direction claimed.
+
+23% come out cheaper, and on those the filter makes the answer worse. That
+is the cost, and whether it outweighs the gain is a `--compare` question,
+not another diagnostic.
+
+## `--clean-quiet` - a quiet day is a day with no offer on it
+
+This is the measurement above, wired into the model.
+
+```
+py tools\reprice.py --clean-quiet
+py tools\price_spread.py --month 2611 --by div1 --compare rrp rrp+clean
+```
+
+The model asks, for every day of the month it is pricing, what this
+product did on days like this one. For a day with a campaign on it that is
+unchanged. For a day with **nothing** on it, the question was always *what
+did this product do on days the plan wrote no campaign name on* - and that
+is the wrong set of days:
+
+| | |
+|---|---|
+| before | a quiet day is one the plan named no campaign on |
+| after | a quiet day is one with no live `Offer_Detail` on it |
+
+The campaign column cannot do this job. Book-wide a day it calls a
+campaign is **1.1 points** deeper than a day it does not, because the days
+it calls quiet are routinely running a launch offer or a standing EPP rule
+at full depth. `SM-F971BZWGATS` is the worked example: November ran no
+campaign, so the model asked what it did on *its* no-campaign days, every
+one of which fell inside its pre-order, and priced a 2,999 phone at
+1,651.89 as its **ordinary** price.
+
+Two rungs change, and only for a day with nothing running:
+
+1. `History.bare(scope)` - what the bucket came off list on days with no
+   offer live, asked of the product first and then up the group ladder as
+   far as `--scope` allows. It sits **above** the old rung 1, which would
+   otherwise answer first with the plan-quiet days.
+2. `History.bare_asp(code)` - the product's ASP over those same days, one
+   month one vote, in place of the six-month ASP.
+
+`quiet()` is a group fact on purpose and stays one: a product's plan-quiet
+days inside its launch *are* launch days, and reading them per product
+reads the launch under another name. `bare()` is safe per product for
+exactly the reason the old one was not - those days are excluded now,
+because the offer was live on them.
+
+Off by default until the two months are measured. A history built without
+it behaves as it always did: `History.add` falls back to the campaign
+column when no `bare` is supplied.
+
 A count of months reading an offer worth **more than the list price** is
 printed above the table when there is one. Those are the instrument, not
 the book: a plan line mis-tagged, a percentage read out of prose, a

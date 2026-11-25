@@ -319,9 +319,11 @@ def split_entry(entry: str, shared: dict):
             over['scope'] = val.strip()
         elif key in ('drop-launch', 'drop_launch'):
             over['drop_launch'] = True
+        elif key in ('clean', 'clean-quiet', 'clean_quiet'):
+            over['clean_quiet'] = True
         else:
             raise SystemExit(f'--compare {entry}: no setting called {key!r} '
-                             '(keep, scope, drop-launch)')
+                             '(keep, scope, drop-launch, clean)')
     return name, over
 
 
@@ -441,6 +443,11 @@ def main() -> int:
                     action='store_true',
                     help='passed to the re-price: drop a window month that '
                          'carried a launch or a pre-order for the product')
+    ap.add_argument('--clean-quiet', dest='clean_quiet',
+                    action='store_true',
+                    help='passed to the re-price: a quiet day is one with '
+                         'no live offer, not one the plan wrote no '
+                         'campaign name on')
     ap.add_argument('--keep', nargs='+', default=(), metavar='NAME',
                     help='passed to the re-price: leave these groups at the '
                          'GSCM price')
@@ -467,7 +474,8 @@ def main() -> int:
         return 1
 
     shared = {'by_units': args.by_units, 'keep': args.keep,
-              'drop_launch': args.drop_launch}
+              'drop_launch': args.drop_launch,
+              'clean_quiet': args.clean_quiet}
     if args.scope:
         shared['scope'] = args.scope
 

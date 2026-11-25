@@ -277,6 +277,20 @@ class History:
         # nothing is running, which is a group fact and a steady one - see
         # `quiet`.
         self.qc: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        # The same tally over days that carried **no live offer**, which is
+        # a different and much better definition of a quiet day than the
+        # one above. `qc` reads the plan's campaign column, and that column
+        # is worth 1.1 points book-wide - a day the plan names no campaign
+        # is routinely a day a launch offer or a standing EPP rule was
+        # running at full depth, which is how a Fold8 in its pre-order came
+        # out at 44.9% off as its *ordinary* price. `bq` keys on whether
+        # `Offer_Detail` put money on the table that day instead, which the
+        # plan states exactly.
+        self.bq: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        # And the ASP over those same days, month by month, so it can take
+        # one month one vote exactly as `asp` does.
+        self.bs: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        self.bmon: dict = collections.defaultdict(lambda: [0.0, 0.0])
         # The same tally split by channel, which is the only way to see what
         # the B2B half of a month costs that the consumer half does not.
         self.ch: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -308,9 +322,18 @@ class History:
         return 0.5 ** (max(0, age) / self.half)
 
     def add(self, code, level, camp, qty, amt, rrp, day=None, chan=None,
-            deal=False, ym=None):
+            deal=False, ym=None, bare=None):
+        """`bare` is True where no offer was live that day.
+
+        It is read off the plan's `Offer_Detail` windows, not off its
+        campaign column, and where the caller does not supply it the
+        campaign column stands in - so a history built without the plan's
+        offer text behaves exactly as it always did.
+        """
         if qty <= 0:
             return
+        if bare is None:
+            bare = not camp
         w = self.weight(day)
         if rrp:
             on = 'on' if camp else 'off'
@@ -343,10 +366,18 @@ class History:
         self.skus[code][0] += qty * w
         self.skus[code][1] += amt * w
         self.skus[code][2] += qty
+        if bare:
+            self.bs[code][0] += qty * w
+            self.bs[code][1] += amt * w
+            self.bs[code][2] += qty
         if ym is not None:
             t = self.smon[(code, ym)]
             t[0] += qty * w
             t[1] += amt * w
+            if bare:
+                t = self.bmon[(code, ym)]
+                t[0] += qty * w
+                t[1] += amt * w
             t = self.sc[code][(ym, bool(camp), chan or '')]
             t[0] += qty * w
             t[1] += amt * w
@@ -378,6 +409,14 @@ class History:
                     if c is None:
                         continue
                     t = self.qc[(scope, c)]
+                    t[0] += amt * w
+                    t[1] += qty * rrp * w
+                    t[2] += qty
+            if bare:
+                for c in (chan, ''):
+                    if c is None:
+                        continue
+                    t = self.bq[(scope, c)]
                     t[0] += amt * w
                     t[1] += qty * rrp * w
                     t[2] += qty
@@ -490,6 +529,47 @@ class History:
         if self.pooled:
             return a / q
         each = [t[1] / t[0] for (c, _), t in self.smon.items()
+                if c == code and t[0] >= MIN_UNITS and t[1] > 0]
+        return sum(each) / len(each) if len(each) >= MIN_MONTHS else a / q
+
+    def bare(self, scope, chan=''):
+        """What this bucket comes off list on days that carried no offer.
+
+        The same question `quiet` asks, with the day picked by whether the
+        plan put **money** on the table rather than by whether it wrote a
+        campaign name. That distinction is the whole of it: book-wide a day
+        the plan calls a campaign is only 1.1 points deeper than a day it
+        does not, because the days it calls quiet are routinely running a
+        launch offer or a standing EPP rule at full depth.
+
+        Unlike `quiet` this is safe to read **per product**. `quiet` is a
+        group fact on purpose, because a product's plan-quiet days inside
+        its launch are launch days and reading them per product reads the
+        launch again under another name - a Fold8 at 2,300 on days no
+        campaign covered, against an October store price of 3,271.82. Here
+        those days are not quiet at all: the pre-order offer was live on
+        them and they are excluded, so what is left really is the product
+        trading with nothing on.
+        """
+        t = self.bq.get((scope, chan))
+        if not t or t[2] < MIN_UNITS or t[1] <= 0:
+            return None
+        return max(0.0, 1.0 - t[0] / t[1])
+
+    def bare_asp(self, code):
+        """The product's ASP over its no-offer days, one month one vote.
+
+        `asp` with the offer days taken out. The window ASP is a promotion
+        average rather than an ordinary price - book-wide the median
+        product sold 67% of its window under a live offer - and this is
+        the part of it that was not.
+        """
+        q, a, raw = self.bs.get(code, [0.0, 0.0, 0.0])
+        if raw < MIN_UNITS or q <= 0:
+            return None
+        if self.pooled:
+            return a / q
+        each = [t[1] / t[0] for (c, _), t in self.bmon.items()
                 if c == code and t[0] >= MIN_UNITS and t[1] > 0]
         return sum(each) / len(each) if len(each) >= MIN_MONTHS else a / q
 
@@ -739,7 +819,8 @@ class History:
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  say=print, half: float = 0.0, source: str = 'auto',
                  want_days: bool = True, pooled: bool = False,
-                 by_units: bool = True, skip=None) -> History:
+                 by_units: bool = True, skip=None,
+                 clean_quiet: bool = False) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -757,6 +838,15 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
     """
     h = History(half, months[-1] if months else None, pooled=pooled,
                 by_units=by_units)
+    # Which days the plan put money on the table for, product by product.
+    # Built once; `History.add` keys its no-offer tallies on it rather than
+    # on the campaign column.
+    live: dict = {}
+    if clean_quiet:
+        mine: dict = {}
+        for r in plan.rows:
+            mine.setdefault(PM.code_norm(r.get('code') or ''), []).append(r)
+        live = offer_live(mine)
     if source != 'orders':
         want = set(months)
         rows = DTC.read(folder, want, say=say) if DTC.files(folder) else []
@@ -784,7 +874,10 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                       r['qty'], r['amt'], rrp, r['day'],
                       chan=(r['dist'] or '').upper() or None,
                       deal=bool(r.get('trade') or r.get('vouch')),
-                      ym=r.get('ym'))
+                      ym=r.get('ym'),
+                      bare=((r['day'] is not None
+                             and r['day'] not in live.get(code, ()))
+                            if clean_quiet else None))
             # One pass over every product and every day of the window,
             # so a campaign's days are counted whether or not it sold on
             # them - a promotion that sold nothing is still a day it was on.
@@ -1425,7 +1518,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
               scope: str = 'range', rrp_at=None, new_cap: float = 0.0,
               b2b: float = None, flat_days: bool = False,
               by_units: bool = True, plan_mix=None, gscm_at=None,
-              new_from: str = 'sheet', quote_first: bool = False):
+              new_from: str = 'sheet', quote_first: bool = False,
+              clean_quiet: bool = False):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -1589,13 +1683,33 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         discount of the model it replaces - at the end of its life and at
         its deepest.
         """
-        d = hist.discount(('sku', k), camp)
-        if d is not None:
-            return 'off', d, 'this product, days like these'
         ladder = ((('range', lv.get('range')), lv.get('range')),
                   (('div3', lv.get('div3')), lv.get('div3')),
                   (('div1', lv.get('div1')), lv.get('div1')),
                   (('all', ''), 'the whole book'))
+        # A day with nothing running, answered from days that really had
+        # nothing running. Above rung 1, because rung 1 would otherwise
+        # answer it with `discount(sku, '')` - every day the plan wrote no
+        # campaign name on, launch offers and standing EPP rules included.
+        # That is how a Fold8 with no November campaign was priced at its
+        # own launch depth: its plan-quiet days were all inside its
+        # pre-order. The offer windows say which days were genuinely bare,
+        # and the measurement behind reading them per product is that the
+        # median product sold 67% of its window under a live offer, with
+        # the no-offer price coming out dearer on 75% of the book.
+        if clean_quiet and not camp:
+            d = hist.bare(('sku', k))
+            if d is not None:
+                return 'off', d, 'this product, days with no offer live'
+            for sc, name in ladder[:deep]:
+                if sc[1] is None:
+                    continue
+                d = hist.bare(sc)
+                if d is not None:
+                    return 'off', d, f'{name}, days with no offer live'
+        d = hist.discount(('sku', k), camp)
+        if d is not None:
+            return 'off', d, 'this product, days like these'
         for sc, name in ladder[:deep]:
             if sc[1] is None:
                 continue
@@ -1620,6 +1734,11 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         q = quoted(day) if day is not None else None
         if quote_first and q:
             return 'at', q, "the plan’s quoted price"
+        if clean_quiet and not camp:
+            a = hist.bare_asp(k)
+            if a:
+                return 'at', a, ("this product’s ASP over its "
+                                 'no-offer days')
         if own_asp:
             return 'at', own_asp, "this product’s six-month ASP"
         if q:
@@ -1779,7 +1898,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             why=(), quiet_list: bool = False,
             promo_first: bool = True, actual: bool = False,
             new_from: str = 'sheet', keep=(),
-            drop_launch: bool = False) -> dict:
+            drop_launch: bool = False,
+            clean_quiet: bool = False) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -1885,7 +2005,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
         f'{MONTHS[(months[-1] % 100) - 1]}:')
     hist = read_history(folder, plan, canon, months, levels, say=say,
                         half=decay, source=source, want_days=True,
-                        pooled=pooled, by_units=by_units, skip=skip)
+                        pooled=pooled, by_units=by_units, skip=skip,
+                        clean_quiet=clean_quiet)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -2027,6 +2148,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 flat_days=flat_days, by_units=by_units,
                 plan_mix=plan_mix,
                 new_from=new_from, quote_first=model == 'quote',
+                clean_quiet=clean_quiet,
                 gscm_at=lambda c: (planned['items'].get(c)
                                    or planned['items'].get(PM.code_norm(c))
                                    or {}).get('aud'),
@@ -2730,6 +2852,12 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--clean-quiet', dest='clean_quiet',
+                    action='store_true',
+                    help='a quiet day is one with no live offer in the '
+                         'promotion plan, not one the plan wrote no '
+                         'campaign name on. See --clean for the '
+                         'measurement behind it')
     ap.add_argument('--clean', action='store_true',
                     help='count the window days that carry no live '
                          'offer, and what the price on them is worth '
@@ -2889,7 +3017,8 @@ def main() -> int:
                   flat_days=args.flat_days, by_units=args.by_units,
                   model=args.model, actual=not args.no_actual,
                   new_from=args.new_from, keep=args.keep,
-                  drop_launch=args.drop_launch)
+                  drop_launch=args.drop_launch,
+                  clean_quiet=args.clean_quiet)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)
