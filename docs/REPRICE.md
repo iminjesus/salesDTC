@@ -979,6 +979,48 @@ All four assume the distinction is written down somewhere. It is not.
 worth having and the measurement should be repeatable if a file carrying
 take-up ever turns up. Nothing prices off it.
 
+### `--clean` - don't add the offer back, leave its days out
+
+There is a way round take-up that needs no take-up at all. The add-back
+asks *how much was that offer worth*, which the plan answers wrongly. The
+other question is *which days did it cover*, which the plan answers
+exactly - every line carries a start and an end.
+
+So instead of correcting a polluted average, drop the days the offer was
+live and average what is left. Those days are the ordinary price,
+**observed**. Nothing is sized, so nothing can be sized wrong.
+
+```
+py tools\reprice.py --clean
+```
+
+```
+  1,555 product(s), N dated unit(s) over 184 day(s) of window
+  NN.N% of those units fell on a day with no offer live
+  N product(s) (NN%) keep 5+ unit(s) on clean days, which is NN.N% of the book
+
+  the clean-day price against the whole-window price, in percent:
+         p25   median     p75     p90
+  NN% of them are DEARER on clean days
+```
+
+**Coverage decides it.** The promotion file is cumulative from 2025 and
+the standing EPP rules sit under everything, so a product can carry a live
+offer on every day of the window - and then there is nothing left to
+average and this road is shut as well. The second number is the one to
+read first.
+
+The third block says whether the filter is worth having even where it
+reaches. A clean-day price that comes out the same as the window price
+means the offers were not moving the average, and a filter that changes
+nothing is not worth its complexity. It should come out **dearer**: that is
+the whole claim, that the window average is dragged down by the offers
+inside it.
+
+Only lines whose `Offer_Detail` carries an amount mark a day. A line that
+names a campaign and no money does not: that is the campaign flag again,
+and the campaign flag is worth 1.1 points.
+
 A count of months reading an offer worth **more than the list price** is
 printed above the table when there is one. Those are the instrument, not
 the book: a plan line mis-tagged, a percentage read out of prose, a

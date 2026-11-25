@@ -2371,6 +2371,126 @@ def gap_spread(plan, rows, months, say=print) -> None:
         '  polluted it is')
 
 
+def offer_live(lines):
+    """`code -> set of days an offer with money in it was live`.
+
+    Only lines whose `Offer_Detail` carries an amount count. A line that
+    names a campaign and no money is not an offer for this purpose: it says
+    a name was in force, and a name is what four attempts at this have
+    already shown cannot size a discount.
+    """
+    out: dict = {}
+    for code, mine in lines.items():
+        days = set()
+        for r in mine:
+            if not offer_values(r.get('detail') or ''):
+                continue
+            a, b = r.get('start'), r.get('end')
+            if not a or not b or b < a:
+                continue
+            d = a
+            while d <= b:
+                days.add(d)
+                d += timedelta(days=1)
+        out[code] = days
+    return out
+
+
+def clean_days(plan, rows, months, say=print) -> None:
+    """Is there a day left over, once the days carrying an offer are taken out?
+
+    The add-back failed because the plan says what was **offered** and not
+    what was **taken**, and the take-up rate is in no file here. The way
+    round it needs no take-up at all: instead of adding an offer back to a
+    polluted average, drop the days the offer was live and average what is
+    left. Those days are the ordinary price, observed rather than
+    reconstructed, and nothing has to be sized for them.
+
+    It only works if those days exist. The promotion file is cumulative
+    from 2025 and the standing EPP rules sit under everything, so a product
+    can easily carry a live offer on every day of the window - and then
+    there is nothing left to average and this road is shut too. That is
+    what this measures, before anything is built on it.
+
+    Three numbers matter. **How many products** keep enough units on clean
+    days to be read at all; **how much of the book** those units are; and
+    **how far apart** the clean price and the window price are, because a
+    filter that changes nothing is not worth having however good its
+    coverage.
+    """
+    lines: dict = {}
+    for r in plan.rows:
+        lines.setdefault(PM.code_norm(r.get('code') or ''), []).append(r)
+    live = offer_live(lines)
+
+    span = set()
+    for m in months:
+        span.update(month_days(m))
+    tot: dict = {}
+    undated = 0
+    for r in rows:
+        if r['qty'] <= 0:
+            continue
+        if not r.get('day'):
+            undated += r['qty']
+            continue
+        k = PM.code_norm(r['code'])
+        t = tot.setdefault(k, [0.0, 0.0, 0.0, 0.0])
+        t[0] += r['qty']
+        t[1] += r['amt']
+        if r['day'] not in live.get(k, ()):
+            t[2] += r['qty']
+            t[3] += r['amt']
+
+    if not tot:
+        say('\n  no dated sales in the window, so clean days cannot be '
+            'counted')
+        return
+    units = sum(t[0] for t in tot.values())
+    free = sum(t[2] for t in tot.values())
+    read = [k for k, t in tot.items() if t[2] >= MIN_UNITS]
+    freeu = sum(tot[k][2] for k in read)
+
+    say(f'\n  {len(tot):,} product(s), {units:,.0f} dated unit(s) over '
+        f'{len(span):,} day(s) of window')
+    if undated:
+        say(f'  {undated:,.0f} unit(s) carry no date and are left out')
+    say(f'  {free / units * 100:.1f}% of those units fell on a day with no '
+        'offer live')
+    say(f'  {len(read):,} product(s) ({len(read) / len(tot) * 100:.0f}%) '
+        f'keep {MIN_UNITS}+ unit(s) on clean days, which is '
+        f'{freeu / units * 100:.1f}% of the book')
+
+    moves = []
+    for k in read:
+        t = tot[k]
+        whole, bare = t[1] / t[0], t[3] / t[2]
+        if whole > 0:
+            moves.append((bare / whole - 1) * 100)
+    if not moves:
+        say('  and none of them has a price to compare')
+        return
+    moves.sort()
+
+    def at(f):
+        return moves[min(len(moves) - 1, int(f * len(moves)))]
+
+    say('\n  the clean-day price against the whole-window price, in '
+        'percent:')
+    say(f"    {'p25':>8}{'median':>9}{'p75':>8}{'p90':>8}")
+    say(f'    {at(0.25):>+7.1f}%{at(0.50):>+8.1f}%{at(0.75):>+7.1f}%'
+        f'{at(0.90):>+7.1f}%')
+    up = sum(1 for v in moves if v > 0) / len(moves) * 100
+    say(f'  {up:.0f}% of them are DEARER on clean days, which is the '
+        'direction the filter')
+    say('  is for: the window average is dragged down by the offers in it')
+    say('\n  Coverage is what decides it. Enough of the book on clean days '
+        'and the')
+    say('  ordinary price can be observed instead of reconstructed; too '
+        'little, and')
+    say('  there is nothing behind the filter to average')
+
+
 def offer_report(plan, codes=(), say=print, top: int = 40) -> None:
     """What the plan’s `Offer_Detail` column says, and what it is worth.
 
@@ -2575,6 +2695,11 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--clean', action='store_true',
+                    help='count the window days that carry no live '
+                         'offer, and what the price on them is worth '
+                         'against the whole-window price. Group '
+                         'aggregates only, so it is safe to paste')
     ap.add_argument('--offers', nargs='*', default=None, metavar='CODE',
                     help='what the plan\u2019s Offer_Detail column says, with '
                          'the depth the plan quotes beside it. With no code, '
@@ -2673,6 +2798,18 @@ def main() -> int:
         raise SystemExit(f'no gscm_* sheet in {folder.resolve()} prices that '
                          'month')
     full = (2000 + ym // 100) * 100 + ym % 100
+
+    if args.clean:
+        say = print
+        say('reading the promotion plan:')
+        plan, _ = PM.load_plans(folder, args.plan, say=say)
+        if not getattr(plan, 'rows', None):
+            raise SystemExit('no promotion plan to read')
+        months = months_back(full, args.back)
+        say('\nreading what sold, and when:')
+        clean_days(plan, DTC.read(folder, set(months), say=say),
+                   months, say=say)
+        return 0
 
     if args.offers is not None:
         say = print
