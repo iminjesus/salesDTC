@@ -1381,7 +1381,34 @@ py tools\price_spread.py --month 2611 --by div1 \
 ```
 
 On the one product looked at by hand, a 2,138 window ASP goes to 2,554
-with a floor alone and back to 2,442 with a 20% ceiling beside it. This
+with a floor alone and back to 2,442 with a 20% ceiling beside it.
+
+### November: the first setting in this family that wins
+
+| div1 | units | GSCM sd | rrp sd | floor 30 | **floor 30 + ceil 20** | floor 20 + ceil 20 |
+|---|---|---|---|---|---|---|
+| MX | 19,652 | 78 | 97 | 98 | **77** | 84 |
+| DA | 2,539 | 253 | 108 | **92** | 128 | 129 |
+| VD | 5,424 | 450 | 435 | 435 | **433** | 434 |
+| all | 27,615 | 243 | 212 | 212 | **207** | 210 |
+
+Level with it: all **-62 to -52**, MX -61 to -56, VD -83 to -64.
+
+**MX goes 97 to 77 against the sheet's 78** - level with it, on 71% of
+the month's units, in the one division the model had lost in both months
+measured.
+
+The ceiling is what does it. A floor alone leaves the book at 212 and
+pushes the level out to -81; add the ceiling and the scatter comes down
+to 207 and the level in to -52. Taking one tail off only moves the
+middle; taking both off leaves the middle where it was and removes the
+spread.
+
+**DA pays for it**: 108 to 128, on 2,539 units, while its level goes
+-27 to +3. A floor alone was DA's best reading at 92, which says its
+dear tail is real trading and not noise. Not acted on separately -
+one division, one month.
+ This
 is `--band` asked differently: the band trims by **rank**, a fixed share
 of every product whether or not anything is wrong with it, while these
 two trim by **distance from the product's own ordinary price**, so a
