@@ -1100,42 +1100,49 @@ direction claimed.
 is the cost, and whether it outweighs the gain is a `--compare` question,
 not another diagnostic.
 
-## `--band LO HI` - a price too far off list is not this product trading
+## `--band LO HI` - the middle of each product's own prices
 
 ```
 py tools\reprice.py --month 2611 --band 30 70
 py tools\price_spread.py --month 2611 --by div1 --compare rrp rrp+band=30:70
 ```
 
-A line that went out at a tenth of its list price is a voucher, a staff
-order, a bundle allocation or a mistyped RRP. It is not the product
-trading, and it pulls an ASP down with far more weight than its volume
-deserves - an ASP is money over units, so one line at 300 against a 2,999
-list cancels several at full price.
+A voucher, a staff order or a bundle allocation sits in the **tail** of a
+product's own price distribution. An ASP is money over units, so one line
+at 300 against a 2,999 list cancels several at full price, and the
+average it produces is not a price the product ever sold at.
 
-`--band 30 70` keeps a line only where its realised price is between 30%
-and 70% **of the list price**, and leaves the rest out of **every** tally
-the history keeps: the six-month ASP, the clean and offer ASPs, and every
-discount rung at every level. A line with no list price cannot be judged
-and is kept.
+`--band 30 70` keeps a line only where its unit price falls between the
+30th and 70th percentile of **that product's own prices**, and leaves the
+rest out of **every** tally the history keeps: the six-month ASP, the
+clean and offer ASPs, and every discount rung at every level.
 
-The run says what the band costs:
+Nothing is assumed about what the odd line was. It needs no list price,
+no voucher flag and no theory about the mechanic - only that the line is
+far from everything else the product did.
+
+Two details that matter:
+
+- **The quantiles are over units, not lines.** A line of three hundred is
+  three hundred units of evidence and a line of one is one.
+- **A product with fewer than five lines is not trimmed at all.** Cutting
+  the middle out of four numbers leaves noise, not a median.
+
+The run says what it costs:
 
 ```
-  price band 30-70% of list: N line(s) (N.N%), N unit(s) left out of every
-  ASP and every discount
+  price band 30-70 of each product's own prices: N product(s) trimmed,
+  N line(s) (N.N%), N unit(s) left out of every ASP and every discount
 ```
 
-**Read that line first.** The band is a judgement and not a fact, so it is
-off by default, and a band that drops a large share of the book is the
-wrong band whatever it does to the scatter. Accessories at 20% off sit at
-80% of list and a 30-70 band throws all of them away; a band meant for
-handsets should be measured on handsets.
+A 30-70 band keeps the middle 40% of a product's units **by
+construction**, so a large drop is the design and not a warning. What it
+has to earn is in `--compare`: do the prices it keeps predict the month
+better than the prices it threw away. Off by default until that is read.
 
-The export also flags vouchers and trade-ins per line (`r['vouch']`,
-`r['trade']`), which is a narrower instrument for the same problem: it
-names the mechanic instead of guessing it from the price. The band is the
-blunt one, and the one that catches a disturbance nobody flagged.
+A narrower trim - `--band 10 90` - cuts only the far tails and keeps most
+of the book, which is the safer first measurement if 30-70 comes out
+worse.
 
 ## `--grace N` - the launch left out by date
 

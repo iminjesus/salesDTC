@@ -931,19 +931,19 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
         if rows:
             miss = 0
             dropped = [0, 0.0]
-            # A line whose realised price is a long way outside the band
-            # is not this product trading - it is a voucher, a staff
-            # order, a bundle allocation or a mistyped list price, and
-            # every one of them drags an ASP down with far more weight
-            # than its volume deserves. The band is read as a share of
-            # the **list price**: 30-70 keeps a line that went out at
-            # 30% to 70% of list and drops the rest.
+            # The middle of each product's own price distribution. A
+            # voucher, a staff order or a bundle allocation sits in the
+            # tail of it, and an ASP is money over units, so one line at
+            # 300 against a 2,999 list cancels several at full price.
             #
             # It is a judgement, not a fact, so it is off by default and
-            # the run says how much of the book it costs. A band that
-            # drops a large share is the wrong band, whatever it does to
-            # the scatter.
+            # the run says what it costs. A 30-70 band keeps the middle
+            # 40% of a product's units by construction, so the drop is
+            # large on purpose - what matters is whether the prices it
+            # keeps predict the month better, which is a --compare
+            # question.
             odd = [0, 0.0]
+            keepin = price_band(rows, *band) if band else {}
             for r in rows:
                 code = PM.code_norm(r['code'])
                 # The export names the model family itself, which the
@@ -961,9 +961,10 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     dropped[0] += 1
                     dropped[1] += r['qty']
                     continue
-                if band and rrp and r['qty'] > 0:
-                    at = r['amt'] / (r['qty'] * rrp)
-                    if not (band[0] <= at <= band[1]):
+                cut = keepin.get(code)
+                if cut and r['qty'] > 0:
+                    at = r['amt'] / r['qty']
+                    if not (cut[0] <= at <= cut[1]):
                         odd[0] += 1
                         odd[1] += r['qty']
                         continue
@@ -1000,10 +1001,11 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                 'with a realised price')
             if band:
                 tot = len(rows) or 1
-                say(f'  price band {band[0] * 100:.0f}-{band[1] * 100:.0f}%'
-                    f' of list: {odd[0]:,} line(s) ({odd[0] / tot * 100:.1f}'
-                    f'%), {odd[1]:,.0f} unit(s) left out of every ASP and '
-                    'every discount')
+                say(f'  price band {band[0] * 100:.0f}-{band[1] * 100:.0f}'
+                    f' of each product\u2019s own prices: {len(keepin):,} '
+                    f'product(s) trimmed, {odd[0]:,} line(s) '
+                    f'({odd[0] / tot * 100:.1f}%), {odd[1]:,.0f} unit(s) '
+                    'left out of every ASP and every discount')
             if dropped[0]:
                 say(f'  {dropped[0]:,} line(s), {dropped[1]:,.0f} unit(s) '
                     'left out: a clearance, secret sale, EOFY or launch '
@@ -1081,10 +1083,52 @@ def band_of(band):
     lo, hi = sorted(float(v) for v in band)
     if hi > 1.5:                       # given in percent, as the help says
         lo, hi = lo / 100.0, hi / 100.0
-    if not (0 <= lo < hi):
-        raise SystemExit(f'--band {band[0]} {band[1]}: LO must be below HI '
-                         'and neither below nought')
+    if not (0 <= lo < hi <= 1.0):
+        raise SystemExit(f'--band {band[0]} {band[1]}: they are percentiles '
+                         'of the product\u2019s own prices, so LO must be '
+                         'below HI and both inside 0-100')
     return lo, hi
+
+
+def price_band(rows, lo: float, hi: float, least: int = 5) -> dict:
+    """`code -> (low, high)` unit price: the lo..hi slice of its own lines.
+
+    A product\u2019s own prices, not its list price. A voucher, a staff
+    order or a bundle allocation sits in the **tail** of that
+    distribution, and an ASP is money over units, so one line at 300
+    against a 2,999 list cancels several at full price. Cutting both
+    tails and averaging what is left is the ordinary way to stop that,
+    and it needs no theory about what the line was - only that it is far
+    from everything else the product did.
+
+    The quantiles are taken over **units**, not over lines: a line of
+    three hundred is three hundred units of evidence and a line of one is
+    one. A product with fewer than `least` lines is not trimmed at all -
+    cutting the middle out of four numbers leaves noise, not a median.
+    """
+    by: dict = {}
+    for r in rows:
+        if r['qty'] > 0 and r['amt'] > 0:
+            by.setdefault(PM.code_norm(r['code']), []).append(
+                (r['amt'] / r['qty'], r['qty']))
+    out: dict = {}
+    for code, got in by.items():
+        if len(got) < least:
+            continue
+        got.sort()
+        tot = sum(q for _, q in got)
+        want_lo, want_hi = tot * lo, tot * hi
+        acc, low, high = 0.0, None, None
+        for price, qty in got:
+            acc += qty
+            if low is None and acc >= want_lo:
+                low = price
+            if acc >= want_hi:
+                high = price
+                break
+        out[code] = (got[0][0] if low is None else low,
+                     got[-1][0] if high is None else high)
+    return out
 
 
 def held_by(levels: dict, keep) -> callable:
