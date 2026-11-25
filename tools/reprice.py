@@ -1810,7 +1810,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         live, _, _ = PM.plan_state(plan, k, day)
         return any(offer_values(c.get('detail') or '') for c in live)
 
-    def disc(camp, day=None):
+    def disc(camp, day=None, live=None):
         """This product under this campaign, then the ways round not having it.
 
         Returns `(kind, value, from_)`. `kind` is 'off' for a discount off
@@ -1860,7 +1860,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         # window under a live offer, and its no-offer price came out
         # dearer on 75% of the book.
         if clean_quiet:
-            live = offered(day) if day is not None else False
+            if live is None:
+                live = offered(day) if day is not None else False
             ask, word = ((hist.onoff, 'an offer live') if live
                          else (hist.bare, 'no offer live'))
             d = ask(('sku', k))
@@ -1957,12 +1958,20 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             camp = campaign_at(plan, canon, k, day)
             if camp:
                 on += 1
-            kind, d, from_ = disc(camp, day)
+            live = offered(day) if clean_quiet else False
+            kind, d, from_ = disc(camp, day, live)
             if d is None:
                 total = None
                 break
-            used[(camp or '(no campaign)', from_)] += 1
-            gave[(camp or '(no campaign)', from_)] = (kind, d)
+            # What the day is called on the row. A day the plan writes no
+            # campaign name on is not therefore a quiet day - it can be
+            # running an offer with money in it and no name, which is how
+            # SM-F971BZWGATS spends the first week of October. Saying
+            # "nothing on" of such a day and then pricing it off days
+            # with an offer live reads as a contradiction, and is not one.
+            tag = camp or ('an unnamed offer' if live else '(no campaign)')
+            used[(tag, from_)] += 1
+            gave[(tag, from_)] = (kind, d)
             w = pull_for(camp)
             wsum += w
             if kind == 'at':
@@ -2007,7 +2016,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                           / len(days)) if clean_quiet else None),
                 'tilt': not flat_days, 'days': len(days),
                 'rows': [(c, f, n, *gave[(c, f)], pull_for(
-                    '' if c == '(no campaign)' else c))
+                    '' if c in ('(no campaign)', 'an unnamed offer')
+                    else c))
                          for (c, f), n in used.most_common()],
             })
             return (price, 'new' if leaned else 'plan' if told else 'rrp',
