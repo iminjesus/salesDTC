@@ -1343,7 +1343,14 @@ def why_one(codes, hist, out, levels, say):
             say(f"    list price {p['rrp']:,.2f}, over the window\u2019s plan "
                 f"lines")
             say(f"    {p['on'] * 100:.0f}% of the month\u2019s days carry a "
-                'campaign')
+                'campaign name')
+            if p.get('bare') is not None:
+                say(f"    {p['bare'] * 100:.0f}% of them carry no live "
+                    'offer, which is what the no-offer rungs ask.')
+                say('    The two differ because a day with no '
+                    'campaign name on it routinely has a\n    '
+                    'launch offer or a standing EPP rule running '
+                    'at full depth')
             say('\n    the month a day at a time. Every day of it is '
                 'priced on its own and the\n    month is their average, '
                 'weighted by how hard each sells:')
@@ -1373,6 +1380,27 @@ def why_one(codes, hist, out, levels, say):
                 f"-> {p['price']:,.2f}")
             say(f"    GSCM {row['gscm']:,.2f} -> {row['price']:,.2f}"
                 f"  ({(row['price'] / row['gscm'] - 1) * 100:+.1f}%)")
+            if any('no offer live' in f or 'no-offer days' in f
+                   for _, f, _, _, _, _ in p['rows']):
+                bare = sorted((ym, t) for (c, ym), t in hist.bmon.items()
+                              if c == k)
+                say('\n    a no-offer rung answered, so the months '
+                    'behind it are the window with the\n    offer '
+                    'days taken out. Beside them, the same months '
+                    'whole:')
+                whole = dict(each)
+                say(f"    {'month':>9}{'clean units':>13}"
+                    f"{'clean ASP':>12}{'all units':>11}"
+                    f"{'window ASP':>12}")
+                for ym, t in bare:
+                    w = whole.get(ym, [0.0, 0.0])
+                    say(f'    {ym:>9}{t[0]:13,.0f}'
+                        f'{(t[1] / t[0] if t[0] else 0):12,.0f}'
+                        f'{w[0]:11,.0f}'
+                        f'{(w[1] / w[0] if w[0] else 0):12,.0f}')
+                if not bare:
+                    say('      none - it answered from a group, not '
+                        'from this product')
             if any(k2 == 'at' for _, _, _, k2, _, _ in p['rows']):
                 say(f"\n    a rung reading `at` is a **price**, not a "
                     'discount, so the list price does not enter it. Where '
@@ -1656,6 +1684,16 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                if col == 'S.COM_Price' and p and p > 0]
         return min(got) if got else None
 
+    def offered(day):
+        """Did the plan have money on the table for this product that day?
+
+        The priced month's own side of the no-offer rung. `campaign_at`
+        answers whether a **name** was in force, which is a different
+        question and worth 1.1 points book-wide.
+        """
+        live, _, _ = PM.plan_state(plan, k, day)
+        return any(offer_values(c.get('detail') or '') for c in live)
+
     def disc(camp, day=None):
         """This product under this campaign, then the ways round not having it.
 
@@ -1841,6 +1879,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             BREAKDOWN.append({
                 'code': k, 'model': 'rrp', 'rrp': rrp, 'shift': shift,
                 'b2b': b2b, 'price': price, 'on': on / len(days),
+                'bare': ((sum(0 if offered(d) else 1 for d in days)
+                          / len(days)) if clean_quiet else None),
                 'tilt': not flat_days, 'days': len(days),
                 'rows': [(c, f, n, *gave[(c, f)], pull_for(
                     '' if c == '(no campaign)' else c))
