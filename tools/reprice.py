@@ -943,8 +943,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             # keeps predict the month better, which is a --compare
             # question.
             odd = [0, 0.0]
-            keepin = price_band(rows, *band) if band else {}
-            for r in rows:
+            trimmed = price_band(rows, *band) if band else set()
+            for i, r in enumerate(rows):
                 code = PM.code_norm(r['code'])
                 # The export names the model family itself, which the
                 # product master does not, and it is the level a thin
@@ -961,13 +961,10 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     dropped[0] += 1
                     dropped[1] += r['qty']
                     continue
-                cut = keepin.get(code)
-                if cut and r['qty'] > 0:
-                    at = r['amt'] / r['qty']
-                    if not (cut[0] <= at <= cut[1]):
-                        odd[0] += 1
-                        odd[1] += r['qty']
-                        continue
+                if i in trimmed:
+                    odd[0] += 1
+                    odd[1] += r['qty']
+                    continue
                 if not rrp:
                     miss += 1
                 h.add(code, levels.get(code, {}), camp,
@@ -1002,8 +999,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             if band:
                 tot = len(rows) or 1
                 say(f'  price band {band[0] * 100:.0f}-{band[1] * 100:.0f}'
-                    f' of each product\u2019s own prices: {len(keepin):,} '
-                    f'product(s) trimmed, {odd[0]:,} line(s) '
+                    f' of each product\u2019s own prices, by rank: '
+                    f'{odd[0]:,} line(s) '
                     f'({odd[0] / tot * 100:.1f}%), {odd[1]:,.0f} unit(s) '
                     'left out of every ASP and every discount')
             if dropped[0]:
@@ -1090,44 +1087,60 @@ def band_of(band):
     return lo, hi
 
 
-def price_band(rows, lo: float, hi: float, least: int = 5) -> dict:
-    """`code -> (low, high)` unit price: the lo..hi slice of its own lines.
+def price_band(rows, lo: float, hi: float, least: int = 5) -> set:
+    """The indices of `rows` to leave out: each product\u2019s cheapest and
+    dearest slice.
 
-    A product\u2019s own prices, not its list price. A voucher, a staff
-    order or a bundle allocation sits in the **tail** of that
-    distribution, and an ASP is money over units, so one line at 300
-    against a 2,999 list cancels several at full price. Cutting both
-    tails and averaging what is left is the ordinary way to stop that,
-    and it needs no theory about what the line was - only that it is far
-    from everything else the product did.
+    A voucher, a staff order or a bundle allocation sits in the **tail**
+    of a product\u2019s own price distribution. An ASP is money over units,
+    so one line at 300 against a 2,999 list cancels several at full
+    price, and the average it produces is not a price the product ever
+    sold at. Cutting the tails and averaging what is left needs no theory
+    about what the line was - only that it is far from everything else
+    the product did.
 
-    The quantiles are taken over **units**, not over lines: a line of
-    three hundred is three hundred units of evidence and a line of one is
-    one. A product with fewer than `least` lines is not trimmed at all -
-    cutting the middle out of four numbers leaves noise, not a median.
+    **Trimmed by rank, not by value**, and the difference is not small. A
+    product that sold 7 of its 25 lines at exactly 1,635.909 has its 30th
+    and its 40th percentile both land *on* that price, so a band that
+    keeps everything from the 30th percentile upwards keeps all seven -
+    asked to drop the cheapest 30%, it drops 8%. By rank the cheapest 30%
+    of units go whatever they cost, and a tie at the boundary is split
+    rather than kept whole.
+
+    Units, not lines: a line of three hundred is three hundred units of
+    evidence and a line of one is one. A product with fewer than `least`
+    lines is not trimmed at all - cutting the middle out of four numbers
+    leaves noise, not a median - and no product is ever trimmed to
+    nothing.
     """
     by: dict = {}
-    for r in rows:
+    for i, r in enumerate(rows):
         if r['qty'] > 0 and r['amt'] > 0:
             by.setdefault(PM.code_norm(r['code']), []).append(
-                (r['amt'] / r['qty'], r['qty']))
-    out: dict = {}
-    for code, got in by.items():
+                (r['amt'] / r['qty'], r['qty'], i))
+    out: set = set()
+    for got in by.values():
         if len(got) < least:
             continue
         got.sort()
-        tot = sum(q for _, q in got)
-        want_lo, want_hi = tot * lo, tot * hi
-        acc, low, high = 0.0, None, None
-        for price, qty in got:
-            acc += qty
-            if low is None and acc >= want_lo:
-                low = price
-            if acc >= want_hi:
-                high = price
+        tot = sum(q for _, q, _ in got)
+        drop_lo, drop_hi = tot * lo, tot * (1.0 - hi)
+        gone = set()
+        acc = 0.0
+        for _, qty, i in got:                      # the cheap end
+            if acc >= drop_lo:
                 break
-        out[code] = (got[0][0] if low is None else low,
-                     got[-1][0] if high is None else high)
+            gone.add(i)
+            acc += qty
+        acc = 0.0
+        for _, qty, i in reversed(got):            # the dear end
+            if acc >= drop_hi:
+                break
+            gone.add(i)
+            acc += qty
+        if len(gone) >= len(got):                  # never trim to nothing
+            continue
+        out |= gone
     return out
 
 

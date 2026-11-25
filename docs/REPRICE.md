@@ -1100,11 +1100,11 @@ direction claimed.
 is the cost, and whether it outweighs the gain is a `--compare` question,
 not another diagnostic.
 
-## `--band LO HI` - the middle of each product's own prices
+## `--band LO HI` - trim each product's own price tails
 
 ```
-py tools\reprice.py --month 2611 --band 30 70
-py tools\price_spread.py --month 2611 --by div1 --compare rrp rrp+band=30:70
+py tools\reprice.py --month 2611 --band 40 100
+py tools\price_spread.py --month 2611 --by div1 --compare rrp rrp+band=40:100
 ```
 
 A voucher, a staff order or a bundle allocation sits in the **tail** of a
@@ -1112,37 +1112,69 @@ product's own price distribution. An ASP is money over units, so one line
 at 300 against a 2,999 list cancels several at full price, and the
 average it produces is not a price the product ever sold at.
 
-`--band 30 70` keeps a line only where its unit price falls between the
-30th and 70th percentile of **that product's own prices**, and leaves the
-rest out of **every** tally the history keeps: the six-month ASP, the
-clean and offer ASPs, and every discount rung at every level.
+`--band LO HI` drops each product's cheapest `LO`% of units and its
+dearest `100-HI`% , and leaves them out of **every** tally the history
+keeps: the six-month ASP, the clean and offer ASPs, and every discount
+rung at every level. Nothing is assumed about what the odd line was - no
+list price, no voucher flag, no theory about the mechanic, only that it
+is far from everything else the product did.
 
-Nothing is assumed about what the odd line was. It needs no list price,
-no voucher flag and no theory about the mechanic - only that the line is
-far from everything else the product did.
+**`HI` of 100 cuts nothing off the top**, which is usually what is
+wanted: the dear tail is full-price trading and is not noise.
 
-Two details that matter:
+### Trimmed by rank, not by value
 
-- **The quantiles are over units, not lines.** A line of three hundred is
-  three hundred units of evidence and a line of one is one.
-- **A product with fewer than five lines is not trimmed at all.** Cutting
-  the middle out of four numbers leaves noise, not a median.
+The difference is not small. One real product sold 7 of its 25 lines at
+exactly 1,635.909. Its 30th *and* its 40th percentile both land **on**
+that price, so a band that keeps everything from the 30th percentile
+upwards keeps all seven - asked to drop the cheapest 30%, it drops 8%.
+
+By rank the cheapest 30% of units go whatever they cost, and a tie at the
+boundary is split rather than kept whole:
+
+| band | lines kept | ASP | dropped |
+|---|---|---|---|
+| none | 25/25 | 2,137.9 | |
+| 20-100 | 20/25 | 2,324.5 | 845, 1204, 1636 x3 |
+| 30-100 | 17/25 | 2,446.0 | 845, 1204, 1636 x6 |
+| 40-100 | 15/25 | 2,554.0 | 845, 1204, 1636 x8 |
+
+Two more details:
+
+- **Units, not lines.** A line of three hundred is three hundred units of
+  evidence and a line of one is one.
+- **A product with fewer than five lines is not trimmed at all**, and no
+  product is ever trimmed to nothing. Cutting the middle out of four
+  numbers leaves noise, not a median.
 
 The run says what it costs:
 
 ```
-  price band 30-70 of each product's own prices: N product(s) trimmed,
-  N line(s) (N.N%), N unit(s) left out of every ASP and every discount
+  price band 30-100 of each product's own prices, by rank: N line(s)
+  (N.N%), N unit(s) left out of every ASP and every discount
 ```
 
-A 30-70 band keeps the middle 40% of a product's units **by
-construction**, so a large drop is the design and not a warning. What it
-has to earn is in `--compare`: do the prices it keeps predict the month
-better than the prices it threw away. Off by default until that is read.
+### What a band costs when it is too deep
 
-A narrower trim - `--band 10 90` - cuts only the far tails and keeps most
-of the book, which is the safer first measurement if 30-70 comes out
-worse.
+November, by Div 1, measured with the **value-based** trim this replaced
+- the direction holds but the figures need re-reading by rank:
+
+| div1 | units | GSCM sd | rrp sd | band 10:90 | band 30:70 |
+|---|---|---|---|---|---|
+| MX | 19,652 | 78 | 97 | **84** | 120 |
+| DA | 2,539 | 253 | 108 | **102** | 101 |
+| VD | 5,424 | 450 | 435 | **433** | 434 |
+| all | 27,615 | 243 | 212 | **207** | 222 |
+
+A shallow trim improved both the level and the scatter in every
+division, and took the book below the sheet (207 against 243). A 30:70
+trim centred the level almost perfectly (-62 to -2) and made the
+**scatter worse** (212 to 222), because keeping only the middle 40% of
+units starves the `MIN_UNITS` gates: 18 materials fell off the `rrp` rung
+onto `plan`. A level can be moved afterwards and a shape cannot, so the
+deep trim loses.
+
+Off by default until both months are read by rank.
 
 ## `--grace N` - the launch left out by date
 
