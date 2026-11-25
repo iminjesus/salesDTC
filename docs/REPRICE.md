@@ -816,27 +816,38 @@ py tools\reprice.py --offers SM-F971BZWGATS      one product's own lines
 ```
 
 ```
-  offer                                           lines   SKUs   quoted   a campaign it runs under
-  Pre-order bonus: $500 credit + double storage        2      2    16.0%   FF8 Pre-order
-  EPP T2 tier - 10% off                                2      2    10.0%   -
-  $200 instant discount                                1      1     6.7%   Samsung Week
-
-          from          to   quoted  campaign        offer
-    2026-08-01  2026-08-20    16.7%  FF8 Pre-order   Pre-order bonus: $500 credit + double storage
-    2026-08-01  2026-10-31    10.0%  -               EPP T2 tier - 10% off
-    2026-09-10  2026-09-24     6.7%  Samsung Week    $200 instant discount
+          from          to  quoted  campaign        what the words say      offer
+    2026-07-16  2026-08-05       -  FF8 Pre-Order   S.COM: $150 or $150     [S.COM] Fold8 $150 Trade-in Bonus OR $150 Si
+    2026-07-16  2026-08-05       -  FF8 Pre-Order   EPP: 25%                [EPP] Fold8 Save 25%
+    2026-07-16  2026-08-05       -  FF8 Pre-Order   S.COM: $150             [S.COM] $150 back with PayPal
+    2026-09-24  2026-10-07   10.0%  -               S.COM: $300; EPP: $200  [S.COM] Save $300 [EPP] Save $200 on Z Fold8
 ```
 
 `quoted` is the plan's own depth - its store price against its list price -
-on the lines that carry both. It reads the plan and nothing else: no
-history, no pricing, so it is quick.
+on the lines that carry both, and it is often blank: the pre-order lines
+above quote no price at all. **What the words say** is read out of the
+detail instead - every dollar and every percentage in it, tagged by the
+channel the text tags them with:
 
-**What it is for.** If a launch month's lines carry a pre-order offer *and*
-a tier offer with separate depths, then the launch part can be added back
-to recover an ordinary price, and the window does not have to be thrown
-away. If every line of the product's window is the one offer, there is no
-ordinary price to recover and `--drop-launch-months` or `kept` is the
-honest answer.
+```
+[S.COM] Fold8 $150 Trade-in Bonus OR $150 Site   ->  S.COM: $150 or $150
+[EPP] Fold8 Save 25%                             ->  EPP: 25%
+[S.COM] Save $300 [EPP] Save $200 on Z Fold8     ->  S.COM: $300; EPP: $200
+```
+
+One line can carry two offers for two channels, and both are read. Nothing
+is inferred about **which** of several amounts applied - `$150 Trade-in
+Bonus OR $150 Site` is one or the other and the words say so - so they are
+all returned and the caller decides. A tool that silently picked one would
+be making up the discount it is supposed to be reading.
+
+**What it is for.** If a launch period's offers can be told apart from the
+offers that run anyway, the launch part can be added back to recover an
+ordinary price and the window does not have to be thrown away. The Fold8
+above is the test case: four offers across its pre-order, against one
+ordinary offer in late September, and a trade-in bonus among them - which
+is not a price discount at all, because the customer handed over a phone
+for it.
 
 The plan's **campaign flag** cannot size it either way: book-wide, a day
 the plan calls a campaign is only **1.1 points** deeper than a day it does

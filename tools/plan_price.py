@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rawdata import (MONTHS, find, parse_number,                   # noqa: E402
-                     pick_file, pick_series, read_any)
+                     norm_stem, pick_file, pick_series, read_any)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -212,12 +212,31 @@ def pick_month(folder: Path, stem: str = 'gscm', ym: int | None = None,
     have = {}
     for path in files:
         for m in months_in(path):
-            have.setdefault(m, path)
+            # A sheet whose name says this month answers for it ahead of one
+            # that merely carries a column for it: GSCM_Nov holds all twelve
+            # months of the year plan, and October belongs to GSCM_Oct.
+            named = MONTHS[(m % 100) - 1].lower() in norm_stem(path.stem)
+            if m not in have or (named and not have[m][1]):
+                have[m] = (path, named)
+    have = {m: f for m, (f, _) in have.items()}
     if not have:
         say(f'  no {stem}_* file has a month column: '
             + ', '.join(p.name for p in files))
         return None, None
     if ym is None:
+        # The file name says which month it is for, and it is right where
+        # "the newest column" is not: GSCM_Nov carries all twelve months of
+        # the year plan, so the newest is December and the lowest is
+        # January, and the month being traded is in the name.
+        named = [(m, f) for m, f in have.items()
+                 if MONTHS[(m % 100) - 1].lower() in norm_stem(f.stem)]
+        if named:
+            ym = max(m for m, _ in named)
+            if len(have) > 1:
+                say(f'  {have[ym].name} prices {len(have)} month(s); its '
+                    f'name says {MONTHS[(ym % 100) - 1]}, so that is the one. '
+                    '--month picks another')
+            return have[ym], ym
         ym = max(have)
         if len(have) > 1:
             say(f'  {len(have)} month(s) priced in {len(files)} sheet(s): '

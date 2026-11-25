@@ -44,6 +44,7 @@ import argparse
 import calendar
 import collections
 import csv
+import re
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -2127,6 +2128,53 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     return out
 
 
+OFFER_TAG = re.compile(r'\[([A-Z.\s]{2,10})\]')
+OFFER_PCT = re.compile(r'(\d{1,2}(?:\.\d+)?)\s*%')
+OFFER_AUD = re.compile(r'\$\s?([\d,]+(?:\.\d+)?)')
+
+
+def offer_values(detail: str) -> dict:
+    """{channel: [what the words say it is worth]} out of one Offer_Detail.
+
+    The plan writes the offer in words, tagged by the channel it is for:
+
+        [S.COM] Fold8 $150 Trade-in Bonus OR $150 Site
+        [EPP] Fold8 Save 25%
+        [S.COM] Save $300 [EPP] Save $200 on Z Fold8
+
+    So one line can carry two offers for two channels, and the amounts are
+    plain - dollars or a percentage. Reading them is the only way to size
+    what a launch gave away *over* what the channel gives anyway, which the
+    campaign flag cannot do: book-wide a campaign day is 1.1 points deeper
+    than a quiet one, because the quiet days are under the standing rules
+    at the same depth.
+
+    Nothing is inferred about which of several amounts applied - `$150
+    Trade-in Bonus OR $150 Site` is one or the other and the words say so.
+    They are all returned and the caller decides; a tool that silently
+    picked one would be making up the discount it is supposed to be
+    reading.
+    """
+    out: dict = {}
+    if not detail:
+        return out
+    marks = [(m.start(), m.group(1).strip()) for m in OFFER_TAG.finditer(detail)]
+    spans = []
+    if marks:
+        for i, (at, tag) in enumerate(marks):
+            end = marks[i + 1][0] if i + 1 < len(marks) else len(detail)
+            spans.append((tag, detail[at:end]))
+    else:
+        spans = [('(untagged)', detail)]
+    for tag, text in spans:
+        got = out.setdefault(tag, [])
+        for m in OFFER_PCT.finditer(text):
+            got.append(('pct', float(m.group(1))))
+        for m in OFFER_AUD.finditer(text):
+            got.append(('aud', float(m.group(1).replace(',', ''))))
+    return {k: v for k, v in out.items() if v}
+
+
 def offer_report(plan, codes=(), say=print, top: int = 40) -> None:
     """What the plan’s `Offer_Detail` column says, and what it is worth.
 
@@ -2171,13 +2219,19 @@ def offer_report(plan, codes=(), say=print, top: int = 40) -> None:
 
     if codes:
         say(f"    {'from':>10}{'to':>12}  {'quoted':>7}  "
-            f"{'campaign':<26}offer")
+            f"{'campaign':<22}{'what the words say':<26}offer")
         for r in sorted(rows, key=lambda r: (r['start'] or date.min)):
             d = depth(r)
             camp = ' / '.join(x for x in (r.get('camp') or []) if x) or '-'
+            vals = offer_values(r.get('detail') or '')
+            worth = '; '.join(
+                f'{t}: ' + ' or '.join(f'{v:,.0f}%' if k == 'pct'
+                                       else f'${v:,.0f}' for k, v in got)
+                for t, got in vals.items()) or '-'
             say(f"    {str(r['start'] or '-'):>10}{str(r['end'] or '-'):>12}"
                 + (f'{d * 100:>8.1f}%' if d is not None else f"{'-':>9}")
-                + f"  {camp[:25]:<26}{(r.get('detail') or '-')[:46]}")
+                + f"  {camp[:21]:<22}{worth[:25]:<26}"
+                + (r.get('detail') or '-')[:44])
         return
 
     by: dict = {}
