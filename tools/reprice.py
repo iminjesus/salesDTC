@@ -2175,6 +2175,77 @@ def offer_values(detail: str) -> dict:
     return {k: v for k, v in out.items() if v}
 
 
+def offer_months(plan, code, rrp, sold, months, say=print) -> None:
+    """Do the offers in words account for the discount that was realised?
+
+    This is the check that has to pass before the words can be used to
+    price anything. For each month of the window: the money-off offers the
+    plan had live for this product, added up and read against its list
+    price, beside **what the product actually came off list that month**.
+
+    If the two track, the offer text is a measurement and a launch\u2019s
+    share of a discount can be added back to recover an ordinary price. If
+    they do not, the text is a description and the add-back would be an
+    invention.
+
+    Added up, because offers stack: a site credit and a PayPal rebate in
+    the same fortnight are both money off. A trade-in **bonus** is money
+    off too - it is Samsung\u2019s, not the customer\u2019s - which is not the
+    same thing as the traded phone\u2019s own value, and only the latter is
+    outside a price.
+
+    Where one offer names two amounts as alternatives - `$150 Trade-in
+    Bonus OR $150 Site` - the larger is taken and the row says `or`, since
+    which of them a customer took is not in the file.
+    """
+    want = {PM.code_norm(code)}
+    lines = [r for r in plan.rows
+             if PM.code_norm(r.get('code') or '') in want]
+    if not lines:
+        say('  the plan has no line for it')
+        return
+    say(f"\n    {'month':>7}{'offers':>8}{'in words':>11}{'realised':>10}"
+        f"{'gap':>8}   the offers live that month")
+    for m in months:
+        a, b = month_days(m)[0], month_days(m)[-1]
+        live = [r for r in lines
+                if (not r.get('start') or r['start'] <= b)
+                and (not r.get('end') or r['end'] >= a)]
+        worth, alt, names = 0.0, False, []
+        for r in live:
+            for tag, got in offer_values(r.get('detail') or '').items():
+                auds = [v for k, v in got if k == 'aud']
+                pcts = [v for k, v in got if k == 'pct']
+                here = 0.0
+                if auds:
+                    here = max(auds)
+                    alt = alt or len(auds) > 1
+                if pcts and rrp:
+                    here = max(here, max(pcts) / 100.0 * rrp)
+                    alt = alt or (len(pcts) > 1 or bool(auds))
+                worth += here
+                if here:
+                    names.append(f'{tag} {here:,.0f}')
+        q, amt = sold.get(m, (0.0, 0.0))
+        real = (1 - amt / (q * rrp)) * 100 if q > 0 and rrp else None
+        words = (worth / rrp * 100) if rrp else None
+        gap = (real - words) if (real is not None and words is not None) else None
+        say(f'    {m:>7}{len(live):>8}'
+            + (f'{words:>10.1f}%' if words is not None else f"{'-':>11}")
+            + (f'{real:>9.1f}%' if real is not None else f"{'-':>10}")
+            + (f'{gap:>7.1f}%' if gap is not None else f"{'-':>8}")
+            + ('  ' if not alt else ' ~')
+            + ', '.join(names[:4])[:48])
+    say('    ~ an offer named two amounts as alternatives; the larger is '
+        'taken')
+    say('\n    gap = what the words do not account for: the channel\u2019s '
+        'standing pricing,\n    which the plan does not write down. '
+        '**Steady across the months and the\n    offer text is a '
+        'measurement** - the launch\u2019s own share can be added back and '
+        'an\n    ordinary price recovered. Erratic and it is a '
+        'description, and the add-back\n    would be an invention.')
+
+
 def offer_report(plan, codes=(), say=print, top: int = 40) -> None:
     """What the plan’s `Offer_Detail` column says, and what it is worth.
 
@@ -2485,6 +2556,25 @@ def main() -> int:
         if not getattr(plan, 'rows', None):
             raise SystemExit('no promotion plan to read')
         offer_report(plan, args.offers, say=say)
+        # With a code, the check that decides whether the words can price
+        # anything: the offers added up against what the product actually
+        # came off list, month by month.
+        if args.offers:
+            months = months_back(full, args.back)
+            rows = DTC.read(folder, set(months), say=lambda *a: None)
+            for code in args.offers:
+                k = PM.code_norm(code)
+                sold = {}
+                for r in rows:
+                    if PM.code_norm(r['code']) != k or r['qty'] <= 0:
+                        continue
+                    t = sold.setdefault(r.get('ym'), [0.0, 0.0])
+                    t[0] += r['qty']
+                    t[1] += r['amt']
+                rrp = rrp_of(plan, code)
+                say(f'\n  {code}: list {rrp:,.0f}' if rrp
+                    else f'\n  {code}: no list price in the plan')
+                offer_months(plan, code, rrp, sold, months, say=say)
         return 0
 
     out = reprice(folder, full, args.back, args.plan, explain=args.explain,

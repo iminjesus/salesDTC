@@ -841,13 +841,37 @@ Bonus OR $150 Site` is one or the other and the words say so - so they are
 all returned and the caller decides. A tool that silently picked one would
 be making up the discount it is supposed to be reading.
 
-**What it is for.** If a launch period's offers can be told apart from the
-offers that run anyway, the launch part can be added back to recover an
-ordinary price and the window does not have to be thrown away. The Fold8
-above is the test case: four offers across its pre-order, against one
-ordinary offer in late September, and a trade-in bonus among them - which
-is not a price discount at all, because the customer handed over a phone
-for it.
+### Do the words account for the discount?
+
+With a code, `--offers` then asks the question that decides whether any of
+this can price anything: the offers added up, month by month, against what
+the product **actually** came off list.
+
+```
+      month  offers   in words  realised     gap   the offers live that month
+     202607       3      35.0%         -       - ~S.COM 150, S.COM 150, EPP 750
+     202608       3      35.0%     50.0%   15.0% ~S.COM 150, S.COM 150, EPP 750
+     202609       1      16.7%     46.0%   29.3%  S.COM 300, EPP 200
+     202610       1      16.7%     42.1%   25.5%  S.COM 300, EPP 200
+     202611       0       0.0%     40.0%   40.0%
+```
+
+`gap` is what the words do not account for - the channel's standing
+pricing, which the plan does not write down. **Steady across the months and
+the offer text is a measurement**: the launch's own share can be added back
+and an ordinary price recovered. Erratic, and the text is a description and
+the add-back would be an invention.
+
+Offers are **added up**, because they stack: a site credit and a PayPal
+rebate in the same fortnight are both money off, and both stop when the
+pre-order does. A trade-in **bonus** is money off too - it is Samsung's,
+not the customer's. What is outside a price is the traded phone's own
+value, which is a different thing and is already outside the revenue the
+discount is measured from.
+
+Where one offer names two amounts as alternatives - `$150 Trade-in Bonus OR
+$150 Site` - the larger is taken and the row is marked `~`, since which a
+customer took is not in the file.
 
 The plan's **campaign flag** cannot size it either way: book-wide, a day
 the plan calls a campaign is only **1.1 points** deeper than a day it does
