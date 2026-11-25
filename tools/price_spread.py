@@ -337,6 +337,9 @@ def split_entry(entry: str, shared: dict):
             over['floor'] = float(val) / 100.0
         elif key == 'ceil':
             over['ceil'] = float(val) / 100.0
+        elif key in ('trimin', 'trim-in'):
+            over['trim_in'] = tuple(v.strip() for v in val.split(',')
+                                    if v.strip())
         elif key in ('novouch', 'drop-voucher'):
             over['no_vouch'] = tuple(v.strip() for v in val.split(',')
                                      if v.strip())
@@ -346,7 +349,8 @@ def split_entry(entry: str, shared: dict):
         else:
             raise SystemExit(f'--compare {entry}: no setting called {key!r} '
                              '(keep, scope, drop-launch, clean, grace, '
-                             'band, nodeals, novouch, floor, ceil)')
+                             'band, nodeals, novouch, floor, ceil, '
+                             'trimin)')
     return name, over
 
 
@@ -466,6 +470,10 @@ def main() -> int:
                     action='store_true',
                     help='passed to the re-price: drop a window month that '
                          'carried a launch or a pre-order for the product')
+    ap.add_argument('--trim-in', dest='trim_in', nargs='+', default=(),
+                    metavar='NAME',
+                    help='passed to the re-price: apply --floor and '
+                         '--ceil to these groups only')
     ap.add_argument('--ceil', type=float, default=None, metavar='PCT',
                     help='passed to the re-price: leave out every line '
                          'more than PCT%% above what the product fetches '
@@ -526,7 +534,8 @@ def main() -> int:
               'band': __import__('reprice').band_of(args.band),
               'no_deals': args.no_deals, 'no_vouch': args.no_vouch,
               'floor': (args.floor / 100.0 if args.floor else None),
-              'ceil': (args.ceil / 100.0 if args.ceil else None)}
+              'ceil': (args.ceil / 100.0 if args.ceil else None),
+              'trim_in': args.trim_in}
     if args.scope:
         shared['scope'] = args.scope
 

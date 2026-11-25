@@ -897,7 +897,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  by_units: bool = True, skip=None,
                  clean_quiet: bool = False, drop_day=None,
                  band=None, no_deals: bool = False,
-                 no_vouch=(), floor=None, ceil=None) -> History:
+                 no_vouch=(), floor=None, ceil=None,
+                 trim_in=None) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -954,7 +955,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             gift = [0, 0.0]
             want_v = {str(v).strip().upper() for v in no_vouch or ()
                       if str(v).strip()}
-            deep = deep_cut(rows, floor or 0.0, ceil or 0.0)
+            deep = deep_cut(rows, floor or 0.0, ceil or 0.0,
+                            only=trim_in)
             for i, r in enumerate(rows):
                 code = PM.code_norm(r['code'])
                 # The export names the model family itself, which the
@@ -1034,6 +1036,9 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     f'voucher-free: {len(deep):,} line(s) '
                     f'({len(deep) / tot * 100:.1f}%) left out of every ASP '
                     'and every discount')
+                if trim_in is not None and not deep:
+                    say('  nothing was trimmed - no line matched the '
+                        'group(s) given to --trim-in')
                 # And what they were. The point of a floor is that it
                 # needs no list - nobody can hunt a book of 1,500
                 # products for the odd mechanic by hand - so the list
@@ -1271,7 +1276,7 @@ def voucher_report(rows, say=print, top: int = 25, least: int = 20) -> None:
 
 
 def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
-             least: int = MIN_UNITS) -> set:
+             least: int = MIN_UNITS, only=None) -> set:
     """Indices of lines far below what the product fetches voucher-free.
 
     The answer to "not every voucher disturbs a price, but some do" that
@@ -1290,6 +1295,12 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
     regardless; and the cut is in the units of the problem - "more than
     30% under its own price" - rather than in a rank that happens to land
     somewhere useful.
+
+    `only` narrows it to one or more groups. The trim is not equally
+    good everywhere - across October and November MX improved on both
+    months while DA and VD each improved on one and lost on the other -
+    and a tool that can only apply a rule to the whole book has to take
+    the average of those.
 
     `ceil` is the same cut at the other end, and it is not symmetry for
     its own sake. A floor only ever pushes a price **up**: it removes
@@ -1316,6 +1327,8 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
     out: set = set()
     for i, r in enumerate(rows):
         if r['qty'] <= 0:
+            continue
+        if only is not None and not only(r['code']):
             continue
         p = own.get(PM.code_norm(r['code']))
         if not p:
@@ -1399,21 +1412,38 @@ def price_band(rows, lo: float, hi: float, least: int = 5) -> set:
     return out
 
 
-def held_by(levels: dict, keep) -> callable:
-    """A test for "is this material in a group that keeps its sheet price".
+def held_by(levels: dict, keep, planned=None) -> callable:
+    """A test for "is this material in one of these groups".
 
-    Matched against every level a product has a name at, so one flag covers
-    `--keep MX` (a Biz), `--keep REF` (a Div 3) and a range alike, and the
-    caller does not have to say which kind of name it is giving.
+    Matched against every level a product has a name at, so one flag
+    covers `MX` (a Biz or a Div 1), `REF` (a Div 3) and a range alike,
+    and the caller does not have to say which kind of name it is giving.
+
+    **The GSCM sheet's own chain is a fallback.** The product master does
+    not know every code the plan prices, and where it does not, the
+    material had no group name at all here - so `--keep MX` matched
+    nothing, held nothing, and produced a column identical to the one
+    beside it while looking as though it had done the work. The sheet
+    carries Biz / Div 1 / Div 2 / Div 3 on its own rows and that is
+    enough to answer the question. It is used for this test only; the
+    pricing ladder still reads `levels`, so nothing about how a product
+    is priced changes.
     """
     hold = {str(n).strip().upper() for n in keep or () if str(n).strip()}
     if not hold:
         return lambda code: False
+    chain: dict = {}
+    for code, it in ((planned or {}).get('items') or {}).items():
+        got = [str(v or '').strip().upper() for v in (it.get('chain') or ())]
+        if any(got):
+            chain[PM.code_norm(code)] = got
 
     def is_held(code):
-        lv = levels.get(PM.code_norm(code)) or {}
-        return any((lv.get(n) or '').strip().upper() in hold
-                   for n in HOLD_AT)
+        k = PM.code_norm(code)
+        lv = levels.get(k) or {}
+        if any((lv.get(n) or '').strip().upper() in hold for n in HOLD_AT):
+            return True
+        return any(v in hold for v in chain.get(k, ()))
     return is_held
 
 
@@ -2430,7 +2460,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             clean_quiet: bool = False,
             grace: int | None = None, band=None,
             no_deals: bool = False, no_vouch=(),
-            floor=None, ceil=None) -> dict:
+            floor=None, ceil=None, trim_in=()) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -2556,7 +2586,9 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                         pooled=pooled, by_units=by_units, skip=skip,
                         clean_quiet=clean_quiet, drop_day=drop_day,
                         band=band, no_deals=no_deals,
-                        no_vouch=no_vouch, floor=floor, ceil=ceil)
+                        no_vouch=no_vouch, floor=floor, ceil=ceil,
+                        trim_in=(held_by(levels, trim_in, planned)
+                                 if trim_in else None))
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -2669,7 +2701,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     # and the model more than halved its deviation. The model earns its
     # place where the sheet is stale and not where it is not.
     hold = {str(n).strip().upper() for n in keep if str(n).strip()}
-    is_held = held_by(levels, keep)
+    is_held = held_by(levels, keep, planned)
     held = 0
 
     out = {}
@@ -3563,6 +3595,14 @@ def main() -> int:
                          'whichever voucher did it or none. One number, '
                          'no list to keep, and a product with nothing odd '
                          'in it loses nothing')
+    ap.add_argument('--trim-in', dest='trim_in', nargs='+', default=(),
+                    metavar='NAME',
+                    help='apply --floor and --ceil to these groups only, '
+                         'e.g. --trim-in MX. Matched at any level the '
+                         'product has a name at. The trim is not equally '
+                         'good everywhere: MX gained on both months '
+                         'measured, DA and VD each gained on one and lost '
+                         'on the other')
     ap.add_argument('--ceil', type=float, default=None, metavar='PCT',
                     help='the other end of --floor: leave out every line '
                          'more than PCT%% ABOVE what the product fetches '
@@ -3774,7 +3814,8 @@ def main() -> int:
                   band=band_of(args.band), no_deals=args.no_deals,
                   no_vouch=args.no_vouch,
                   floor=(args.floor / 100.0 if args.floor else None),
-                  ceil=(args.ceil / 100.0 if args.ceil else None))
+                  ceil=(args.ceil / 100.0 if args.ceil else None),
+                  trim_in=args.trim_in)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)

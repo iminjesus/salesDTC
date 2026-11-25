@@ -1406,8 +1406,44 @@ spread.
 
 **DA pays for it**: 108 to 128, on 2,539 units, while its level goes
 -27 to +3. A floor alone was DA's best reading at 92, which says its
-dear tail is real trading and not noise. Not acted on separately -
-one division, one month.
+dear tail is real trading and not noise.
+
+### October, and why `--trim-in`
+
+| div1 | units | GSCM sd | rrp sd | floor 30 | floor 30 + ceil 20 | floor 20 + ceil 20 |
+|---|---|---|---|---|---|---|
+| MX | 10,532 | 110 | 159 | 153 | **155** | 156 |
+| VD | 3,082 | 159 | 137 | 142 | 141 | **133** |
+| DA | 2,006 | 238 | 111 | 111 | **109** | 110 |
+| all | 15,620 | 145 | 150 | **148** | 149 | 149 |
+
+A point on the book, where November gave five. But two things hold
+across both months:
+
+**MX improves on both** - 159 to 155, and 97 to 77 - and it is the
+largest division in each. DA and VD each improve on one month and lose
+on the other.
+
+**The level stops moving.** Untrimmed it reads -34 in October and -62 in
+November, a swing of 28; trimmed it reads -49 and -52, a swing of 3.
+That matters more than the point of scatter, because *a level can be
+moved afterwards* is only true of a level that stays still. There is no
+constant that corrects -34 and -62. There is one that corrects -49 and
+-52.
+
+Since the gain is MX's in both months and the other two divisions
+disagree with themselves, `--trim-in MX` applies the trim to MX alone:
+
+```
+py tools\price_spread.py --month 2611 --by div1 \
+    --compare rrp rrp+floor=30+ceil=20 rrp+floor=30+ceil=20+trimin=MX
+```
+
+Matched at any level the product has a name at, and - like `--keep` -
+it now falls back to the **GSCM sheet's own chain** where the product
+master does not know the code. That fallback is a fix: `--keep MX`
+previously matched nothing, held nothing, and printed a column
+identical to the one beside it while looking as though it had worked.
  This
 is `--band` asked differently: the band trims by **rank**, a fixed share
 of every product whether or not anything is wrong with it, while these
