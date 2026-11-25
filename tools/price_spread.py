@@ -329,9 +329,11 @@ def split_entry(entry: str, shared: dict):
             over['drop_launch'] = True
         elif key in ('clean', 'clean-quiet', 'clean_quiet'):
             over['clean_quiet'] = True
+        elif key == 'grace':
+            over['grace'] = int(val)
         else:
             raise SystemExit(f'--compare {entry}: no setting called {key!r} '
-                             '(keep, scope, drop-launch, clean)')
+                             '(keep, scope, drop-launch, clean, grace)')
     return name, over
 
 
@@ -451,6 +453,9 @@ def main() -> int:
                     action='store_true',
                     help='passed to the re-price: drop a window month that '
                          'carried a launch or a pre-order for the product')
+    ap.add_argument('--grace', type=int, default=None, metavar='N',
+                    help='passed to the re-price: leave the launch out by '
+                         'date, its written end pushed out N days')
     ap.add_argument('--clean-quiet', dest='clean_quiet',
                     action='store_true',
                     help='passed to the re-price: a quiet day is one with '
@@ -483,7 +488,7 @@ def main() -> int:
 
     shared = {'by_units': args.by_units, 'keep': args.keep,
               'drop_launch': args.drop_launch,
-              'clean_quiet': args.clean_quiet}
+              'clean_quiet': args.clean_quiet, 'grace': args.grace}
     if args.scope:
         shared['scope'] = args.scope
 

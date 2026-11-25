@@ -1100,6 +1100,47 @@ direction claimed.
 is the cost, and whether it outweighs the gain is a `--compare` question,
 not another diagnostic.
 
+## `--grace N` - the launch left out by date
+
+**There is no launch price in these files.** The plan writes a campaign
+name, a start and an end, and on a pre-order line usually no price at all
+- `SM-F971BZWGATS`'s pre-order lines quote nothing. So a rule that leaves
+a launch out has only its **dates** to work with, and this uses nothing
+else.
+
+`skip` already drops the days the plan names a launch on. What it cannot
+do is notice that the plan stops writing the offer before the price moves:
+
+| | units | realised | off a 2,999 list |
+|---|---|---|---|
+| FF8 Pre-Order, 16 Jul - 5 Aug | - | 1,529 | 48.9% |
+| **6 - 31 August** | **200** | **1,538** | **48.7%** |
+| September | 29 | 2,072 | 30.9% |
+
+On the plan's own dates those 200 August units are an ordinary month. They
+are not - they are the same depth as the pre-order - and they outweigh
+September seven to one, which is how October came out at 1,605 against a
+sheet price of 2,060.
+
+`--grace N` pushes the written end out by N days:
+
+```
+py tools\reprice.py --month 2610 --clean-quiet --grace 30
+py tools\price_spread.py --month 2610 --by div1 \
+    --compare rrp+clean rrp+clean+grace=15 rrp+clean+grace=30 rrp+clean+grace=45
+```
+
+It is finer than `--drop-launch-months`, which throws the whole month a
+launch touched and loses the ordinary days with it.
+
+**N is a fitted number and nothing else.** No file carries a fact that
+sets it, so it is off by default and the way to choose it is to measure
+several in one table, not to argue for one. A grace that is too long
+throws away real trading; one that is too short leaves the launch in.
+
+A product whose priced month is launching too keeps its launch days: there
+the launch is the thing being forecast, not the thing being removed.
+
 ## `--clean-quiet` - a quiet day is a day with no offer on it
 
 This is the measurement above, wired into the model.

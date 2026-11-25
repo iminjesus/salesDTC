@@ -836,11 +836,50 @@ class History:
                 (1 - b[0] / b[1]) - (1 - c[0] / c[1]))
 
 
+def launch_span(plan, grace: int = 0,
+                kinds=('launch', 'pre-order')) -> dict:
+    """`code -> {days inside a launch}`, its written end pushed out by `grace`.
+
+    There is **no launch price** anywhere in these files. The promotion
+    plan writes a campaign name, a start and an end, and - on a pre-order
+    line - usually no price at all. So a rule that wants to leave a launch
+    out has only its dates to go on, and that is all this uses.
+
+    The dates alone are not quite enough, and the gap is the point of
+    `grace`. `SM-F971BZWGATS` ran FF8 Pre-Order from 16 July to 5 August.
+    The plan stops there; the realised price does not. August 6th to 31st
+    came in at 1,538 against a 2,999 list - 48.7% off, where the pre-order
+    itself realised 48.9% - and September at 2,072, 30.9% off. On the
+    plan's own dates those 200 August units are an ordinary month, and
+    they outweigh September's 29 by seven to one.
+
+    `grace` is how many days past the written end the launch is treated as
+    still running. It is a **fitted number and nothing else** - the files
+    carry no fact that sets it - so it is off by default and the way to
+    choose it is to measure several, not to reason about one.
+    """
+    out: dict = {}
+    for r in plan.rows:
+        name = ' '.join(x for x in (r.get('camp') or ()) if x).lower()
+        if not any(w in name for w in kinds):
+            continue
+        a, b = r.get('start'), r.get('end')
+        if not a or not b or b < a:
+            continue
+        b += timedelta(days=max(0, grace))
+        days = out.setdefault(PM.code_norm(r.get('code') or ''), set())
+        d = a
+        while d <= b:
+            days.add(d)
+            d += timedelta(days=1)
+    return out
+
+
 def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  say=print, half: float = 0.0, source: str = 'auto',
                  want_days: bool = True, pooled: bool = False,
                  by_units: bool = True, skip=None,
-                 clean_quiet: bool = False) -> History:
+                 clean_quiet: bool = False, drop_day=None) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -886,7 +925,9 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                                                            r['range'])
                 rrp = r['rrp'] or rrp_of(plan, r['code'])
                 camp = campaign_at(plan, canon, code, r['day'])
-                if skip is not None and skip(code, camp, r.get('ym')):
+                if (skip is not None and skip(code, camp, r.get('ym'))) \
+                        or (drop_day is not None and r['day'] is not None
+                            and r['day'] in drop_day.get(code, ())):
                     dropped[0] += 1
                     dropped[1] += r['qty']
                     continue
@@ -914,6 +955,9 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                         # product traded, or its coverage would count a
                         # window the discount tally never saw.
                         if skip is not None and skip(code, camp, m):
+                            continue
+                        if drop_day is not None and d in drop_day.get(code,
+                                                                      ()):
                             continue
                         h.saw(code, lv, camp)
             say(f'  {len(rows):,} DTC line(s); {len(h.skus):,} product(s) '
@@ -1972,7 +2016,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             promo_first: bool = True, actual: bool = False,
             new_from: str = 'sheet', keep=(),
             drop_launch: bool = False,
-            clean_quiet: bool = False) -> dict:
+            clean_quiet: bool = False,
+            grace: int | None = None) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -2034,6 +2079,23 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             got = special_kinds(camp)
             return bool(got) and not (got & keep.get(code, frozenset()))
 
+    # The launch, by date. `skip` above drops the days the plan names a
+    # launch on; this pushes that end out by `grace` days, because the
+    # plan stops writing the offer before the price moves. Only for
+    # products the priced month is not launching itself - for those the
+    # launch is the thing being forecast.
+    drop_day = None
+    if grace is not None:
+        lspan = launch_span(plan, grace)
+        hot = {'launch', 'pre-order'}
+        drop_day = ({c: d for c, d in lspan.items()
+                     if not (keep.get(c, frozenset()) & hot)}
+                    if clearance else lspan)
+        n = sum(len(d) for d in drop_day.values())
+        say(f'  the launch left out by date, its written end pushed out '
+            f'{grace} day(s): {len(drop_day):,} product(s), {n:,} '
+            'product-day(s)')
+
     months = months_back(ym, back)
     # A launch does not end where the plan stops naming it. A product in
     # its pre-order sells at the pre-order price on the days the plan calls
@@ -2079,7 +2141,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     hist = read_history(folder, plan, canon, months, levels, say=say,
                         half=decay, source=source, want_days=True,
                         pooled=pooled, by_units=by_units, skip=skip,
-                        clean_quiet=clean_quiet)
+                        clean_quiet=clean_quiet, drop_day=drop_day)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -3051,6 +3113,11 @@ def main() -> int:
                     help=f'units a product needs before its own discount is '
                          f'read rather than its range\u2019s (default '
                          f'{MIN_UNITS})')
+    ap.add_argument('--grace', type=int, default=None, metavar='N',
+                    help='leave the launch out by date, with its written '
+                         'end pushed out N days - the plan stops writing '
+                         'the offer before the price moves. Off by '
+                         'default; N is fitted, so measure several')
     ap.add_argument('--clean-quiet', dest='clean_quiet',
                     action='store_true',
                     help='a quiet day is one with no live offer in the '
@@ -3217,7 +3284,7 @@ def main() -> int:
                   model=args.model, actual=not args.no_actual,
                   new_from=args.new_from, keep=args.keep,
                   drop_launch=args.drop_launch,
-                  clean_quiet=args.clean_quiet)
+                  clean_quiet=args.clean_quiet, grace=args.grace)
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)
