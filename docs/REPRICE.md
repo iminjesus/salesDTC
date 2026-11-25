@@ -1197,15 +1197,35 @@ reads the launch under another name. `bare()` is safe per product for
 exactly the reason the old one was not - those days are excluded now,
 because the offer was live on them.
 
-### Measured on October and November, and not adopted
+### Measured on October and November; off until a like-for-like run
 
-**It does not beat the model it replaces.** Both months were re-priced
-with it and scored against what they sold at, by Div 3 and by Div 1, and
-it is not an improvement. It stays behind the flag, off, and nothing uses
-it.
+Both months were re-priced with it and scored against what they sold at.
+Read by Div 3 on MX, it is an improvement - October's model sum came in
+at **+1,240** against the sheet's **-9,562**, and MX's scatter is better
+than it was. It is **not** adopted yet, for one reason: those pivots take
+one vote per material, and every figure this model has been judged on
+elsewhere is unit-weighted. The same MX month reads 103 one way and 159
+the other, so the two cannot be compared and the size of the change is
+still unmeasured.
 
-That is the fifth attempt in one family to fail, and the family is worth
-naming because the next idea will look like a sixth:
+```
+py tools\price_spread.py --month 2610 --by div3 --compare rrp rrp+clean
+py tools\price_spread.py --month 2611 --by div3 --compare rrp rrp+clean
+```
+
+That run puts before and after in one table on one statistic, and it is
+what should decide the default. Until it has been read, the flag stays
+off - not because the idea failed, but because nothing yet says by how
+much it worked.
+
+What is measured either way: the sheet still has the lower scatter on MX
+in both months, the model has much the better level in October and the
+sheet in November, and that **level sign flips between the months** while
+the scatter ranking does not.
+
+It is the fifth attempt in one family, and the family is worth naming
+because the next idea will look like a sixth. The first four failed
+outright:
 
 | attempt | reading |
 |---|---|
@@ -1213,18 +1233,17 @@ naming because the next idea will look like a sixth:
 | by the window the name declares | 74.3% |
 | by family, with the dates stripped | 81.4% |
 | `Offer_Detail` added back to the ASP | gap moves 29 points, p25 negative |
-| `Offer_Detail` splitting the day, both sides read | no improvement |
+| `Offer_Detail` splitting the day, both sides read | **unresolved** - better on MX by one reading, unmeasured like-for-like |
 
-Every one of them asks the plan **what kind of day this was** and prices
-off days of the same kind. The measurements say, five times over, that
-the answer carries almost nothing the product's own recent ASP does not
-already carry. The offer text is real - the no-offer price is dearer on
-75% of the book, and that is measured - but what it separates is already
-in the average by the time a month is priced.
+The first four all ask the plan **what kind of day this was** and price
+off days of the same kind, and all four found the answer carries almost
+nothing the product's own recent ASP does not already carry. The fifth
+asks the same question and is the only one that has not yet failed - the
+offer text is real, the no-offer price is dearer on 75% of the book, and
+whether that survives into a price is the open question.
 
-The diagnostics stay (`--clean`, `--offers`), because they are the
-cheapest way to re-test this if a file ever arrives with take-up in it.
-The rungs stay off.
+The diagnostics stay either way (`--clean`, `--offers`): they are the
+cheapest way to re-test any of this.
 
 A history built without the flag behaves as it always did: `History.add`
 falls back to the campaign column when no `bare` is supplied.
