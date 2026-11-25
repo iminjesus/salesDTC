@@ -1219,12 +1219,34 @@ throws the first away to catch the second.
 py tools\reprice.py --month 2611 --vouchers
 ```
 
+The codes are **not** arbitrary, which is what makes this tractable at
+all. One product's window reads
+
 ```
-  N voucher code(s) over N unit(s)
-    code                            units  off list  under its own clean price
-    SITE50                            100     47.7%                      21.5%
-    STAFF-HALF                         40     66.7%                      50.0%
+    FF8F-ERGE-8TYB-EL1B    1,635.909
+    FF8R-T2TL-T162-AALL    1,635.909
+    FF8C-17SB-3B8B-RBT1    2,115.264
+    LS-FOLD8               2,817.273
 ```
+
+and the depth goes with the **stem**, not with the code. So the report
+leads with the stems - a handful of them, where there are thousands of
+codes - and that is the unit a standing rule can be written in:
+
+```
+  10 voucher stem(s) over 26 unit(s)
+                              units  off list  under its own clean price
+    FF8F                          7     47.5%                      33.5%
+    LS                            5     10.4%                     -13.5%
+    FF8C                          4     21.3%                       0.4%
+    UNFOLD2026                    3     25.7%                       5.8%
+    FF8R                          2     45.5%                      30.9%
+```
+
+`FF8F` and `FF8R` come in a third under what those products fetch
+voucher-free; `FF8C`, `LS` and `UNFOLD2026` are within a few points and
+belong in the average. Dropping the two deep stems takes that product's
+window ASP from 2,138 to 2,447.
 
 Each code is read two ways. Against the **list price**, which says how
 deep the line went; and against **what the same products fetched on
@@ -1251,8 +1273,33 @@ named by its stem without listing every suffix the site minted.
 
 This needs the export's `Voucher Code(s)` column, which the reader now
 keeps as text rather than only as a yes/no. If `--vouchers` says no line
-carries a code, the column is empty or absent and only `--band` can
-reach the problem.
+carries a code, the column is empty or absent and only `--band` or
+`--floor` can reach the problem.
+
+### `--floor PCT` - deep is deep, whoever did it
+
+A stem list is a standing rule and cheap to keep, but it only catches
+what carries a code. The 845 line in that same window carries none.
+
+`--floor 30` drops every line more than 30% below what its product
+fetches on its **own voucher-free lines** - whichever voucher did it, or
+none:
+
+```
+py tools\reprice.py --month 2611 --floor 30
+py tools\price_spread.py --month 2611 --by div1 \
+    --compare rrp rrp+novouch=FF8F,FF8R rrp+floor=30 rrp+band=40:95
+```
+
+Two properties `--band` does not have. **A product with nothing odd in
+it loses nothing**, where a 40:95 band throws away its cheapest 40%
+regardless. And the cut is in the units of the problem - "more than 30%
+under its own price" - rather than a rank that happens to land somewhere
+useful.
+
+A product whose voucher-free lines come to fewer than `MIN_UNITS` has no
+reliable base and is left alone: its odd lines may be the only lines it
+has.
 
 ## `--grace N` - the launch left out by date
 
