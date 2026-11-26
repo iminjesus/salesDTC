@@ -104,10 +104,18 @@ def read(folder: Path, months=None, say=print, keep=None) -> list:
     `months` is a set of YYYYMM; None takes everything. `keep` is an optional
     test on the row, for narrowing to a portal group or a channel.
 
-    A cancelled line is dropped, and so is one that nets to nothing or less:
-    a cancelled order was not a sale and a nil line has no price to read. The
-    run says how many each was, because a filter nobody can see is a filter
-    nobody can check.
+    A cancelled line is dropped, and so is a **negative** one: a cancelled
+    order was not a sale and a credit has no price to read.
+
+    A line at **nil revenue is kept**. It is a gift with purchase - the CE
+    plan names them `Gift with Purchase` and `GWP music studio` - and the
+    unit left the warehouse and counts against the plan. Dropping them made
+    every realised ASP the average of the units that were paid for, which
+    is neither the month's price nor what the plan is scored against. They
+    are counted separately in the run's tally so the share is visible.
+
+    The run says how many each was, because a filter nobody can see is a
+    filter nobody can check.
     """
     out = []
     seen = collections.Counter()
@@ -144,9 +152,18 @@ def read(folder: Path, months=None, say=print, keep=None) -> list:
                 continue
             qty = parse_number(cell(r, at['qty'])) or 0.0
             amt = parse_number(cell(r, at['amt'])) or 0.0
-            if qty <= 0 or amt <= 0:
+            if qty <= 0 or amt < 0:
                 seen['nil'] += 1
                 continue
+            if amt == 0:
+                # Kept, not dropped. A line of one unit at nil revenue is
+                # a **gift with purchase** - November's CE plan names them
+                # `Gift with Purchase` / `GWP music studio` - and those
+                # units left the warehouse and were counted against the
+                # plan. Dropping them made the realised ASP the average
+                # of the units that were paid for, which is not the
+                # month's price and not what the plan is measured against.
+                seen['free'] += 1
             row = {
                 'code': str(cell(r, at['code'])).strip(),
                 'qty': qty, 'amt': amt,
@@ -184,6 +201,9 @@ def read(folder: Path, months=None, say=print, keep=None) -> list:
     for k in ('cancelled', 'nil', 'filtered'):
         if seen[k]:
             say(f'  {seen[k]:,} line(s) {k}')
+    if seen['free']:
+        say(f"  {seen['free']:,} line(s) at nil revenue, kept: a unit given "
+            'away is still a unit the plan counted')
     return out
 
 

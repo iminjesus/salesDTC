@@ -1242,7 +1242,8 @@ def voucher_report(rows, say=print, top: int = 25, least: int = 20) -> None:
 
     base: dict = {}
     for r in rows:
-        if r['qty'] <= 0 or r.get('vouch') or r.get('trade'):
+        if (r['qty'] <= 0 or r['amt'] <= 0
+                or r.get('vouch') or r.get('trade')):
             continue
         t = base.setdefault(PM.code_norm(r['code']), [0.0, 0.0])
         t[0] += r['qty']
@@ -1353,7 +1354,11 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
         return set()
     base: dict = {}
     for r in rows:
-        if r['qty'] > 0 and not r.get('vouch') and not r.get('trade'):
+        # `amt > 0`: a gift with purchase goes out at nil and is kept in
+        # every ASP, but it is not a price and must not help set the one
+        # that "far below its own price" is measured against.
+        if (r['qty'] > 0 and r['amt'] > 0
+                and not r.get('vouch') and not r.get('trade')):
             t = base.setdefault(PM.code_norm(r['code']), [0.0, 0.0])
             t[0] += r['qty']
             t[1] += r['amt']
@@ -1362,6 +1367,13 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
     out: set = set()
     for i, r in enumerate(rows):
         if r['qty'] <= 0:
+            continue
+        # A nil-revenue line is 100% under its own price and would be
+        # caught by any floor at all - but it is a gift with purchase,
+        # kept on purpose, and the day split puts it on the offer side
+        # where it belongs. The floor is for prices nobody can account
+        # for; this one is accounted for.
+        if r['amt'] <= 0:
             continue
         if only is not None and not only(r['code']):
             continue
@@ -2928,6 +2940,13 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     return out
 
 
+# A gift with purchase puts no money in the words - `GWP music studio`
+# has no dollar and no percentage - but it is the deepest offer there is:
+# the unit goes out at nil. Without this a GWP day reads as a quiet day
+# and its free units land on the clean side of the split, which is the
+# one place they do the most harm.
+GIFT = re.compile(r'\bgwp\b|gift\s*with\s*purchase|free\s*gift'
+                  r'|bonus\s*gift', re.I)
 OFFER_TAG = re.compile(r'\[([A-Z.\s]{2,10})\]')
 OFFER_PCT = re.compile(r'(\d{1,2}(?:\.\d+)?)\s*%')
 OFFER_AUD = re.compile(r'\$\s?([\d,]+(?:\.\d+)?)')
@@ -3186,6 +3205,17 @@ def tag_key(tag: str) -> str:
     return re.sub(r'[^A-Z0-9]', '', (tag or '').upper())
 
 
+def is_gift(r) -> bool:
+    """Does this plan line give the product away?
+
+    Read off `Offer_Type` and `Offer_Detail` together: November's CE plan
+    writes `Gift with Purchase` in the first and `GWP music studio` in
+    the second, and neither carries an amount for `offer_values` to find.
+    """
+    return bool(GIFT.search(f"{r.get('type') or ''} "
+                            f"{r.get('detail') or ''}"))
+
+
 def offer_live(lines, chans=()):
     """`code -> (days for every channel, {channel: days})`.
 
@@ -3218,6 +3248,12 @@ def offer_live(lines, chans=()):
         every, by = set(), {}
         for r in mine:
             got = offer_values(r.get('detail') or '')
+            if not got and is_gift(r):
+                # No amount in the words, and the deepest offer there is.
+                # Untagged, so it marks every channel - which is the
+                # conservative reading and the right one here, since a
+                # gift is not tied to how the buyer paid.
+                got = {'(gift)': []}
             if not got:
                 continue
             a, b = r.get('start'), r.get('end')
