@@ -57,10 +57,15 @@ def columns(head: list[str], ym: int) -> dict:
     """Where the month's figures are, by the month's own name in the header.
 
     The sheet holds three months side by side and names each column after its
-    month, so October is read out of the Oct columns and nothing else. The
-    quantity column is spelled `Oct Targer Qty` in the file as it came; both
-    spellings are accepted rather than one of them being corrected in a copy
-    of the data, which would leave two files to keep.
+    month, so October is read out of the Oct columns and nothing else.
+
+    The quantity column is spelled `Oct Targer Qty` in one file as it came
+    and plainly `Sep Qty` in another; every spelling is accepted rather
+    than one of them being corrected in a copy of the data, which would
+    leave two files to keep. `find` matches exactly once case, spaces and
+    punctuation are taken out, so a spelling that is not listed here is
+    simply not found - and a missing quantity column is silent, because
+    the month is readable without one.
     """
     m = MONTHS[(ym % 100) - 1]
     up = m.upper()
@@ -71,7 +76,7 @@ def columns(head: list[str], ym: int) -> dict:
         'usd': find(head, f'{m} Price(USD)', f'{m} Price (USD)',
                     f'{up} PRICE(USD)'),
         'qty': find(head, f'{m} Targer Qty', f'{m} Target Qty',
-                    f'{m} Tgt Qty'),
+                    f'{m} Tgt Qty', f'{m} Qty', f'{up} QTY'),
         'amt_aud': find(head, f'{up}(AUD)', f'{m}(AUD)',
                         f'{m} Target Amt(AUD)'),
         'amt_usd': find(head, f'{up}(USD)', f'{m}(USD)',
@@ -105,6 +110,15 @@ def read_plan(path: Path, ym: int, say=print) -> dict | None:
     ch = {name: find(head, *names) for name, names in CHAIN}
     acc = find(head, *ACCOUNT)
     derived = at['aud'] is None or at['usd'] is None
+    if at['qty'] is None and at['amt_aud'] is None:
+        # Not fatal - the month is readable from its price column alone -
+        # but everything downstream that weighs a material by how much of
+        # it the plan expects reads nought instead, and says nothing. The
+        # planned-quantity total, and the B2B share each material is
+        # priced at, both come from here.
+        say(f'  {path.name}: no {m} quantity column, so planned units are '
+            'nought - the header has '
+            + ', '.join(h for h in head if h)[:120])
 
     items: dict = {}
     rows = 0
