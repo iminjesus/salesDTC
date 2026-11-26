@@ -1408,6 +1408,34 @@ spread.
 -27 to +3. A floor alone was DA's best reading at 92, which says its
 dear tail is real trading and not noise.
 
+### The two halves only work together
+
+Neither the day split nor the trim is worth much alone, and November
+says why. All four on the same month, by Div 1:
+
+| div1 | units | GSCM | `rrp` | `floor=30+ceil=20` | `clean` | **`clean+floor=30+ceil=20`** |
+|---|---|---|---|---|---|---|
+| MX | 19,652 | 78 | 97 | 77 | 81 | **74** |
+| DA | 2,539 | 253 | 108 | 128 | 134 | **83** |
+| VD | 5,424 | 450 | 435 | 433 | 440 | 436 |
+| all | 27,615 | 243 | 212 | 207 | 213 | **206** |
+
+**DA is the proof.** 108 at the baseline; 128 with the trim alone; 134
+with the day split alone; **83 with both** - each ingredient makes it
+worse and the pair makes it far better. That is an interaction, not an
+average of two effects, and it is the mechanism this whole section was
+built on: splitting the days is useless while the **clean side is the
+polluted one**.
+
+`SM-F971BZWGATS` is the same thing at product scale. Its August clean
+ASP reads 1,538 with the day split alone - FF8-stemmed vouchers sitting
+on days the plan calls quiet - and **1,776** once the trim takes them
+out. The launch was never the only problem; the vouchers underneath it
+were.
+
+**MX comes in at 74 against the sheet's 78**, on 71% of the month's
+units, in the division the model had lost in every month measured.
+
 ### October, and why `--trim-in`
 
 | div1 | units | GSCM sd | rrp sd | floor 30 | floor 30 + ceil 20 | floor 20 + ceil 20 |
