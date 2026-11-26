@@ -315,6 +315,15 @@ class History:
         # Which products sit in each group, so a group can be asked for the
         # average of its members rather than the average of its units.
         self.members: dict = collections.defaultdict(set)
+        # `code -> {days the plan gives this product away}`, over the
+        # window and the month being priced alike: one pass over the
+        # plan answers both, and the month being priced is the one that
+        # cannot be read off the export.
+        self.gift_days: dict = {}
+        # What a gift day fetches - mostly nil, but not always: a
+        # product given away on Tuesday is often still sold on Tuesday.
+        self.gq: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
+        self.gs: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
         self._lent: dict = {}
         self._gap: dict = {}
         # For the simple model: the same money split three ways at group
@@ -333,7 +342,7 @@ class History:
         return 0.5 ** (max(0, age) / self.half)
 
     def add(self, code, level, camp, qty, amt, rrp, day=None, chan=None,
-            deal=False, ym=None, bare=None):
+            deal=False, ym=None, bare=None, gift=False):
         """`bare` is True where no offer was live that day.
 
         It is read off the plan's `Offer_Detail` windows, not off its
@@ -377,7 +386,7 @@ class History:
         self.skus[code][0] += qty * w
         self.skus[code][1] += amt * w
         self.skus[code][2] += qty
-        side = self.bs if bare else self.os
+        side = self.gs if gift else (self.bs if bare else self.os)
         side[code][0] += qty * w
         side[code][1] += amt * w
         side[code][2] += qty
@@ -425,7 +434,8 @@ class History:
             for c in (chan, ''):
                 if c is None:
                     continue
-                t = (self.bq if bare else self.oq)[(scope, c)]
+                t = (self.gq if gift
+                     else (self.bq if bare else self.oq))[(scope, c)]
                 t[0] += amt * w
                 t[1] += qty * rrp * w
                 t[2] += qty
@@ -540,6 +550,25 @@ class History:
         each = [t[1] / t[0] for (c, _), t in self.smon.items()
                 if c == code and t[0] >= MIN_UNITS and t[1] > 0]
         return sum(each) / len(each) if len(each) >= MIN_MONTHS else a / q
+
+    def given(self, scope, chan=''):
+        """What this bucket comes off list on days it is **given away**.
+
+        A gift with purchase is not an offer like the others and must
+        not share their bucket. `LS51H` ran a GWP for most of November
+        and realised 14 against a 208 plan; priced off its ordinary
+        offer days it came out at 86. Mostly nil, but not always - a
+        product given away on Tuesday is often still sold on Tuesday -
+        so the share that went free is read rather than assumed.
+        """
+        t = self.gq.get((scope, chan))
+        if not t or t[2] < MIN_UNITS or t[1] <= 0:
+            return None
+        return max(0.0, 1.0 - t[0] / t[1])
+
+    def gift_asp(self, code):
+        """The product's ASP over its gift days, one month one vote."""
+        return self._vote(self.gs, {}, code)
 
     def onoff(self, scope, chan=''):
         """What this bucket comes off list on days an offer WAS live.
@@ -939,10 +968,12 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             for r in plan.rows:
                 mine.setdefault(PM.code_norm(r.get('code') or ''),
                                 []).append(r)
-            live = offer_live(mine,
-                              {chan_key(r) for r in rows if r['qty'] > 0},
-                              {r['code'] for r in rows}, say=say,
-                              named=plan_names(plan))
+            live, h.gift_days = offer_live(
+                mine,
+                {chan_key(r) for r in rows if r['qty'] > 0},
+                {r['code'] for r in rows}
+                | {r.get('code') for r in plan.rows if r.get('code')},
+                say=say, named=plan_names(plan))
         if rows:
             miss = 0
             dropped = [0, 0.0]
@@ -1028,6 +1059,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                       # needed only to say whether a gift will run in the
                       # month being priced; for the window it already
                       # happened and the export shows it.
+                      gift=(clean_quiet
+                            and r['day'] in h.gift_days.get(code, ())),
                       bare=((r['day'] is not None and r['amt'] > 0
                              and not offer_on(live, code, r['day'],
                                               chan_key(r)))
@@ -2328,6 +2361,31 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         # window answers neither: the median product sold 67% of its
         # window under a live offer, and its no-offer price came out
         # dearer on 75% of the book.
+        # A day the plan gives this product away. Not an offer like the
+        # others: the unit leaves at nil, and the only question is what
+        # share of the day's units were gifts rather than sales.
+        #
+        # LS51H ran a GWP from 2 to 25 November and realised 14 against
+        # a 208 plan. Priced off its ordinary offer days it came out at
+        # 86 - the window had no gift day for it to read, so the model
+        # had no way to know it was being given away. The plan says so,
+        # by date, and that is the whole of what is needed.
+        if clean_quiet and day is not None \
+                and day in (hist.gift_days.get(k) or ()):
+            d = hist.given(('sku', k))
+            if d is not None:
+                return 'off', d, 'this product, days it is given away'
+            for sc, name in ladder[:deep]:
+                if sc[1] is None:
+                    continue
+                d = hist.given(sc)
+                if d is not None:
+                    return 'off', d, f'{name}, days it is given away'
+            # Nothing in the window has ever been given away, so there
+            # is no share to read. A gift is nil by definition, and nil
+            # is a far better answer than the ordinary price: it is the
+            # one thing the plan states outright.
+            return 'off', 1.0, 'the plan gives it away, and nothing in the window has'
         if clean_quiet:
             if live is None:
                 live = offered(day) if day is not None else False
@@ -3317,6 +3375,7 @@ def offer_live(lines, chans=(), codes=(), say=None, named=None):
         return days
 
     out: dict = {}
+    free: dict = {}
 
     def mark(code, days, tag=None):
         every, by = out.setdefault(code, (set(), {}))
@@ -3326,7 +3385,7 @@ def offer_live(lines, chans=(), codes=(), say=None, named=None):
         else:
             by.setdefault(k, set()).update(days)
 
-    gifts = [0, 0, 0]
+    gifts = [0, 0, 0, 0]
     for code, mine in lines.items():
         out.setdefault(code, (set(), {}))
         for r in mine:
@@ -3353,23 +3412,37 @@ def offer_live(lines, chans=(), codes=(), say=None, named=None):
                 # plan's own product descriptions.
                 ph = gift_phrase(r.get('detail') or '')
                 if len(ph) >= 6:
-                    hit = [c for d, cs in named.items() if ph in d
-                           for c in cs if c in sold]
-                    if hit:
+                    maybe = {c for d, cs in named.items() if ph in d
+                             for c in cs if c in sold}
+                    # **One product or none.** `Music Studio` is a family
+                    # and not a model - LS50H, LS51H, LS70H and LS71H are
+                    # all described that way - so a phrase that matches
+                    # several says only which family was given away, not
+                    # which member. Marking all of them gave LS50H and
+                    # LS70H gift days they never had. An ambiguous name
+                    # is no name.
+                    if len(maybe) == 1:
+                        hit = list(maybe)
                         gifts[2] += 1
+                    elif maybe:
+                        gifts[3] += 1
             for c in hit:
                 mark(c, days)
+                free.setdefault(c, set()).update(days)
     if say and gifts[0]:
-        lost = gifts[0] - gifts[1] - gifts[2]
+        lost = gifts[0] - gifts[1] - gifts[2] - gifts[3]
         say(f'  {gifts[0]:,} gift-with-purchase line(s) in the plan: '
             f'{gifts[1]:,} resolved by the model in the brackets, '
             f'{gifts[2]:,} by what the gift is called')
+        if gifts[3]:
+            say(f'  {gifts[3]:,} name a family rather than a model - '
+                'several products answer to it, so none is marked')
         if lost:
             say(f'  {lost:,} resolved to nothing that sold. Their free '
                 'units are still read off the export - a nil-revenue\n'
                 '  line is never a quiet day - so only the priced '
                 'month\u2019s forecast misses them')
-    return out
+    return out, free
 
 
 def offer_on(live, code, day, chan: str) -> bool:
@@ -3455,8 +3528,8 @@ def clean_days(plan, rows, months, say=print) -> None:
         lines.setdefault(PM.code_norm(r.get('code') or ''), []).append(r)
     chans = {chan_key(r) for r in rows if r['qty'] > 0}
     offer_tags(plan, chans, say=say)
-    live = offer_live(lines, chans, {r['code'] for r in rows}, say=say,
-                      named=plan_names(plan))
+    live, _free = offer_live(lines, chans, {r['code'] for r in rows},
+                             say=say, named=plan_names(plan))
 
     span = set()
     for m in months:

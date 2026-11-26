@@ -1081,6 +1081,45 @@ two routes, tried in order:
   priced month's forecast misses them
 ```
 
+### A gift day is its own rung
+
+A gift is not an offer like the others and must not share their bucket.
+`HW-LS51H/XY` ran a GWP from 2 to 25 November and realised **14**
+against a 208 plan; priced off its ordinary offer days it came out at
+**86**, because the window held no gift day for it to read and the
+model had no way to know it was being given away.
+
+So a day the plan gives the product away is answered from days it was
+given away:
+
+1. **this product's own gift days** - mostly nil, but not always, since
+   a product given away on Tuesday is often still sold on Tuesday, and
+   the share that went free is read rather than assumed
+2. **its group's gift days**, up the ladder as far as `--scope`
+3. **nil** - nothing in the window has ever been given away, so there is
+   no share to read. A gift is nil by definition, and nil is a far
+   better answer than the ordinary price: it is the one thing the plan
+   states outright.
+
+The existing 95% cap on any one day's discount catches rung 3, so a
+full gift day prices at 5% of list rather than at nothing. On LS51H
+that is 208 x 0.05 = **10.40** against a realised **14**.
+
+### An ambiguous name is no name
+
+`Music Studio` is a **family**, not a model: LS50H, LS51H, LS70H and
+LS71H are all described that way. A phrase that matches several says
+only which family was given away, and marking all of them gave LS50H
+and LS70H gift days they never had. So the name route resolves to one
+product or to none, and the run counts the ambiguous ones separately:
+
+```
+  N name a family rather than a model - several products answer to it,
+  so none is marked
+```
+
+The brackets are unaffected: `(LS51H)` names one model and marks one.
+
 ### For the window, the export already says it
 
 Neither route is needed to read the **past**. A line at nil revenue is a
