@@ -578,6 +578,17 @@ class History:
             return None
         return max(0.0, 1.0 - t[0] / t[1])
 
+    # Unit-weighted, and deliberately, where `asp` takes one month one
+    # vote. The vote exists because a product sells most when it is
+    # cheapest, so a pooled window leans on its own cheap months - but
+    # that bias is in the *pollution*, and `--floor` removes the
+    # pollution rather than averaging around it. On
+    # SM-F971BZWGATS the floor took August's clean ASP from 1,538 to
+    # 1,776; weighting that corrected August by its real volume is the
+    # right answer, and voting it down a second time would correct the
+    # same thing twice. Pooled 1,834 against a voted 1,937 on that
+    # product, and the pooled one is the one kept.
+
     def offer_asp(self, code):
         """The product's ASP over its offer days, one month one vote.
 
