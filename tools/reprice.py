@@ -939,8 +939,9 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             for r in plan.rows:
                 mine.setdefault(PM.code_norm(r.get('code') or ''),
                                 []).append(r)
-            live = offer_live(mine, {chan_key(r) for r in rows
-                                     if r['qty'] > 0})
+            live = offer_live(mine,
+                              {chan_key(r) for r in rows if r['qty'] > 0},
+                              {r['code'] for r in rows}, say=say)
         if rows:
             miss = 0
             dropped = [0, 0.0]
@@ -3216,7 +3217,37 @@ def is_gift(r) -> bool:
                             f"{r.get('detail') or ''}"))
 
 
-def offer_live(lines, chans=()):
+GIFT_MODEL = re.compile(r'\(([^)]*)\)')
+
+
+def gift_models(detail: str) -> list:
+    """The models a GWP line gives away, named inside its own text.
+
+    `GWP-Music Studio(LS51H)` is a line on the **buying** product - an
+    MRA soundbar, say - and LS51H is what the customer is given. The
+    plan has no row for the gift; the only place it is named is in
+    these brackets.
+
+    So the days this line discounts are not the days of the product it
+    sits on. The buyer's price does not move at all; the gift's does,
+    all the way to nil. Attributing the line to its own row marks the
+    wrong product.
+
+    Only bracketed tokens that look like a model are taken - letters and
+    digits together, four characters or more - so `(AUD)` and `(2 pack)`
+    are left alone.
+    """
+    out = []
+    for inside in GIFT_MODEL.findall(detail or ''):
+        for bit in re.split(r'[,;/+&]| or ', inside):
+            t = re.sub(r'[^A-Za-z0-9]', '', bit).upper()
+            if len(t) >= 4 and any(c.isdigit() for c in t) \
+                    and any(c.isalpha() for c in t):
+                out.append(t)
+    return out
+
+
+def offer_live(lines, chans=(), codes=(), say=None):
     """`code -> (days for every channel, {channel: days})`.
 
     Only lines whose `Offer_Detail` carries an amount count. A line that
@@ -3238,39 +3269,62 @@ def offer_live(lines, chans=()):
     must never quietly turn a promoted day into a clean one.
     """
     chans = {c for c in chans if c}
+    sold = {PM.code_norm(c) for c in codes if c}
 
     def known(tag):
         k = tag_key(tag)
         return k if k and any(k in c for c in chans) else None
 
+    def span(r):
+        a, b = r.get('start'), r.get('end')
+        if not a or not b or b < a:
+            return None
+        days, d = set(), a
+        while d <= b:
+            days.add(d)
+            d += timedelta(days=1)
+        return days
+
     out: dict = {}
+
+    def mark(code, days, tag=None):
+        every, by = out.setdefault(code, (set(), {}))
+        k = known(tag) if tag is not None else None
+        if k is None:
+            every |= days
+        else:
+            by.setdefault(k, set()).update(days)
+
+    gifts = [0, 0]
     for code, mine in lines.items():
-        every, by = set(), {}
+        out.setdefault(code, (set(), {}))
         for r in mine:
+            days = span(r)
+            if days is None:
+                continue
             got = offer_values(r.get('detail') or '')
-            if not got and is_gift(r):
-                # No amount in the words, and the deepest offer there is.
-                # Untagged, so it marks every channel - which is the
-                # conservative reading and the right one here, since a
-                # gift is not tied to how the buyer paid.
-                got = {'(gift)': []}
-            if not got:
-                continue
-            a, b = r.get('start'), r.get('end')
-            if not a or not b or b < a:
-                continue
-            days = set()
-            d = a
-            while d <= b:
-                days.add(d)
-                d += timedelta(days=1)
             for tag in got:
-                k = known(tag)
-                if k is None:
-                    every |= days
-                else:
-                    by.setdefault(k, set()).update(days)
-        out[code] = (every, by)
+                mark(code, days, tag)
+            if not is_gift(r):
+                continue
+            # The gift goes to the models named in the brackets, not to
+            # the row the line sits on. A gift is not tied to how the
+            # buyer paid, so it marks every channel.
+            want = gift_models(r.get('detail') or '')
+            hit = [c for c in sold
+                   if any(c.startswith(t) or t in c for t in want)]
+            gifts[0] += 1
+            if hit:
+                gifts[1] += 1
+            for c in hit:
+                mark(c, days)
+    if say and gifts[0]:
+        lost = gifts[0] - gifts[1]
+        say(f'  {gifts[0]:,} gift-with-purchase line(s) in the plan; '
+            f'{gifts[1]:,} name a model that sold')
+        if lost:
+            say(f'  {lost:,} name no model this window saw, so their free '
+                'units are not attributed')
     return out
 
 
@@ -3341,7 +3395,7 @@ def clean_days(plan, rows, months, say=print) -> None:
         lines.setdefault(PM.code_norm(r.get('code') or ''), []).append(r)
     chans = {chan_key(r) for r in rows if r['qty'] > 0}
     offer_tags(plan, chans, say=say)
-    live = offer_live(lines, chans)
+    live = offer_live(lines, chans, {r['code'] for r in rows}, say=say)
 
     span = set()
     for m in months:

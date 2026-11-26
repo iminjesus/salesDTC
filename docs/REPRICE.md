@@ -1041,6 +1041,43 @@ Only lines whose `Offer_Detail` carries an amount mark a day. A line that
 names a campaign and no money does not: that is the campaign flag again,
 and the campaign flag is worth 1.1 points.
 
+### A gift with purchase is an offer on a product the line does not name
+
+`Gift with Purchase` / `GWP-Music Studio(LS51H)` carries no dollar and
+no percentage, so `offer_values` finds nothing in it - and it is the
+deepest offer there is, because the unit goes out at nil.
+
+Two things follow, and the second is the one that is easy to get wrong.
+
+**It is an offer**, so its days belong on the offer side of the split.
+Without that its free units land on the *clean* side, which is the one
+place they do the most harm: a product's ordinary price would be
+averaged with units it gave away.
+
+**It is an offer on a different product.** The line sits on the row of
+the thing being *bought* - an MRA soundbar, say - and the thing given
+away is named only inside the brackets. The buyer's price does not move
+at all; the gift's moves to nil. So the days are attributed to the
+models named in the text, resolved against codes that actually sold,
+and **not** to the row the line sits on.
+
+Only bracketed tokens that look like a model are taken - letters and
+digits together, four characters or more - so `(AUD)` is left alone. The
+run says how many gift lines resolved:
+
+```
+  N gift-with-purchase line(s) in the plan; N name a model that sold
+  N name no model this window saw, so their free units are not attributed
+```
+
+This needs the nil-revenue lines, which `dtc.read` now keeps: a unit
+given away is still a unit the plan counted, and dropping them made
+every realised ASP the average of the units that were paid for.
+
+`--floor` is told to skip them. A nil line is 100% under its own price
+and any floor at all would catch it, but it is accounted for - the floor
+is for prices nobody can account for.
+
 ### A day is spoiled only for the channel the offer was tagged for
 
 `[EPP] Save $750` is money to an EPP buyer and nothing at all to somebody
