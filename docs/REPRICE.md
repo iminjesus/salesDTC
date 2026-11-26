@@ -1061,14 +1061,37 @@ at all; the gift's moves to nil. So the days are attributed to the
 models named in the text, resolved against codes that actually sold,
 and **not** to the row the line sits on.
 
-Only bracketed tokens that look like a model are taken - letters and
-digits together, four characters or more - so `(AUD)` is left alone. The
-run says how many gift lines resolved:
+**The full model is not always written down.** `GWP-Music
+Studio(LS51H)` names one; `GWP Music Studio` names none. So there are
+two routes, tried in order:
+
+1. **The brackets.** Tokens that look like a model - letters and digits
+   together, four characters or more, so `(AUD)` is left alone - matched
+   as a prefix against codes that actually sold, since `LS51H` is a
+   model and `LS51HXY/XSA` is the material.
+2. **What the gift is called.** The GWP wording is stripped off and what
+   is left is matched against the plan's own product descriptions, so
+   `Music Studio` finds the row the plan describes that way.
 
 ```
-  N gift-with-purchase line(s) in the plan; N name a model that sold
-  N name no model this window saw, so their free units are not attributed
+  N gift-with-purchase line(s) in the plan: N resolved by the model in
+  the brackets, N by what the gift is called
+  N resolved to nothing that sold. Their free units are still read off
+  the export - a nil-revenue line is never a quiet day - so only the
+  priced month's forecast misses them
 ```
+
+### For the window, the export already says it
+
+Neither route is needed to read the **past**. A line at nil revenue is a
+gift that happened, so it is never counted as a quiet day whatever the
+plan says - no model name to parse, no bracket to read, no line to
+match. That is observed, and it is exact.
+
+The plan is needed only for the month being **priced**, which has not
+happened yet: there, a gift has to be found in the text or not at all.
+So a gift line that resolves to nothing still costs only the forecast,
+never the history it is measured against.
 
 This needs the nil-revenue lines, which `dtc.read` now keeps: a unit
 given away is still a unit the plan counted, and dropping them made

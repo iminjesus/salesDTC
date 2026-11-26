@@ -941,7 +941,8 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                                 []).append(r)
             live = offer_live(mine,
                               {chan_key(r) for r in rows if r['qty'] > 0},
-                              {r['code'] for r in rows}, say=say)
+                              {r['code'] for r in rows}, say=say,
+                              named=plan_names(plan))
         if rows:
             miss = 0
             dropped = [0, 0.0]
@@ -1020,7 +1021,14 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                       chan=(r['dist'] or '').upper() or None,
                       deal=bool(r.get('trade') or r.get('vouch')),
                       ym=r.get('ym'),
-                      bare=((r['day'] is not None
+                      # A line at nil revenue is never a quiet day,
+                      # whatever the plan says. It is a gift with
+                      # purchase, observed - no model name to parse, no
+                      # bracket to read, no line to match. The plan is
+                      # needed only to say whether a gift will run in the
+                      # month being priced; for the window it already
+                      # happened and the export shows it.
+                      bare=((r['day'] is not None and r['amt'] > 0
                              and not offer_on(live, code, r['day'],
                                               chan_key(r)))
                             if clean_quiet else None))
@@ -3247,7 +3255,30 @@ def gift_models(detail: str) -> list:
     return out
 
 
-def offer_live(lines, chans=(), codes=(), say=None):
+GIFT_WORDS = re.compile(r'\bgwp\b|gift\s*with\s*purchase|free\s*gift'
+                        r'|bonus\s*gift|\bwith\b|\bfor\b|\bon\b'
+                        r'|\bpurchase\b|\bbuy\b|\bfree\b', re.I)
+
+
+def gift_phrase(detail: str) -> str:
+    """What the gift is called, once the GWP wording is taken off.
+
+    **The full model is not always written down.** `GWP-Music
+    Studio(LS51H)` names one; `GWP Music Studio` names none, and then
+    the only handle on the gift is what it is called. So the words are
+    kept as a second way in, matched against the plan's own product
+    descriptions.
+
+    Everything inside brackets is removed first - that is the code's
+    route, tried before this one - and so are the words every GWP line
+    shares, which carry no information about which product is meant.
+    """
+    txt = GIFT_MODEL.sub(' ', detail or '')
+    txt = GIFT_WORDS.sub(' ', txt)
+    return re.sub(r'[^A-Za-z0-9]', '', txt).upper()
+
+
+def offer_live(lines, chans=(), codes=(), say=None, named=None):
     """`code -> (days for every channel, {channel: days})`.
 
     Only lines whose `Offer_Detail` carries an amount count. A line that
@@ -3295,7 +3326,7 @@ def offer_live(lines, chans=(), codes=(), say=None):
         else:
             by.setdefault(k, set()).update(days)
 
-    gifts = [0, 0]
+    gifts = [0, 0, 0]
     for code, mine in lines.items():
         out.setdefault(code, (set(), {}))
         for r in mine:
@@ -3316,15 +3347,28 @@ def offer_live(lines, chans=(), codes=(), say=None):
             gifts[0] += 1
             if hit:
                 gifts[1] += 1
+            elif named:
+                # No model in the brackets, or one nothing sold under.
+                # Fall back to what the gift is called, against the
+                # plan's own product descriptions.
+                ph = gift_phrase(r.get('detail') or '')
+                if len(ph) >= 6:
+                    hit = [c for d, cs in named.items() if ph in d
+                           for c in cs if c in sold]
+                    if hit:
+                        gifts[2] += 1
             for c in hit:
                 mark(c, days)
     if say and gifts[0]:
-        lost = gifts[0] - gifts[1]
-        say(f'  {gifts[0]:,} gift-with-purchase line(s) in the plan; '
-            f'{gifts[1]:,} name a model that sold')
+        lost = gifts[0] - gifts[1] - gifts[2]
+        say(f'  {gifts[0]:,} gift-with-purchase line(s) in the plan: '
+            f'{gifts[1]:,} resolved by the model in the brackets, '
+            f'{gifts[2]:,} by what the gift is called')
         if lost:
-            say(f'  {lost:,} name no model this window saw, so their free '
-                'units are not attributed')
+            say(f'  {lost:,} resolved to nothing that sold. Their free '
+                'units are still read off the export - a nil-revenue\n'
+                '  line is never a quiet day - so only the priced '
+                'month\u2019s forecast misses them')
     return out
 
 
@@ -3340,6 +3384,22 @@ def offer_on(live, code, day, chan: str) -> bool:
         if k in chan and day in days:
             return True
     return False
+
+
+def plan_names(plan) -> dict:
+    """`normalised product description -> {codes}` out of the plan.
+
+    The second route to a gift, for the lines that name no model. The
+    plan describes every row it prices, so `Music Studio` can be found
+    there even where the brackets are empty.
+    """
+    out: dict = {}
+    for r in getattr(plan, 'rows', ()) or ():
+        d = re.sub(r'[^A-Za-z0-9]', '', str(r.get('desc') or '')).upper()
+        c = PM.code_norm(r.get('code') or '')
+        if len(d) >= 6 and c:
+            out.setdefault(d, set()).add(c)
+    return out
 
 
 def offer_tags(plan, chans, say=print, top: int = 12) -> None:
@@ -3395,7 +3455,8 @@ def clean_days(plan, rows, months, say=print) -> None:
         lines.setdefault(PM.code_norm(r.get('code') or ''), []).append(r)
     chans = {chan_key(r) for r in rows if r['qty'] > 0}
     offer_tags(plan, chans, say=say)
-    live = offer_live(lines, chans, {r['code'] for r in rows}, say=say)
+    live = offer_live(lines, chans, {r['code'] for r in rows}, say=say,
+                      named=plan_names(plan))
 
     span = set()
     for m in months:
@@ -3412,8 +3473,8 @@ def clean_days(plan, rows, months, say=print) -> None:
         t = tot.setdefault(k, [0.0, 0.0, 0.0, 0.0, 0.0])
         t[0] += r['qty']
         t[1] += r['amt']
-        if offer_on(live, k, r['day'], chan_key(r)):
-            t[4] += r['qty']                       # sold under an offer
+        if r['amt'] <= 0 or offer_on(live, k, r['day'], chan_key(r)):
+            t[4] += r['qty']        # sold under an offer, or given away
         else:
             t[2] += r['qty']
             t[3] += r['amt']
