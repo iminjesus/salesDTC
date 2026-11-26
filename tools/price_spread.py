@@ -337,6 +337,8 @@ def split_entry(entry: str, shared: dict):
             over['floor'] = float(val) / 100.0
         elif key == 'ceil':
             over['ceil'] = float(val) / 100.0
+        elif key == 'learn':
+            over['learn'] = float(val) / 100.0
         elif key in ('trimin', 'trim-in'):
             over['trim_in'] = tuple(v.strip() for v in val.split(',')
                                     if v.strip())
@@ -350,7 +352,7 @@ def split_entry(entry: str, shared: dict):
             raise SystemExit(f'--compare {entry}: no setting called {key!r} '
                              '(keep, scope, drop-launch, clean, grace, '
                              'band, nodeals, novouch, floor, ceil, '
-                             'trimin)')
+                             'trimin, learn)')
     return name, over
 
 
@@ -470,6 +472,11 @@ def main() -> int:
                     action='store_true',
                     help='passed to the re-price: drop a window month that '
                          'carried a launch or a pre-order for the product')
+    ap.add_argument('--learn', type=float, nargs='?', const=50.0,
+                    default=None, metavar='PCT',
+                    help='passed to the re-price: drop every line of a '
+                         'voucher stem once PCT%% of its lines fall '
+                         'below the floor')
     ap.add_argument('--trim-in', dest='trim_in', nargs='+', default=(),
                     metavar='NAME',
                     help='passed to the re-price: apply --floor and '
@@ -535,7 +542,8 @@ def main() -> int:
               'no_deals': args.no_deals, 'no_vouch': args.no_vouch,
               'floor': (args.floor / 100.0 if args.floor else None),
               'ceil': (args.ceil / 100.0 if args.ceil else None),
-              'trim_in': args.trim_in}
+              'trim_in': args.trim_in,
+              'learn': (args.learn / 100.0 if args.learn else None)}
     if args.scope:
         shared['scope'] = args.scope
 

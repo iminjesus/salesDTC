@@ -898,7 +898,7 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                  clean_quiet: bool = False, drop_day=None,
                  band=None, no_deals: bool = False,
                  no_vouch=(), floor=None, ceil=None,
-                 trim_in=None) -> History:
+                 trim_in=None, learn=None) -> History:
     """Every order line of those months, priced and banded by its campaign.
 
     The DTC export is preferred where the folder has one, because it carries
@@ -957,6 +957,20 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                       if str(v).strip()}
             deep = deep_cut(rows, floor or 0.0, ceil or 0.0,
                             only=trim_in)
+            # What the floor caught, turned into a rule about the
+            # mechanic that caught it. See `learn_stems`.
+            learnt: set = set()
+            if learn is not None and deep:
+                learnt = learn_stems(rows, deep, learn)
+                if learnt:
+                    was = len(deep)
+                    for i, r in enumerate(rows):
+                        if trim_in is not None and not trim_in(r['code']):
+                            continue
+                        if learnt & {voucher_stem(c) for c in
+                                     voucher_codes(r.get('vcode'))}:
+                            deep.add(i)
+                    grew = len(deep) - was
             for i, r in enumerate(rows):
                 code = PM.code_norm(r['code'])
                 # The export names the model family itself, which the
@@ -1039,6 +1053,16 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                 if trim_in is not None and not deep:
                     say('  nothing was trimmed - no line matched the '
                         'group(s) given to --trim-in')
+                if learn is not None:
+                    if learnt:
+                        say(f'  {len(learnt):,} voucher stem(s) have '
+                            f'{learn * 100:.0f}%+ of their lines below '
+                            f'the floor, so the rest of those lines went '
+                            f'too ({grew:,} more): '
+                            + ', '.join(sorted(learnt)[:12]))
+                    else:
+                        say('  no voucher stem has enough of its lines '
+                            'below the floor to be condemned as a whole')
                 # And what they were. The point of a floor is that it
                 # needs no list - nobody can hunt a book of 1,500
                 # products for the odd mechanic by hand - so the list
@@ -1339,6 +1363,38 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
         elif ceil and at > p * (1.0 + ceil):
             out.add(i)
     return out
+
+
+def learn_stems(rows, deep, share: float = 0.5,
+                least: int = 5) -> set:
+    """Voucher stems whose lines are **mostly** below the floor.
+
+    The floor catches a line because of what it cost. This asks the
+    next question: when a line is deep, does the voucher on it make a
+    habit of it? A stem whose lines are nearly all deep is a mechanic
+    that discounts, and its shallower lines belong with the rest of them
+    - a `FF8F` that happens to land a point above the floor is still an
+    `FF8F`.
+
+    That is what lets the effective threshold differ by mechanic without
+    anybody setting one per mechanic. A stem that is always 45% under
+    goes entirely; a stem that is 12% under goes nowhere near the floor
+    and is never condemned; a stem that straddles it is condemned only
+    if most of it is below.
+
+    `share` is how much of a stem has to be deep before the rest follows
+    it, and `least` keeps a stem of one or two lines from being judged
+    at all - one unlucky line should not condemn a mechanic.
+    """
+    tot: dict = collections.defaultdict(int)
+    bad: dict = collections.defaultdict(int)
+    for i, r in enumerate(rows):
+        for st in {voucher_stem(c) for c in voucher_codes(r.get('vcode'))}:
+            tot[st] += 1
+            if i in deep:
+                bad[st] += 1
+    return {st for st, n in tot.items()
+            if n >= least and bad[st] / n >= share}
 
 
 def band_of(band):
@@ -2460,7 +2516,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             clean_quiet: bool = False,
             grace: int | None = None, band=None,
             no_deals: bool = False, no_vouch=(),
-            floor=None, ceil=None, trim_in=()) -> dict:
+            floor=None, ceil=None, trim_in=(), learn=None) -> dict:
     """{code: {...}} - the re-priced month, with how each price was reached.
 
     `also` is {code: price} for materials the month's plan leaves out but
@@ -2588,7 +2644,8 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                         band=band, no_deals=no_deals,
                         no_vouch=no_vouch, floor=floor, ceil=ceil,
                         trim_in=(held_by(levels, trim_in, planned)
-                                 if trim_in else None))
+                                 if trim_in else None),
+                        learn=learn)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -3595,6 +3652,14 @@ def main() -> int:
                          'whichever voucher did it or none. One number, '
                          'no list to keep, and a product with nothing odd '
                          'in it loses nothing')
+    ap.add_argument('--learn', type=float, nargs='?', const=50.0,
+                    default=None, metavar='PCT',
+                    help='take the voucher stems the floor caught and '
+                         'drop ALL of their lines, not only the deep '
+                         'ones - a stem is condemned when PCT%% of its '
+                         'lines (default 50) fall below the floor. The '
+                         'effective depth then differs by mechanic '
+                         'without anybody setting one per mechanic')
     ap.add_argument('--trim-in', dest='trim_in', nargs='+', default=(),
                     metavar='NAME',
                     help='apply --floor and --ceil to these groups only, '
@@ -3815,7 +3880,8 @@ def main() -> int:
                   no_vouch=args.no_vouch,
                   floor=(args.floor / 100.0 if args.floor else None),
                   ceil=(args.ceil / 100.0 if args.ceil else None),
-                  trim_in=args.trim_in)
+                  trim_in=args.trim_in,
+                  learn=(args.learn / 100.0 if args.learn else None))
 
     path = Path(args.out) if args.out else ROOT / 'docs' / f'reprice_{ym}.csv'
     write_csv(path, out)

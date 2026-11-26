@@ -1450,6 +1450,45 @@ of every product whether or not anything is wrong with it, while these
 two trim by **distance from the product's own ordinary price**, so a
 product with nothing odd in it loses nothing.
 
+### `--learn PCT` - what the floor caught, turned into a rule
+
+The floor catches a **line**, because of what that line cost. The next
+question is whether the voucher on it makes a habit of it. A stem whose
+lines are nearly all deep is a mechanic that discounts, and its
+shallower lines belong with the rest of them - an `FF8F` that lands a
+point above the floor is still an `FF8F`.
+
+```
+py tools\reprice.py --month 2611 --floor 30 --ceil 20 --learn
+py tools\price_spread.py --month 2611 --by div1 \
+    --compare rrp rrp+floor=30+ceil=20 rrp+floor=30+ceil=20+learn=50
+```
+
+A stem is condemned when `PCT`% of its lines (default 50) fall below
+the floor; then **every** line it carries goes, deep or not. So the
+effective depth differs by mechanic without anybody setting one per
+mechanic:
+
+| a stem that is... | what happens |
+|---|---|
+| always 45% under | condemned, all of it goes |
+| always 12% under | never near the floor, never condemned, stays |
+| straddling the floor | condemned only if most of it is below |
+
+A stem with fewer than five lines is not judged at all - one unlucky
+line should not condemn a mechanic - so a small stem is still subject to
+the floor line by line, and nothing more.
+
+The run names what it condemned:
+
+```
+  N voucher stem(s) have 50%+ of their lines below the floor, so the
+  rest of those lines went too (N more): FF8F, ...
+```
+
+The list is still **output**. Nothing is typed in, and next month's run
+condemns next month's mechanics.
+
 **The list comes out, not in.** Nobody can hunt a book of 1,500 products
 by hand for the odd mechanic, and the one stem anybody found was found
 by accident. So the floor takes a number and reports what it caught:
