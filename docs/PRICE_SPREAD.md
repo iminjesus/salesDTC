@@ -187,6 +187,12 @@ div1              units    mean      sd    mean      sd    mean      sd
 far a discount may be borrowed, `drop-launch` drops a window month that
 carried a launch. Several chain: `rrp+keep=MX+scope=div3`.
 
+**`back=N` and `decay=N` are here too**, so window lengths sit in one
+table: `--compare rrp rrp+back=2 rrp+back=3 rrp+decay=2`. The sheet's
+own price is last month's ASP, and on a product whose price only ever
+falls, a six-month window is dear by construction - that comparison is
+the one that says by how much.
+
 This is the only way to answer **should this group be held at the sheet
 price?**, because holding it changes only that group's rows and the
 question is what that does to the book. Two months running, the sheet has

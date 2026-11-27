@@ -337,6 +337,10 @@ def split_entry(entry: str, shared: dict):
             over['floor'] = float(val) / 100.0
         elif key == 'ceil':
             over['ceil'] = float(val) / 100.0
+        elif key == 'back':
+            over['back'] = int(val)
+        elif key == 'decay':
+            over['decay'] = float(val)
         elif key == 'learn':
             over['learn'] = float(val) / 100.0
         elif key in ('trimin', 'trim-in'):
@@ -352,7 +356,7 @@ def split_entry(entry: str, shared: dict):
             raise SystemExit(f'--compare {entry}: no setting called {key!r} '
                              '(keep, scope, drop-launch, clean, grace, '
                              'band, nodeals, novouch, floor, ceil, '
-                             'trimin, learn)')
+                             'trimin, learn, back, decay)')
     return name, over
 
 
@@ -553,8 +557,8 @@ def main() -> int:
         for entry in args.compare:
             name, over = split_entry(entry, shared)
             print(f'\n{"=" * 72}\nre-pricing on {entry}:')
-            rs, _ = analyse(folder, ym, args.back, args.plan, base=base,
-                            model=name, **over)
+            rs, _ = analyse(folder, ym, over.pop('back', args.back),
+                            args.plan, base=base, model=name, **over)
             if rs:
                 done.append((entry, rs))
         if not done:
