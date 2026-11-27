@@ -2006,6 +2006,14 @@ def why_one(codes, hist, out, levels, say, clearance: bool = True):
             say(f"    GSCM {row['gscm']:,.2f} -> {row['price']:,.2f}"
                 f"  ({(row['price'] / row['gscm'] - 1) * 100:+.1f}%)")
             base = (hist.cut_base or {}).get(k)
+            if not base and any(hist.cut_at):
+                say(f'\n    the trim was on (--floor '
+                    f'{hist.cut_at[0] * 100:.0f} --ceil '
+                    f'{hist.cut_at[1] * 100:.0f}) but this product has no '
+                    'base to judge\n    against: fewer than '
+                    f'{MIN_UNITS} unit(s) in the window on its own lines '
+                    'with no voucher,\n    no trade-in and a price on '
+                    'them. Nothing of its was left out')
             if base:
                 lo, hi = hist.cut_at
                 say(f'\n    the trim judged it against {base:,.2f} - what '
@@ -2024,6 +2032,9 @@ def why_one(codes, hist, out, levels, say, clearance: bool = True):
                     'it was')
             lost = sorted(((ym, why), t) for (c, ym, why), t
                           in (hist.cut or {}).items() if c == k)
+            if base and not lost:
+                say('    nothing of this product\u2019s was left out - '
+                    'every line of it sits inside\n    those two lines')
             if lost:
                 say('\n    what the window left out for this product, '
                     'and why. These lines are\n    gone from every ASP '
