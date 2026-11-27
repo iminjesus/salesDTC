@@ -26,6 +26,7 @@ Only the standard library, like the rest of the tools.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -120,15 +121,39 @@ def read_plan(path: Path, ym: int, say=print) -> dict | None:
             'nought - the header has '
             + ', '.join(h for h in head if h)[:120])
 
+    def num_at(r, i):
+        return (0.0 if i is None or i >= len(r)
+                else (parse_number(r[i]) or 0.0))
+
     items: dict = {}
+    spelt: dict = {}
+    clash: list = []
     rows = 0
+    merged = 0
     for r in body[1:]:
-        code = (r[at['code']].strip().upper()
-                if at['code'] < len(r) else '')
-        if not code:
+        raw = (r[at['code']].strip() if at['code'] < len(r) else '')
+        if not raw:
             continue
-        num = lambda i: (0.0 if i is None or i >= len(r)
-                         else (parse_number(r[i]) or 0.0))
+        # **One row per material.** The sheet plans a material more than
+        # once - once an account, and sometimes under two spellings of
+        # the same code - and re-pricing it twice gives two answers to
+        # one question and two rows in the output for one product. The
+        # key is the code with case and punctuation taken out, so
+        # `SM-S741B/XSA` and `SM-S741BXSA` are one material; the first
+        # spelling seen is the one reported.
+        code = re.sub(r'[^0-9A-Z]', '', raw.upper())
+        if code in items:
+            merged += 1
+            # The sheet quotes one price per material across its
+            # accounts, so the second line should agree. Where it does
+            # not, the first is kept and the run says so rather than
+            # choosing in silence.
+            was, now = items[code]['aud'], num_at(r, at['aud'])
+            if was and now and abs(was - now) > 0.005:
+                clash.append(f'{raw.strip()} {was:,.2f}/{now:,.2f}')
+        else:
+            spelt[code] = raw.strip().upper()
+        num = lambda i: num_at(r, i)
         q = num(at['qty'])
         aa, au = num(at['amt_aud']), num(at['amt_usd'])
         it = items.get(code)
@@ -145,11 +170,20 @@ def read_plan(path: Path, ym: int, say=print) -> dict | None:
         it['amt_aud'] += aa
         it['amt_usd'] += au
         rows += 1
+    items = {spelt[k]: v for k, v in items.items()}
 
     # A price column rounded to the dollar is still the price that was planned
     # with, so it is the one used. Only where there is no price column at all
     # is one worked out, and then it is said out loud: an amount over a
     # quantity is an average and not a price list.
+    if merged:
+        say(f'  {merged:,} row(s) were a second line for a material '
+            f'already seen - {len(items):,} material(s) after merging, '
+            'one row each')
+    if clash:
+        say(f'  {len(clash):,} of them quote a different price from the '
+            'line they merged into; the first is kept: '
+            + ', '.join(clash[:6]))
     short = 0
     for code, it in items.items():
         for cur, amt in (('aud', 'amt_aud'), ('usd', 'amt_usd')):

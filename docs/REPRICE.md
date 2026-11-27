@@ -1199,6 +1199,29 @@ direction claimed.
 is the cost, and whether it outweighs the gain is a `--compare` question,
 not another diagnostic.
 
+## One row per material
+
+The GSCM sheet plans a material more than once - once an account, and
+sometimes under two spellings of the same code - and re-pricing it twice
+gives two answers to one question and two rows in the output for one
+product.
+
+Materials are keyed on the code with **case and punctuation taken out**,
+so `SM-S741B/XSA` and `SM-S741BXSA` are one material. The first spelling
+seen is the one reported, quantities add, and the B2B share is taken
+across the merged lines, which is what it was always meant to be.
+
+```
+  N row(s) were a second line for a material already seen - N material(s)
+  after merging, one row each
+  N of them quote a different price from the line they merged into; the
+  first is kept: SM-... 1,000.00/1,200.00
+```
+
+The second line matters. The sheet quotes one price per material across
+its accounts, so a disagreement is a data question, not a rounding one -
+it is named rather than resolved in silence.
+
 ## `--band LO HI` - trim each product's own price tails
 
 ```
