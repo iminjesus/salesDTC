@@ -320,6 +320,9 @@ class History:
         # plan answers both, and the month being priced is the one that
         # cannot be read off the export.
         self.gift_days: dict = {}
+        # `(code, month, why) -> [lines, units, revenue]` for every line
+        # the window left out. Filled by `read_history`; read by `--why`.
+        self.cut: dict = {}
         # What a gift day fetches - mostly nil, but not always: a
         # product given away on Tuesday is often still sold on Tuesday.
         self.gq: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -997,6 +1000,17 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
             # is the traded phone's own value, and that is already outside
             # the revenue a discount is measured from.
             gift = [0, 0.0]
+            # What was left out, product by product and month by month.
+            # A window that quietly loses two thirds of a product's
+            # units explains a price nothing else can, and there was no
+            # way to see it from the outside.
+            h.cut = collections.defaultdict(lambda: [0, 0.0, 0.0])
+
+            def cut(code, r, why):
+                t = h.cut[(code, r.get('ym'), why)]
+                t[0] += 1
+                t[1] += r['qty']
+                t[2] += r['amt']
             want_v = {str(v).strip().upper() for v in no_vouch or ()
                       if str(v).strip()}
             deep = deep_cut(rows, floor or 0.0, ceil or 0.0,
@@ -1011,9 +1025,10 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     for i, r in enumerate(rows):
                         if trim_in is not None and not trim_in(r['code']):
                             continue
-                        if learnt & {voucher_stem(c) for c in
-                                     voucher_codes(r.get('vcode'))}:
-                            deep.add(i)
+                        if i not in deep and learnt & {
+                                voucher_stem(c) for c in
+                                voucher_codes(r.get('vcode'))}:
+                            deep[i] = 'a condemned voucher stem'
                     grew = len(deep) - was
             for i, r in enumerate(rows):
                 code = PM.code_norm(r['code'])
@@ -1031,19 +1046,24 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                             and r['day'] in drop_day.get(code, ())):
                     dropped[0] += 1
                     dropped[1] += r['qty']
+                    cut(code, r, 'a launch or clearance the month is not '
+                        'running')
                     continue
                 if i in trimmed or i in deep:
                     odd[0] += 1
                     odd[1] += r['qty']
+                    cut(code, r, deep.get(i) or 'the price band')
                     continue
                 if no_deals and (r.get('vouch') or r.get('trade')):
                     gift[0] += 1
                     gift[1] += r['qty']
+                    cut(code, r, 'a voucher or trade-in')
                     continue
                 if want_v and voucher_hit(voucher_codes(r.get('vcode')),
                                           want_v):
                     gift[0] += 1
                     gift[1] += r['qty']
+                    cut(code, r, 'a named voucher')
                     continue
                 if not rrp:
                     miss += 1
@@ -1362,7 +1382,7 @@ def voucher_report(rows, say=print, top: int = 25, least: int = 20) -> None:
 
 
 def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
-             least: int = MIN_UNITS, only=None) -> set:
+             least: int = MIN_UNITS, only=None) -> dict:
     """Indices of lines far below what the product fetches voucher-free.
 
     The answer to "not every voucher disturbs a price, but some do" that
@@ -1401,7 +1421,7 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
     lines it has.
     """
     if not floor and not ceil:
-        return set()
+        return {}
     base: dict = {}
     for r in rows:
         # `amt > 0`: a gift with purchase goes out at nil and is kept in
@@ -1414,7 +1434,7 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
             t[1] += r['amt']
     own = {c: t[1] / t[0] for c, t in base.items()
            if t[0] >= least and t[1] > 0}
-    out: set = set()
+    out: dict = {}
     for i, r in enumerate(rows):
         if r['qty'] <= 0:
             continue
@@ -1432,9 +1452,9 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
             continue
         at = r['amt'] / r['qty']
         if floor and at < p * (1.0 - floor):
-            out.add(i)
+            out[i] = 'below the floor'
         elif ceil and at > p * (1.0 + ceil):
-            out.add(i)
+            out[i] = 'above the ceiling'
     return out
 
 
@@ -1975,6 +1995,24 @@ def why_one(codes, hist, out, levels, say, clearance: bool = True):
                 f"-> {p['price']:,.2f}")
             say(f"    GSCM {row['gscm']:,.2f} -> {row['price']:,.2f}"
                 f"  ({(row['price'] / row['gscm'] - 1) * 100:+.1f}%)")
+            lost = sorted(((ym, why), t) for (c, ym, why), t
+                          in (hist.cut or {}).items() if c == k)
+            if lost:
+                say('\n    what the window left out for this product, '
+                    'and why. These lines are\n    gone from every ASP '
+                    'and every discount below:')
+                say(f"    {'month':>9}{'lines':>8}{'units':>8}"
+                    f"{'their price':>13}   why")
+                for (ym, why), t in lost:
+                    say(f'    {ym:>9}{t[0]:>8,}{t[1]:>8,.0f}'
+                        + (f'{t[2] / t[1]:>13,.2f}' if t[1] else f"{'-':>13}")
+                        + f'   {why}')
+                tot = sum(t[1] for _, t in lost)
+                kept = sum(t[0] for (c, _), t in hist.smon.items() if c == k)
+                if kept:
+                    say(f'    {tot:,.0f} unit(s) left out against '
+                        f'{kept:,.0f} kept - {tot / (tot + kept) * 100:.0f}%'
+                        ' of what the product sold in the window')
             if p.get('bare') is not None:
                 mine = sorted({ym for (c, ym) in hist.bmon if c == k}
                               | {ym for (c, ym) in hist.omon if c == k})
