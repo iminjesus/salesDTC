@@ -323,6 +323,10 @@ class History:
         # `(code, month, why) -> [lines, units, revenue]` for every line
         # the window left out. Filled by `read_history`; read by `--why`.
         self.cut: dict = {}
+        # `code -> the price it was judged against`, and the pair of
+        # fractions that made the cut lines out of it.
+        self.cut_base: dict = {}
+        self.cut_at: tuple = (0.0, 0.0)
         # What a gift day fetches - mostly nil, but not always: a
         # product given away on Tuesday is often still sold on Tuesday.
         self.gq: dict = collections.defaultdict(lambda: [0.0, 0.0, 0.0])
@@ -1013,8 +1017,9 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                 t[2] += r['amt']
             want_v = {str(v).strip().upper() for v in no_vouch or ()
                       if str(v).strip()}
-            deep = deep_cut(rows, floor or 0.0, ceil or 0.0,
-                            only=trim_in)
+            deep, h.cut_base = deep_cut(rows, floor or 0.0,
+                                        ceil or 0.0, only=trim_in)
+            h.cut_at = (floor or 0.0, ceil or 0.0)
             # What the floor caught, turned into a rule about the
             # mechanic that caught it. See `learn_stems`.
             learnt: set = set()
@@ -1382,7 +1387,7 @@ def voucher_report(rows, say=print, top: int = 25, least: int = 20) -> None:
 
 
 def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
-             least: int = MIN_UNITS, only=None) -> dict:
+             least: int = MIN_UNITS, only=None) -> tuple:
     """Indices of lines far below what the product fetches voucher-free.
 
     The answer to "not every voucher disturbs a price, but some do" that
@@ -1401,6 +1406,11 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
     regardless; and the cut is in the units of the problem - "more than
     30% under its own price" - rather than in a rank that happens to land
     somewhere useful.
+
+    Returns `(what to drop, the base each product was judged against)`.
+    The base is the product's own voucher-free, trade-in-free, paid
+    average over the whole window - not its list price, and not the
+    book's.
 
     `only` narrows it to one or more groups. The trim is not equally
     good everywhere - across October and November MX improved on both
@@ -1421,7 +1431,7 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
     lines it has.
     """
     if not floor and not ceil:
-        return {}
+        return {}, {}
     base: dict = {}
     for r in rows:
         # `amt > 0`: a gift with purchase goes out at nil and is kept in
@@ -1455,7 +1465,7 @@ def deep_cut(rows, floor: float = 0.0, ceil: float = 0.0,
             out[i] = 'below the floor'
         elif ceil and at > p * (1.0 + ceil):
             out[i] = 'above the ceiling'
-    return out
+    return out, own
 
 
 def learn_stems(rows, deep, share: float = 0.5,
@@ -1995,6 +2005,23 @@ def why_one(codes, hist, out, levels, say, clearance: bool = True):
                 f"-> {p['price']:,.2f}")
             say(f"    GSCM {row['gscm']:,.2f} -> {row['price']:,.2f}"
                 f"  ({(row['price'] / row['gscm'] - 1) * 100:+.1f}%)")
+            base = (hist.cut_base or {}).get(k)
+            if base:
+                lo, hi = hist.cut_at
+                say(f'\n    the trim judged it against {base:,.2f} - what '
+                    'it fetched over the window on\n    its own lines '
+                    'with no voucher, no trade-in and a price on them:')
+                if lo:
+                    say(f'      below {base * (1 - lo):>12,.2f}   '
+                        f'left out (--floor {lo * 100:.0f})')
+                if hi:
+                    say(f'      above {base * (1 + hi):>12,.2f}   '
+                        f'left out (--ceil {hi * 100:.0f})')
+                say('    The base is the **whole window**, so a product '
+                    'whose price only falls has\n    its oldest months '
+                    'over the line and its newest under it, with no '
+                    'voucher\n    involved. The prices below say which '
+                    'it was')
             lost = sorted(((ym, why), t) for (c, ym, why), t
                           in (hist.cut or {}).items() if c == k)
             if lost:
