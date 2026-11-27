@@ -337,6 +337,8 @@ def split_entry(entry: str, shared: dict):
             over['floor'] = float(val) / 100.0
         elif key == 'ceil':
             over['ceil'] = float(val) / 100.0
+        elif key == 'words':
+            over['words'] = True
         elif key == 'back':
             over['back'] = int(val)
         elif key == 'decay':
@@ -356,7 +358,7 @@ def split_entry(entry: str, shared: dict):
             raise SystemExit(f'--compare {entry}: no setting called {key!r} '
                              '(keep, scope, drop-launch, clean, grace, '
                              'band, nodeals, novouch, floor, ceil, '
-                             'trimin, learn, back, decay)')
+                             'trimin, learn, back, decay, words)')
     return name, over
 
 
@@ -509,6 +511,9 @@ def main() -> int:
     ap.add_argument('--grace', type=int, default=None, metavar='N',
                     help='passed to the re-price: leave the launch out by '
                          'date, its written end pushed out N days')
+    ap.add_argument('--words', action='store_true',
+                    help='passed to the re-price: price an unprecedented '
+                         'offer day at what the plan says is on it')
     ap.add_argument('--clean-quiet', dest='clean_quiet',
                     action='store_true',
                     help='passed to the re-price: a quiet day is one with '
@@ -541,7 +546,8 @@ def main() -> int:
 
     shared = {'by_units': args.by_units, 'keep': args.keep,
               'drop_launch': args.drop_launch,
-              'clean_quiet': args.clean_quiet, 'grace': args.grace,
+              'clean_quiet': args.clean_quiet, 'words': args.words,
+              'grace': args.grace,
               'band': __import__('reprice').band_of(args.band),
               'no_deals': args.no_deals, 'no_vouch': args.no_vouch,
               'floor': (args.floor / 100.0 if args.floor else None),

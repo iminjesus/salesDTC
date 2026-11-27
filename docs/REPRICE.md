@@ -1222,6 +1222,46 @@ The second line matters. The sheet quotes one price per material across
 its accounts, so a disagreement is a data question, not a rounding one -
 it is named rather than resolved in silence.
 
+## `--words` - the month's own offer, where nothing has run it before
+
+Two errors, opposite in sign, with one root: **the window carries a
+different promotion intensity from the month being priced.**
+
+| | window against the month | result |
+|---|---|---|
+| November, MX | no Black Friday anywhere in a six-month window ending in October | priced **too dear** |
+| September, pre-order items | August's pre-order still deep in the window | priced **too cheap** |
+
+The second has machinery - the day split, `--grace`, the clearance
+drop. The first had none, and the reason is that **every rung measures
+depth from the past**. Black Friday has no past here, so each rung is
+silent in turn and the day lands on what the product fetches in an
+ordinary month. November is then priced as an ordinary November.
+
+The plan knows better and says so. `Offer_Detail` states the offer -
+`[S.COM] Save $300`, `25%` - for the month being priced, and until now
+that text was read only to mark **which days** carried an offer, never
+how deep it was.
+
+```
+py tools\reprice.py --month 2611 --clean-quiet --words --floor 30 --ceil 20 --trim-in MX
+py tools\price_spread.py --month 2611 --by div1 \
+    --compare rrp rrp+clean+floor=30+ceil=20+trimin=MX \
+              rrp+clean+words+floor=30+ceil=20+trimin=MX
+```
+
+`--words` sits **below every measured rung and above the ordinary
+fallbacks**: a day with a record is still priced off the record, and
+only a day nothing has ever run before is priced off the text. Offers
+stack inside a channel and the deepest channel is taken, as everywhere
+else.
+
+This is not the add-back that failed. That one corrected a *measured*
+average with a *stated* offer and over-corrected, because the plan says
+what was offered and not what was taken. Here there is no measurement
+to correct - the choice is between a stated offer and an ordinary
+markdown for a month that is running neither ordinarily.
+
 ## `--band LO HI` - trim each product's own price tails
 
 ```

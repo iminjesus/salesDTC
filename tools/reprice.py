@@ -2252,7 +2252,8 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
               b2b: float = None, flat_days: bool = False,
               by_units: bool = True, plan_mix=None, gscm_at=None,
               new_from: str = 'sheet', quote_first: bool = False,
-              clean_quiet: bool = False, trim_in=None):
+              clean_quiet: bool = False, trim_in=None,
+              words: bool = False):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -2403,6 +2404,30 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         live, _, _ = PM.plan_state(plan, k, day)
         return any(offer_values(c.get('detail') or '') for c in live)
 
+    def said(day):
+        """What the plan\u2019s own words put on this day, as a fraction.
+
+        The last thing the plan knows that the window does not. A
+        campaign with no precedent - **Black Friday**, every year, in a
+        six-month window that ends in October - has no measured depth
+        anywhere, so every rung above this one is silent and the day
+        falls through to what the product fetches in an ordinary month.
+        November is then priced as an ordinary November, and it is not.
+
+        `Offer_Detail` states the offer: `[S.COM] Save $300`, `25%`. It
+        is what was *offered* and not what was *taken* - which is why
+        adding it back to an ASP failed - but as the answer for a day
+        **nothing has ever run before**, a stated offer beats an
+        ordinary markdown. The channel rule is the one `offer_worth`
+        uses: offers stack inside a channel and the deepest channel is
+        taken.
+        """
+        if not rrp:
+            return 0.0
+        got, _, _ = PM.plan_state(plan, k, day)
+        worth, _, _ = offer_worth(got, rrp)
+        return worth / rrp
+
     def disc(camp, day=None, live=None):
         """This product under this campaign, then the ways round not having it.
 
@@ -2520,6 +2545,13 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
         # ordinary month's ASP prices the year's cheapest month as an
         # average one, and November came out dear by about as much as
         # October came out cheap.
+        # Nothing measured can answer this day. Before falling back to
+        # what the product fetches in an ordinary month, ask what the
+        # plan says is running on it.
+        if words and day is not None:
+            w = said(day)
+            if w > 0:
+                return 'off', w, 'what the plan says is on, with no record of it'
         q = quoted(day) if day is not None else None
         if quote_first and q:
             return 'at', q, "the plan’s quoted price"
@@ -2694,7 +2726,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
             promo_first: bool = True, actual: bool = False,
             new_from: str = 'sheet', keep=(),
             drop_launch: bool = False,
-            clean_quiet: bool = False,
+            clean_quiet: bool = False, words: bool = False,
             grace: int | None = None, band=None,
             no_deals: bool = False, no_vouch=(),
             floor=None, ceil=None, trim_in=(), learn=None) -> dict:
@@ -2970,7 +3002,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 flat_days=flat_days, by_units=by_units,
                 plan_mix=plan_mix,
                 new_from=new_from, quote_first=model == 'quote',
-                clean_quiet=clean_quiet,
+                clean_quiet=clean_quiet, words=words,
                 trim_in=in_trim,
                 gscm_at=lambda c: (planned['items'].get(c)
                                    or planned['items'].get(PM.code_norm(c))
@@ -4031,6 +4063,12 @@ def main() -> int:
                          'end pushed out N days - the plan stops writing '
                          'the offer before the price moves. Off by '
                          'default; N is fitted, so measure several')
+    ap.add_argument('--words', action='store_true',
+                    help='for a day no measured rung can answer, price '
+                         'it at what the plan\u2019s Offer_Detail says is '
+                         'running. Black Friday has no precedent in a '
+                         'window ending in October, and a stated offer '
+                         'beats an ordinary markdown')
     ap.add_argument('--clean-quiet', dest='clean_quiet',
                     action='store_true',
                     help='a quiet day is one with no live offer in the '
@@ -4204,7 +4242,8 @@ def main() -> int:
                   model=args.model, actual=not args.no_actual,
                   new_from=args.new_from, keep=args.keep,
                   drop_launch=args.drop_launch,
-                  clean_quiet=args.clean_quiet, grace=args.grace,
+                  clean_quiet=args.clean_quiet, words=args.words,
+                  grace=args.grace,
                   band=band_of(args.band), no_deals=args.no_deals,
                   no_vouch=args.no_vouch,
                   floor=(args.floor / 100.0 if args.floor else None),
