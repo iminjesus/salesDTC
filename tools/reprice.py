@@ -1092,6 +1092,14 @@ def read_history(folder: Path, plan, canon, months: list, levels: dict,
                     f'{odd[0]:,} line(s) '
                     f'({odd[0] / tot * 100:.1f}%), {odd[1]:,.0f} unit(s) '
                     'left out of every ASP and every discount')
+            if learn is not None and not (floor or ceil):
+                # It works off what the floor caught, so with no floor
+                # there is nothing to work off. Silently doing nothing
+                # looks exactly like doing something that changed
+                # nothing, which is the one thing a flag must not do.
+                say('  --learn needs --floor (or --ceil): it condemns the '
+                    'voucher stems the floor keeps catching, and with no '
+                    'floor nothing is caught')
             if floor or ceil:
                 tot = len(rows) or 1
                 ends = ' and '.join(
