@@ -2168,7 +2168,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
               b2b: float = None, flat_days: bool = False,
               by_units: bool = True, plan_mix=None, gscm_at=None,
               new_from: str = 'sheet', quote_first: bool = False,
-              clean_quiet: bool = False):
+              clean_quiet: bool = False, trim_in=None):
     """One material's re-priced month, and how it was arrived at.
 
     The month is walked a day at a time because a campaign covers days, not
@@ -2184,6 +2184,13 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
 
     deep = SCOPES.index(scope if scope in SCOPES else 'sku')
     own = hist.own(k)
+    # `--trim-in` narrows the day split and the trim to named groups,
+    # because neither is equally good everywhere. The **gift** rung is
+    # not narrowed with them: a product given away is not sold at list,
+    # wherever it sits, and the Music Studio that needs it is VD while
+    # the trim's evidence is MX's. A correctness fix and a tuning knob
+    # should not share a scope.
+    in_scope = clean_quiet and (trim_in is None or trim_in(code))
 
     # The plan says what share of this material's October is meant to go out
     # on the B2B account, and the history says what share went that way
@@ -2386,7 +2393,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             # is a far better answer than the ordinary price: it is the
             # one thing the plan states outright.
             return 'off', 1.0, 'the plan gives it away, and nothing in the window has'
-        if clean_quiet:
+        if in_scope:
             if live is None:
                 live = offered(day) if day is not None else False
             ask, word = ((hist.onoff, 'an offer live') if live
@@ -2485,7 +2492,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
             camp = campaign_at(plan, canon, k, day)
             if camp:
                 on += 1
-            live = offered(day) if clean_quiet else False
+            live = offered(day) if in_scope else False
             kind, d, from_ = disc(camp, day, live)
             if d is None:
                 total = None
@@ -2540,7 +2547,7 @@ def price_for(code, plan, canon, hist, levels, days, gscm, say_why=None,
                 'code': k, 'model': 'rrp', 'rrp': rrp, 'shift': shift,
                 'b2b': b2b, 'price': price, 'on': on / len(days),
                 'bare': ((sum(0 if offered(d) else 1 for d in days)
-                          / len(days)) if clean_quiet else None),
+                          / len(days)) if in_scope else None),
                 'tilt': not flat_days, 'days': len(days),
                 'rows': [(c, f, n, *gave[(c, f)], pull_for(
                     '' if c in ('(no campaign)', 'an unnamed offer')
@@ -2673,6 +2680,10 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
     # plan stops writing the offer before the price moves. Only for
     # products the priced month is not launching itself - for those the
     # launch is the thing being forecast.
+    # Built once: `held_by` walks the plan to index its chain, and the
+    # price loop runs this per material.
+    in_trim = held_by(levels, trim_in, planned) if trim_in else None
+
     drop_day = None
     if grace is not None:
         lspan = launch_span(plan, grace)
@@ -2733,9 +2744,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                         clean_quiet=clean_quiet, drop_day=drop_day,
                         band=band, no_deals=no_deals,
                         no_vouch=no_vouch, floor=floor, ceil=ceil,
-                        trim_in=(held_by(levels, trim_in, planned)
-                                 if trim_in else None),
-                        learn=learn)
+                        trim_in=in_trim, learn=learn)
     if decay:
         say(f'  weighted towards the recent: a line {decay:g} month(s) older '
             'counts half as much')
@@ -2878,6 +2887,7 @@ def reprice(folder: Path, ym: int, back: int, plan_stems, say=print,
                 plan_mix=plan_mix,
                 new_from=new_from, quote_first=model == 'quote',
                 clean_quiet=clean_quiet,
+                trim_in=in_trim,
                 gscm_at=lambda c: (planned['items'].get(c)
                                    or planned['items'].get(PM.code_norm(c))
                                    or {}).get('aud'),
